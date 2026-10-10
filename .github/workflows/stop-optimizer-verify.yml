@@ -2,6 +2,8 @@ name: Verify stop optimizer build
 on:
   push:
     branches: [feature/stop-optimization-best]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   build:
