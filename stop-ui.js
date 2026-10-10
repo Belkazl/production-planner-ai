@@ -16,7 +16,7 @@ const style=document.createElement("style");
 style.id="ppStopOptimizerStyles";
 style.textContent="#ppStopOptimizer{display:none;align-items:center;justify-content:center;border:1px solid #e49a95;background:#fff2f0;color:#af2f24;padding:11px 15px;border-radius:10px;cursor:pointer;min-height:42px;font:700 14px/1.2 system-ui;max-width:100%}#ppStopOptimizer.pp-on{display:inline-flex}#ppStopOptimizer:disabled{opacity:.55;cursor:wait}#ppStopModal{position:fixed;inset:0;z-index:2147483600;padding:16px;align-items:center;justify-content:center;background:rgba(8,27,55,.62);box-sizing:border-box}#ppStopModal.pp-open{display:flex!important}#ppStopModal .pp-box{max-width:580px;width:100%;max-height:88vh;overflow-y:auto;box-sizing:border-box;background:#fff;border-radius:16px;padding:20px;color:#223752;box-shadow:0 18px 70px #14253f40;font:14px/1.45 system-ui,sans-serif}#ppStopModal h3{font-size:20px;margin:0 0 8px}#ppStopModal p{color:#5a6c84;margin:0 0 15px}#ppStopModal .pp-choice{display:flex;gap:10px;align-items:center;padding:12px;margin-bottom:8px;border:1px solid #d2dce9;border-radius:9px;cursor:pointer}#ppStopModal .pp-choice:has(input:checked){border-color:#3377d8;background:#eff5ff}#ppStopModal .pp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}#ppStopModal button{background:#2566cc;color:#fff;border:0;border-radius:9px;padding:11px 14px;font:700 14px system-ui;cursor:pointer}#ppStopModal button.pp-secondary{background:#eef1f7;color:#33445e}";
 document.head.appendChild(style);
-let generation=0,running=false,requestStop=false,prevPlan=null,items=[],timer=null,criterion="duration",originalBtn=btn.onclick;
+let generation=0,running=false,requestStop=false,prevPlan=null,items=[],timer=null,criterion="duration",originalBtn=btn.onclick,selectedPlan=null,modalShown=false;
 const keys={duration:"duration_minutes",wait:"operator_wait_minutes",idle:"machine_idle_minutes",cycles:"batch_count"};
 const label={duration:"Общее время",wait:"Ожидание оператора",idle:"Простой оборудования",cycles:"Число циклов"};
 function key(){return keys[criterion]||keys.duration}
@@ -47,6 +47,7 @@ function restore(plan){
 }
 function choose(plan){
  if(!valid(plan))return;
+ selectedPlan=plan;
  restore(plan);
  try{
   if(typeof hasResult!=="undefined")hasResult=true;
@@ -59,6 +60,8 @@ function choose(plan){
  const preview=document.getElementById("ppOptimizerCandidateStatus");if(preview)preview.style.display="none";
 }
 function showModal(){
+ if(modalShown)return;
+ modalShown=true;
  const candidates=items.filter(x=>valid(x.plan)).sort((a,b)=>a.score-b.score);
  if(!candidates.length){restore(prevPlan);const status=document.getElementById("valid");if(status)status.textContent="GA: остановлено, нет готовых вариантов";return}
  const box=document.createElement("div");box.className="pp-box";box.setAttribute("role","dialog");box.setAttribute("aria-modal","true");box.setAttribute("aria-label","Выбор плана после остановки");
@@ -90,7 +93,7 @@ function showModal(){
 btn.onclick=async function(event){
  if(running || btn.disabled)return;
  const my=++generation;
- running=true;requestStop=false;items=[];stop.disabled=true;
+ running=true;requestStop=false;items=[];stop.disabled=true;selectedPlan=null;modalShown=false;window.__ppStopUiLocked=false;
  stop.textContent="■ Остановить оптимизацию";stop.classList.add("pp-on");
  criterion=(typeof window.ppOptimizerObjective==="function"?window.ppOptimizerObjective():null)||(typeof model!=="undefined"&&model?.objective)||"duration";
  prevPlan=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||null;
@@ -101,7 +104,15 @@ btn.onclick=async function(event){
   running=false;clearTimeout(timer);stop.classList.remove("pp-on");
   if(requestStop){
    window.__ppOptimizationInFlight=false;
-   setTimeout(showModal,50);
+   const finished=document.getElementById("valid");
+   if(selectedPlan){
+    restore(selectedPlan);
+    if(finished)finished.textContent="GA: остановлено · план выбран";
+   }else if(finished)finished.textContent="GA: остановлено · выбери вариант";
+   btn.classList.remove("pp-opt-running");
+   btn.title="";
+   btn.textContent=selectedPlan?"Продолжить оптимизацию":"Запустить оптимизацию";
+   if(!modalShown)setTimeout(showModal,30);
   }
  }
 };
@@ -118,8 +129,16 @@ stop.onclick=async function(){
   }
   for(const variant of data.variants||[])record(variant.plan);
   record(data.best_preview);
-  requestStop=true;clearTimeout(timer);stop.classList.remove("pp-on");
+  requestStop=true;
+  window.__ppStopUiLocked=true;
+  try{window.__ppCurrentOptimizationAbort?.abort("stopped_by_user")}catch(e){}
+  clearTimeout(timer);stop.classList.remove("pp-on");
+  stop.textContent="■ Остановить оптимизацию";
+  btn.classList.remove("pp-opt-running");
+  btn.title="";
+  btn.textContent="Оптимизация остановлена";
   const status=document.getElementById("valid");if(status)status.textContent="GA: остановлено · выбери вариант";
+  setTimeout(showModal,40);
  }catch(e){
   console.error("PP_STOP_REQUEST_ERROR",e);
   stop.disabled=false;stop.textContent="■ Остановить оптимизацию";
