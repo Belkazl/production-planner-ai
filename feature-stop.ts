@@ -33,10 +33,10 @@ async function stopOptimization(req) {
 `;
 once("async function handler(req){const path=new URL(req.url).pathname;",
 stopApi+"\nasync function handler(req){const path=new URL(req.url).pathname;if(req.method==='POST'&&path==='/api/optimizer-stop')return stopOptimization(req);","stopRoute");
-const stopUi="<script id=\\"ppStopOptimizationV1\\">"+readFileSync("stop-ui.js","utf8")+"</script>";
+const stopUi='<script id="ppStopOptimizationV1">'+readFileSync("stop-ui.js","utf8")+"</script>";
 once("async function serveGanttUi(req){",
 "const PP_STOP_INLINE="+JSON.stringify(stopUi)+";\nasync function serveGanttUi(req){","inject");
-once("PP_SECONDARY_GANTTS_INLINE:\\"\\"))+'</body>'",
+once('PP_SECONDARY_GANTTS_INLINE:""))+\'</body>\'','PP_SECONDARY_GANTTS_INLINE:""))+PP_STOP_INLINE+\'</body>\'',"html");
 "PP_SECONDARY_GANTTS_INLINE:\\"\\"))+PP_STOP_INLINE+'</body>'","html");
 if(!src.includes("ppStopOptimizationV1")||!src.includes("state.abortController"))throw Error("STOP_MISSING_CORE");
 writeFileSync("index.ts",src);
