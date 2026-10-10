@@ -37,7 +37,6 @@ const stopUi='<script id="ppStopOptimizationV1">'+readFileSync("stop-ui.js","utf
 once("async function serveGanttUi(req){",
 "const PP_STOP_INLINE="+JSON.stringify(stopUi)+";\nasync function serveGanttUi(req){","inject");
 once('PP_SECONDARY_GANTTS_INLINE:""))+\'</body>\'','PP_SECONDARY_GANTTS_INLINE:""))+PP_STOP_INLINE+\'</body>\'',"html");
-"PP_SECONDARY_GANTTS_INLINE:\\"\\"))+PP_STOP_INLINE+'</body>'","html");
 if(!src.includes("ppStopOptimizationV1")||!src.includes("state.abortController"))throw Error("STOP_MISSING_CORE");
 writeFileSync("index.ts",src);
 console.log("PP_STOP_BUILD_PASS",JSON.stringify({bytes:src.length,ui:stopUi.length}));
