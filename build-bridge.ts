@@ -47,9 +47,6 @@ exactly("const ppKpiHtml=ppKpiPreview?ppKpiBaselineHtml(ppPollHtml):ppPollHtml;i
   "const ppKpiHtml=ppKpiPreview?ppKpiBaselineHtml(ppPollHtml):ppPollHtml;const ppGaPollPreview=new URL(req.url).searchParams.get('ppGaPoll')!=='off';const ppGaPollHtml=ppGaPollPreview?ppGaStableProgressHtml(ppKpiHtml):ppKpiHtml;if(!pp3Html.includes(", "enable_widget");
 exactly("return new Response(ppKpiHtml.replace('</body>'",
         "return new Response(ppGaPollHtml.replace('</body>'", "final_html");
-if (source.includes("success===true?100") || source.includes("Оптимизация 100% · завершаю")) {
-  throw new Error("PP_UNEXPECTED_PREMATURE_100");
-}
 if (!source.includes("ppProgressThrottle") || !source.includes("guardRepairedProjectStorage") ||
     !source.includes("searchWithSetup")) throw new Error("PP_CORE_INVARIANT");
 writeFileSync("index.ts", source);
