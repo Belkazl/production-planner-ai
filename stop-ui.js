@@ -144,5 +144,17 @@ stop.onclick=async function(){
   stop.disabled=false;stop.textContent="■ Остановить оптимизацию";
  }
 };
+const ppFetchOriginal=window.fetch.bind(window);
+window.fetch=function(input,init){
+ const url=typeof input==="string"?input:input?.url||"";
+ if(window.__ppStopUiLocked&&url.includes("/api/plan-progress")){
+  return Promise.resolve(new Response(JSON.stringify({ok:true,running:false,success:false,stopped:true,percent:0}),{status:200,headers:{"content-type":"application/json"}}));
+ }
+ if(url.includes("/api/plan")&&!url.includes("/api/plan-progress")&&!(init?.signal)){
+  const controller=new AbortController();window.__ppCurrentOptimizationAbort=controller;
+  return ppFetchOriginal(input,{...(init||{}),signal:controller.signal}).finally(()=>{if(window.__ppCurrentOptimizationAbort===controller)window.__ppCurrentOptimizationAbort=null});
+ }
+ return ppFetchOriginal(input,init);
+};
 window.__PP_STOP_DEBUG__=()=>({running,stopped:requestStop,variants:items.length,criterion});
 })();
