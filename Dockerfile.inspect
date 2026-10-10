@@ -1,0 +1,4 @@
+FROM oven/bun:1.2.20
+WORKDIR /app
+COPY . .
+CMD ["bun","run","tools/inspect-optimizer.ts"]
