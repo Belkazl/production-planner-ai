@@ -1,0 +1,37 @@
+name: Check live stop optimizer
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live candidate UI and API
+        run: |
+          python3 - <<'PY'
+          import urllib.request, time
+          url="https://aps-setup-bridge-candidate-v2-production.up.railway.app"
+          def fetch(path,method="GET"):
+              req=urllib.request.Request(url+path,method=method)
+              with urllib.request.urlopen(req,timeout=50) as r:
+                  return r.status,r.read().decode("utf-8")
+          status,html=fetch("/")
+          assert status==200,(status,len(html))
+          assert 'ppStopOptimizationV1' in html, "stop script missing"
+          assert 'ppStopOptimizer' in html, "stop button missing"
+          assert 'ppGanttToolV2' in html, "Gantt component missing"
+          assert 'ppStopModal' in html, "stop choices modal missing"
+          print("SMOKE_UI_OK",len(html),flush=True)
+          status,body=fetch("/__bridge_health")
+          assert status==200,(status,body[:1000])
+          print("SMOKE_HEALTH_OK",body[:500],flush=True)
+          try:
+              status,body=fetch("/api/optimizer-stop","POST")
+              print("SMOKE_STOP_IDLE_STATUS",status,body[:300],flush=True)
+          except urllib.error.HTTPError as e:
+              body=e.read().decode("utf-8")
+              assert e.code==409,(e.code,body[:300])
+              assert "optimization_not_running" in body,(e.code,body[:300])
+              print("SMOKE_STOP_IDLE_OK",body[:200],flush=True)
+          PY
