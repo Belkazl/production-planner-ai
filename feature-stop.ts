@@ -15,4 +15,29 @@ once('const choice=ppPreferObservedObjectivePlan(state,result.best_preview,data.
 once("for(let i=0;i<iterations;i++){\n    try {",
 "for(let i=0;i<iterations;i++){\n    if(options.shouldStop?.())break;\n    try {","breakSearch");
 once('iterations:count,seed:setupSearchSeed(data),objective:goal','iterations:count,seed:setupSearchSeed(data),objective:goal,shouldStop:()=>!!state.stopRequested','searchSignal');
-const stopApi=String.raw
+
+const stopApi=String.raw\`
+function stoppedVariants(state) {
+  return (state?.variants||[]).filter(x=>x?.plan?.valid!==false&&!x?.plan?.partial&&x?.plan?.operations?.length);
+}
+async function stopOptimization(req) {
+ const state=ppActiveObjectiveRun;
+ if(!state||state.completed)return jsonifyBridge({ok:false,error:"optimization_not_running"},409);
+ if(!state.best?.operations?.length)return jsonifyBridge({ok:false,error:"no_complete_plan_yet"},409);
+ state.stopRequested=true;state.completed=true;
+ try{state.abortController?.abort("user_stopped")}catch(e){}
+ const variants=stoppedVariants(state);
+ console.log("APS_STOP_USER",JSON.stringify({run:state.id,objective:state.goal,variants:variants.length,duration:state.best?.duration_minutes}));
+ return jsonifyBridge({ok:true,stopped:true,objective:state.goal,best_preview:state.best,variants});
+}
+\`;
+once("async function handler(req){const path=new URL(req.url).pathname;",
+stopApi+"\nasync function handler(req){const path=new URL(req.url).pathname;if(req.method==='POST'&&path==='/api/optimizer-stop')return stopOptimization(req);","stopRoute");
+const stopUi="<script id=\\"ppStopOptimizationV1\\">"+readFileSync("stop-ui.js","utf8")+"</script>";
+once("async function serveGanttUi(req){",
+"const PP_STOP_INLINE="+JSON.stringify(stopUi)+";\nasync function serveGanttUi(req){","inject");
+once("PP_SECONDARY_GANTTS_INLINE:\\"\\"))+'</body>'",
+"PP_SECONDARY_GANTTS_INLINE:\\"\\"))+PP_STOP_INLINE+'</body>'","html");
+if(!src.includes("ppStopOptimizationV1")||!src.includes("state.abortController"))throw Error("STOP_MISSING_CORE");
+writeFileSync("index.ts",src);
+console.log("PP_STOP_BUILD_PASS",JSON.stringify({bytes:src.length,ui:stopUi.length}));
