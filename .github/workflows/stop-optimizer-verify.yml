@@ -1,0 +1,27 @@
+name: Verify stop optimizer build
+on:
+  push:
+    branches: [feature/stop-optimization-best]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - name: Validate the actual gateway build
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-verified
+          node --check stop-ui.js
+      - name: Check stop endpoint and Gantt UI injection
+        run: |
+          grep -q 'PP_STOP_INLINE' index.ts
+          grep -q 'optimizer-stop' index.ts
+          grep -q 'ppStopOptimizer' stop-ui.js
+          grep -q 'state.abortController' index.ts
