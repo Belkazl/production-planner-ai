@@ -1,0 +1,16 @@
+#ppGanttOperationDetails[hidden]{display:none!important}
+#ppGanttOperationDetails{position:fixed;inset:0;z-index:2147483605;background:#0b1d3a91;display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box}
+#ppGanttOperationDetails .pgd-panel{width:min(545px,100%);max-height:calc(100vh - 36px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:#fff;color:#19304d;font:14px/1.45 Inter,system-ui,sans-serif;border-radius:15px;box-shadow:0 24px 80px #07182d45;padding:22px}
+#ppGanttOperationDetails .pgd-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 0 6px}
+#ppGanttOperationDetails .pgd-eyebrow{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#637792;margin:0 0 5px}
+#ppGanttOperationDetails .pgd-heading{font-size:19px;line-height:1.35;font-weight:750;margin:0;color:#1d3250;overflow-wrap:anywhere}
+#ppGanttOperationDetails .pgd-close{width:32px;height:32px;min-width:32px;display:grid;place-items:center;border-radius:9px;border:1px solid #dfe7f3;background:#fff;color:#50647f;cursor:pointer;font-size:22px;line-height:1}
+#ppGanttOperationDetails .pgd-close:hover{background:#eef4fc}
+#ppGanttOperationDetails .pgd-fields{display:grid;grid-template-columns:minmax(120px,40%) minmax(0,1fr);gap:0;margin:16px 0 0;border-top:1px solid #e5ebf3}
+#ppGanttOperationDetails .pgd-label,#ppGanttOperationDetails .pgd-value{font-size:13px;padding:10px 4px;border-bottom:1px solid #edf1f7;overflow-wrap:anywhere}
+#ppGanttOperationDetails .pgd-label{color:#6d7e95}
+#ppGanttOperationDetails .pgd-value{color:#21344f;font-weight:650;white-space:pre-wrap}
+#ppGanttOperationDetails .pgd-hint{color:#8391a4;font-size:11px;margin:15px 0 0}
+#ppGanttToolV2 .pg2-bar,#ppTabsView .pp3-bar{cursor:pointer}
+#ppGanttToolV2 .pg2-bar.pgd-selected,#ppTabsView .pp3-bar.pgd-selected{outline:2px solid #2662cf!important;outline-offset:2px;z-index:6!important}
+@media(max-width:520px){#ppGanttOperationDetails{padding:10px;align-items:flex-end}#ppGanttOperationDetails .pgd-panel{padding:16px;max-height:87vh;border-radius:14px 14px 0 0}#ppGanttOperationDetails .pgd-fields{grid-template-columns:minmax(95px,42%) minmax(0,1fr)}}
