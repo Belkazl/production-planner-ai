@@ -26,15 +26,38 @@ function ppGaStableProgressHtml(html: string) {
   swap("let timer=null,token=0,last=null;",
     "let timer=null,token=0,last=null,polling=false;", "poll_guard");
   swap("if(!d||!d.running)return;\n   const pct=Math.max(0,Math.min(99,Number(d.percent)||0));",
-    "if(!d||!d.running)return;\n   const pct=Math.max(Number(last?.percent)||0,Math.max(0,Math.min(99,Number(d.percent)||0)));", "only_running_clamped");
+    "if(!d||!d.running)return;\n   const total=Math.max(1,Math.trunc(Number(d.total)||240));\n   const done=Math.max(0,Math.min(total,Math.trunc(Number(d.done)||0)));\n   const pct=Math.floor(done*100/total);", "iteration_accurate_percent");
   swap("last=d;", "last={...d,percent:pct};", "monotone");
-  swap("btn.textContent=\'Оптимизация \'+pct+\'%\';", "btn.textContent=pct>=99?\'Поиск вариантов · расчёт продолжается\':\'Оптимизация \'+pct+\'%\';", "no_misleading_99");
+  swap("btn.title=(d.phase||'Оптимизация')+' · '+Number(d.done||0)+' / '+Number(d.total||0);",
+    "btn.title=(d.phase||'Оптимизация')+' · итерация '+done+' / '+total;", "iteration_tooltip");
+  swap("const v=document.getElementById('valid');if(v)v.textContent='GA: '+(d.phase||'оптимизация')+' · '+pct+'%';",
+    "const v=document.getElementById('valid');if(v)v.textContent='GA: '+(d.phase||'оптимизация')+' · '+done+'/'+total+' · '+pct+'%';", "iteration_badge");
+
   swap("async function poll(my){\n   try{",
     "async function poll(my){\n   if(polling)return;polling=true;\n   try{", "one_poll");
   swap("   }catch(e){}\n }\n function stop(){if(timer){clearInterval(timer);timer=null}}",
     "   }catch(e){}finally{polling=false}\n }\n function stop(){if(timer){clearTimeout(timer);timer=null}}", "poll_finish");
   swap("const my=++token;last=null;stop();\n   timer=setInterval(()=>poll(my),220);\n   setTimeout(()=>poll(my),20);",
-    "if(btn.disabled||window.__ppOptimizationInFlight)return;\n   const my=++token;last=null;stop();\n   const next=async()=>{if(my!==token)return;await poll(my);if(my===token)timer=setTimeout(next,1700)};\n   timer=setTimeout(next,75);", "sequential");
+    "if(btn.disabled||window.__ppOptimizationInFlight)return;\n   const my=++token;last=null;stop();let finished=false;\n   const next=async()=>{if(my!==token||finished)return;await poll(my);if(my===token&&!finished)timer=setTimeout(next,1700)};\n   timer=setTimeout(next,75);", "sequential");
+  const finallyAt=part.indexOf("   try{return await original.call(this,e)}\n   finally{");
+  const afterFinally=part.indexOf("\n } ;",finallyAt);
+  const wrapperEnd=part.indexOf("\n };\n})();",finallyAt);
+  if(finallyAt<0||wrapperEnd<0||part.indexOf("   try{return await original.call(this,e)}\n   finally{",finallyAt+1)>=0)
+    throw Error("PP_PROGRESS_FINALIZER_ANCHOR");
+  part=part.slice(0,finallyAt)+[
+    "   try{return await original.call(this,e)}",
+    "   finally{",
+    "     finished=true;stop();",
+    "     if(my===token){",
+    "       token++;",
+    "       btn.classList.remove('pp-opt-running');",
+    "       btn.title='';",
+    "       btn.textContent=(typeof hasResult!=='undefined'&&hasResult)?'Продолжить оптимизацию':'Запустить оптимизацию';",
+    "       const v=document.getElementById('valid');",
+    "       if(v&&/[0-9]+%/.test(v.textContent||''))v.textContent=(typeof hasResult!=='undefined'&&hasResult)?'GA: расчёт завершён':'GA: расчёт остановлен';",
+    "     }",
+    "   }"
+  ].join("\n")+part.slice(wrapperEnd);
   if (part.includes("success===true?100") || part.includes("Оптимизация 100% · завершаю"))
     throw Error("PP_PREMATURE_100_NOT_ELIMINATED");
   return html.slice(0, start) + part + html.slice(end);
@@ -54,5 +77,5 @@ writeFileSync("index.ts", source);
 console.log("PP_PROGRESS_FIX_BUILD_OK", JSON.stringify({
   sourceBytes: source.length, revision: "setups-bridge-20261010-progress-safe-v2",
   setupPreserved: true, storageGuardPreserved: true,
-  status: "running-only, clamp-under-100, sequential-poll"
+  status: "progress=done/total, 240-iteration accurate, race-free button reset"
 }));
