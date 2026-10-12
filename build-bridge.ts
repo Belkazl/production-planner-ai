@@ -28,6 +28,7 @@ function ppGaStableProgressHtml(html: string) {
   swap("if(!d||!d.running)return;\n   const pct=Math.max(0,Math.min(99,Number(d.percent)||0));",
     "if(!d||!d.running)return;\n   const pct=Math.max(Number(last?.percent)||0,Math.max(0,Math.min(99,Number(d.percent)||0)));", "only_running_clamped");
   swap("last=d;", "last={...d,percent:pct};", "monotone");
+  swap("btn.textContent=\'Оптимизация \'+pct+\'%\';", "btn.textContent=pct>=99?\'Поиск вариантов · расчёт продолжается\':\'Оптимизация \'+pct+\'%\';", "no_misleading_99");
   swap("async function poll(my){\n   try{",
     "async function poll(my){\n   if(polling)return;polling=true;\n   try{", "one_poll");
   swap("   }catch(e){}\n }\n function stop(){if(timer){clearInterval(timer);timer=null}}",
