@@ -17,8 +17,12 @@ jobs:
         run: |
           bun run build-bridge.ts
           bun run feature-stop.ts
+          bun run gantt-details.ts
           bun build ./index.ts --target=bun --outdir=/tmp/pp-verified
           node --check stop-ui.js
+          node --check gantt-details.js
+          npm install --no-save --no-package-lock jsdom@26
+          node tests/gantt-details.cjs
       - name: Runtime check with actual public Gantt HTML
         run: |
           bun run index.ts >/tmp/ga-runtime.log 2>&1 &
@@ -45,6 +49,9 @@ jobs:
           assert "Math.min(99" not in code and "Number(last?.percent)" not in code,'stale progress cap'
           assert 'ppStopOptimizationV1' in html,'stop control lost'
           assert 'ppGanttToolV2' in html,'Gantt component lost'
+          assert 'pp-gantt-operation-details-script' in html,'operation details handler missing'
+          assert '__ppOperation=o' in html,'equipment operation metadata missing'
+          assert '__ppMaterialEvent' in html,'material or secondary operation metadata missing'
           for d,expected in [(0,0),(1,0),(120,50),(238,99),(239,99),(240,100)]:
             value=d*100//240
             assert value==expected,(d,value,expected)
