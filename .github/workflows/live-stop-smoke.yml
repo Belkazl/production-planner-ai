@@ -39,6 +39,11 @@ jobs:
                   for word in ["function update(","function render(","async function poll(","btn.textContent=","d.percent","d.generation","d.iteration","d.running","d.success"]:
                       i=script.find(word)
                       if i>=0:print("EXCERPT",ident,word,json.dumps(script[max(0,i-250):i+750],ensure_ascii=False),flush=True)
+          m=re.search(r'<script id="ppRealOptProgressV1">(.*?)</script>',html,re.S)
+          if m:print("WHOLE_PROGRESS_WIDGET",json.dumps(m.group(1),ensure_ascii=False),flush=True)
+          for word in ["async function runOpt(","async function optimize(","function runOpt(","function ppOptimizerObjective("]:
+              i=html.find(word)
+              if i>=0:print("OPT_FUNCTION",word,json.dumps(html[i:i+4700],ensure_ascii=False),flush=True)
           for word in ["opt.onclick=","opt.onclick ="]:
               i=html.find(word)
               if i>=0:print("OPT_BUTTON_HANDLER",json.dumps(html[max(0,i-80):i+2000],ensure_ascii=False),flush=True)
