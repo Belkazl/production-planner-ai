@@ -26,6 +26,16 @@ jobs:
           bun build ./index.ts --target=bun --outdir=/tmp/pp-auth-release-check
       - name: Mock original tenant gateway and run protected bridge
         run: |
+          python3 - <<'PY'
+          import urllib.request
+          u="https://production-planner-gateway-production.up.railway.app/"
+          req=urllib.request.Request(u,headers={"User-Agent":"ProdPlan-CI-ReadOnly-HTML-Fixture/1.0"})
+          with urllib.request.urlopen(req,timeout=40) as r:
+              html=r.read()
+          assert b'id="ganttScroll"' in html,len(html)
+          open("/tmp/pp-gateway-fixture.html","wb").write(html)
+          print("MOCK_UPSTREAM_FIXTURE_READY",len(html))
+          PY
           bun tests/auth-gateway-mock.ts >/tmp/mock-gateway.log 2>&1 &
           mockpid=$!
           PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/secured-bridge.log 2>&1 &
