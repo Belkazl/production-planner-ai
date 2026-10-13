@@ -1,0 +1,39 @@
+name: Audit ProdPlan authentication and production URLs
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Check current and previous ProdPlan UIs without any login or writes
+        run: |
+          python3 - <<'PY'
+          import re,urllib.request,urllib.error,json
+          apps=[
+            ("approved_production","https://aps-setup-bridge-candidate-v2-production.up.railway.app"),
+            ("legacy_bridge","https://aps-setup-bridge-production.up.railway.app"),
+            ("gateway_v2","https://production-planner-gateway-v2-production.up.railway.app"),
+            ("gateway_v1","https://production-planner-gateway-production.up.railway.app"),
+          ]
+          markers=['<input type="password"','type="password"',"login","sign in","auth","logout","войти","авторизация","регистрация","signout"]
+          for name,base in apps:
+            try:
+              req=urllib.request.Request(base+"/",headers={'Cache-Control':'no-cache','User-Agent':'ProdPlanAuthReadOnlyAudit/1.0'})
+              with urllib.request.urlopen(req,timeout=22) as resp:
+                body=resp.read(900000).decode("utf8","replace")
+                counts={s:len(re.findall(re.escape(s),body,re.I)) for s in markers}
+                print("APP_UI",json.dumps({"app":name,"http":resp.status,"bytes":len(body),"title":re.findall(r'<title[^>]*>(.*?)</title>',body,re.S)[:1],"auth_markers":{k:v for k,v in counts.items() if v},"avatar":bool(re.search(r'class=[\'\"][^\'\"]*avatar',body)),"form_password":bool(re.search(r'<input[^>]*type=[\'\"]password',body,re.I)),"auth_script_files":re.findall(r'<script[^>]*src=[\'\"]([^\'\"]+)',body,re.I)[:20]},ensure_ascii=False),flush=True)
+            except Exception as ex:print("APP_ERROR",name,str(ex)[:220],flush=True)
+            if name=="approved_production":
+              for path in ["/api/db-storage","/api/project/model","/auth/me","/api/auth/me"]:
+                try:
+                  req=urllib.request.Request(base+path,headers={"User-Agent":"ProdPlanAuthReadOnlyAudit/1.0"})
+                  with urllib.request.urlopen(req,timeout=13) as r:
+                    payload=r.read(500000)
+                    print("ANON_ENDPOINT",json.dumps({"path":path,"http":r.status,"size":len(payload),"content_type":r.headers.get("content-type")},ensure_ascii=False),flush=True)
+                except urllib.error.HTTPError as ex:print("ANON_ENDPOINT",json.dumps({"path":path,"http":ex.code},ensure_ascii=False),flush=True)
+                except Exception as ex:print("ANON_ENDPOINT_ERROR",path,str(ex)[:100],flush=True)
+          PY
