@@ -12,8 +12,8 @@ if(!runtime.includes("ppReconcileCeramicsFixture")||!runtime.includes("ppImportC
 // production model API and storage API continue to use the exact original paths.
 one('async function ppAuthenticatedHandler(req){',
     runtime+'\nasync function ppAuthenticatedHandler(req){',"source_before_auth_guard");
-one(' const res=await handler(req);\n const h=new Headers(res.headers);\n h.set("cache-control","no-store");',
-    ' const res=(req.method==="POST"&&path==="/api/project/model/import")?await ppImportCeramicsResourceCompatibility(req):await handler(req);\n const h=new Headers(res.headers);\n h.set("cache-control","no-store");',"authenticated_model_import");
+one(' const res=await handler(req);\n const h=new Headers(res.headers);h.set("cache-control","no-store");',
+    ' const res=(req.method==="POST"&&path==="/api/project/model/import")?await ppImportCeramicsResourceCompatibility(req):await handler(req);\n const h=new Headers(res.headers);h.set("cache-control","no-store");',"authenticated_model_import");
 one('Bun.serve({port:Number(Bun.env.PORT||8080),async fetch(req){',
     'Bun.serve({port:Number(Bun.env.PORT||8080),idleTimeout:255,async fetch(req){',"long_running_240_gen_ga");
 if(!source.includes("ppImportCeramicsResourceCompatibility(req)")||!source.includes("idleTimeout:255"))
