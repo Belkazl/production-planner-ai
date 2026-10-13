@@ -2,8 +2,7 @@
 "use strict";
 if(window.__ppFreshOptimizerUiInstalled)return;
 const btn=document.getElementById("opt");
-const stop=document.getElementById("ppStopOptimizer");
-if(!btn||!stop||typeof btn.onclick!=="function")return;
+if(!btn)return;
 window.__ppFreshOptimizerUiInstalled=true;
 const fresh=document.createElement("button");
 fresh.type="button";
@@ -11,7 +10,9 @@ fresh.id="ppOptimizerStartOver";
 fresh.textContent="Начать оптимизацию заново";
 fresh.title="Сбросить показатели текущего поиска и получить новый исходный план. Сохранённые планы останутся без изменений.";
 fresh.setAttribute("aria-label","Начать оптимизацию заново");
-stop.insertAdjacentElement("afterend",fresh);
+// Keep restart immediately BEFORE the primary optimizer action, which is right-aligned.
+// Inserting it after the main action can push the restart button beyond the viewport.
+btn.insertAdjacentElement("beforebegin",fresh);
 let resetting=false;
 const find=id=>document.getElementById(id);
 const currentProject=()=>{try{return localStorage.getItem("prodplan.project.active.v2")}catch(_){return null}};
@@ -90,7 +91,10 @@ fresh.onclick=async function(){
   resetting=false;
   fresh.textContent=oldText;
   updateDisabled();
-  try{await btn.onclick({type:"click",target:btn,preventDefault(){}})}
+  try{
+   if(typeof btn.onclick!=="function")throw Error("Управление оптимизацией ещё не готово");
+   await btn.onclick({type:"click",target:btn,preventDefault(){}})
+  }
   finally{finish()}
  }catch(err){
   if(window.__ppFreshRestartPending)finish();
