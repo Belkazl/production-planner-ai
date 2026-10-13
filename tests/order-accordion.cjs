@@ -1,0 +1,55 @@
+const fs=require("node:fs");
+const assert=require("node:assert/strict");
+const {JSDOM}=require("jsdom");
+const fields='<td><input data-oid value="2601"></td><td><input data-oarea value="2400"></td><td><select data-otp><option value="TP_TILE" selected>Производство керамической плитки</option></select></td>';
+function pair(k,v){return '<div class="pp-oparam-pair" data-oparam-pair><input data-pkey value="'+k+'"><input data-pval value="'+v+'"><button data-pdel type="button">×</button></div>'}
+function row(n=0){return '<tr data-oparam-order data-i="'+n+'">'+fields+'<td class="pp-oparam-cell"><div data-oparam-list>'+pair("width_mm","600")+pair("finish","matt")+'</div><button type="button" data-padd>+ параметр</button></td><td><button data-odel type="button">×</button></td></tr>'}
+const html='<!doctype html><body><div id="sectionView"><table class="pp-oparam-table"><thead><tr><th>Заказ</th><th>Площадь, м²</th><th>Техпроцесс</th><th>Производственные параметры</th></tr></thead><tbody id="ppOrderParamBody">'+row()+'</tbody></table></div></body>';
+const dom=new JSDOM(html,{runScripts:"dangerously",pretendToBeVisual:true});
+const {document}=dom.window;
+dom.window.eval(fs.readFileSync("order-accordion.js","utf8"));
+async function tick(){await new Promise(resolve=>setTimeout(resolve,60))}
+(async()=>{
+ const state=dom.window.__PP_ORDER_PARAMS_ACCORDION_V1__;
+ assert.equal(state.installed,true);
+ assert.equal(state.visibleOrders,1);
+ assert.equal(state.collapsed,1);
+ const r=document.querySelector("tr[data-oparam-order]");
+ const c=r.querySelector(".pp-oparam-cell");
+ const btn=c.querySelector("button[data-pp-order-toggle]");
+ assert(btn,"toggle absent");
+ assert.equal(c.dataset.ppExpanded,"false");
+ assert.equal(btn.getAttribute("aria-expanded"),"false");
+ assert.equal(c.querySelector("[data-pp-param-count]").textContent,"2 параметра");
+ const id=r.querySelector("[data-oid]"),area=r.querySelector("[data-oarea]"),sel=r.querySelector("[data-otp]");
+ const oldFirst=r.querySelector("[data-pkey]");
+ btn.click();
+ assert.equal(c.dataset.ppExpanded,"true");
+ assert.equal(btn.getAttribute("aria-expanded"),"true");
+ assert.equal(r.querySelector("[data-oid]"),id,"order input replaced");
+ assert.equal(r.querySelector("[data-oarea]"),area,"area input replaced");
+ assert.equal(r.querySelector("[data-otp]"),sel,"process dropdown replaced");
+ assert.equal(r.querySelector("[data-pkey]"),oldFirst,"parameter input replaced");
+ const list=c.querySelector("[data-oparam-list]");
+ list.insertAdjacentHTML("beforeend",pair("mass_kg_m2","18"));
+ await tick();
+ assert.equal(c.querySelector("[data-pp-param-count]").textContent,"3 параметра");
+ c.querySelector('[data-pkey][value="mass_kg_m2"]').closest("[data-oparam-pair]").remove();
+ await tick();
+ assert.equal(c.querySelector("[data-pp-param-count]").textContent,"2 параметра");
+ btn.click();
+ assert.equal(state.collapsed,1);
+ const body=document.querySelector("#ppOrderParamBody");
+ body.insertAdjacentHTML("beforeend",row(-1));
+ await tick();
+ assert.equal(state.visibleOrders,2);
+ assert.equal(state.collapsed,2,"new order must be collapsed by default");
+ document.querySelector("#sectionView").innerHTML='<table class="pp-oparam-table"><tbody id="ppOrderParamBody">'+row(0)+'</tbody></table>';
+ await tick();
+ assert.equal(state.visibleOrders,1);
+ assert.equal(state.collapsed,1,"re-render must also be collapsed");
+ assert.equal(id.value,"2601");
+ assert.equal(area.value,"2400");
+ assert.equal(sel.value,"TP_TILE");
+ console.log("ORDER_STACKED_ACCORDION_DOM_PASS",JSON.stringify({defaultCollapsed:true,editableInputsUnchanged:true,addDelete:true,rerender:true,plurals:true}));
+})().catch(e=>{console.error(e);process.exitCode=1});
