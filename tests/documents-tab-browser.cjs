@@ -36,6 +36,43 @@ const {chromium}=require("playwright");
   assert.equal(cleanHeader.avatarDisplay,"none","overlapping legacy avatar must be hidden");
   assert.equal(cleanHeader.navigationShown,true,"main top navigation must be preserved");
   console.log("LOGOUT_HEADER_CLEAN_PASS",JSON.stringify(cleanHeader));
+  // Reproduce the real 1920px production Planning header without touching project storage.
+  await page.setViewportSize({width:1920,height:900});
+  await page.evaluate(()=>{
+    document.body.classList.remove("projects-mode");
+    document.getElementById("planView").style.display="block";
+    document.getElementById("sectionView").style.display="none";
+  });
+  const restartLayout=await page.evaluate(()=>{
+    const take=id=>{
+      const el=document.getElementById(id);
+      if(!el)return null;
+      const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
+      return {x:Math.round(r.x),right:Math.round(r.right),y:Math.round(r.y),
+        w:Math.round(r.width),h:Math.round(r.height),display:cs.display,
+        visibility:cs.visibility,text:el.textContent.trim()};
+    };
+    const restart=document.getElementById("ppOptimizerStartOver");
+    return {primary:take("opt"),restart:take("ppOptimizerStartOver"),
+      logout:take("ppProtectedLogout"),stop:take("ppStopOptimizer"),
+      innerWidth:innerWidth,ready:window.__PP_FRESH_OPTIMIZER_DEBUG__?.().installed||false,
+      nextElement:restart?.nextElementSibling?.id||""};
+  });
+  console.log("RESTART_REAL_PLAN_HEADER_1920",JSON.stringify(restartLayout));
+  assert.equal(restartLayout.ready,true,"restart UI must initialize in authenticated Planning page");
+  assert(restartLayout.restart&&restartLayout.restart.w>=130,"restart button must exist and have a useful width");
+  assert.equal(restartLayout.restart.display,"inline-flex","restart button must not be hidden by CSS");
+  assert.equal(restartLayout.restart.visibility,"visible","restart button must be visible");
+  assert.equal(restartLayout.nextElement,"opt","restart button must appear before Continue Optimization");
+  assert(restartLayout.restart.right<=restartLayout.innerWidth-5,"restart must be fully ON SCREEN, not clipped past right edge");
+  assert(restartLayout.restart.right<=restartLayout.primary.x+3,"restart button should be before Continue");
+  assert(restartLayout.logout&&restartLayout.logout.w>0,"logout preserved");
+  await page.screenshot({path:"planner-controls-1920.png",fullPage:false});
+  await page.evaluate(()=>{
+    document.body.classList.add("projects-mode");
+    document.getElementById("planView").style.display="none";
+    document.getElementById("sectionView").style.display="block";
+  });
   const initial=await page.evaluate(()=>({
    moved:window.__PP_DOCUMENTS_TAB__.actionsMoved,
    topCount:document.querySelectorAll(".titlebar #ppImportBtn,.titlebar #ppTemplateBtn").length,
