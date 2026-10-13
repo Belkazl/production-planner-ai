@@ -15,12 +15,14 @@ for method,path in [
  ("GET","/api/model"),("GET","/api/plan-progress"),
  ("POST","/api/plan"),("POST","/api/optimizer-stop"),
  ("GET","/api/resource"),("GET","/api/orders"),
- ("GET","/?ppGantt=legacy"),("GET","/anything")
+ ("GET","/anything")
 ]:
  status,body,h=get(path,method)
  assert status==401,(method,path,status,body[:120])
  assert "Керамика" not in body and "2601" not in body,(method,path,"data leaked")
  print("SECURED_QA_ANON_DENIED",method,path,status,flush=True)
+legacy_code,legacy_body,_=get("/?ppGantt=legacy")
+assert legacy_code==200 and 'type="password"' in legacy_body and "ppGanttToolV2" not in legacy_body,(legacy_code,legacy_body[:120])
 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
  status,body,h=get(path,headers={"Cookie":"pp_session=invalid; pp_demo_auth=tenantA"})
  assert status==401,(path,status,body[:150])
