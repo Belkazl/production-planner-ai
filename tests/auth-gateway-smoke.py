@@ -31,7 +31,7 @@ status,body,h=fetch("/api/auth/login","POST",{"origin":ROOT},body={"email":"qa@e
 assert status==401,(status,body)
 status,body,h=fetch("/api/auth/login","POST",{"origin":ROOT},body={"email":"qa@example.test","password":"qa-test-password"})
 assert status==200,(status,body)
-sc=h.get("Set-Cookie","")
+sc=next((v for k,v in h.items() if k.lower()=="set-cookie"),"")
 assert "pp_demo_auth=" in sc and "Domain=" not in sc and "HttpOnly" in sc,(status,repr(sc))
 cookie=sc.split(";",1)[0]
 status,body,h=fetch("/api/auth/me",headers={"cookie":cookie})
@@ -47,6 +47,6 @@ for tenant in ["tenantA","tenantB"]:
 status,body,h=fetch("/api/db-storage",headers={"cookie":"pp_demo_auth=bad"})
 assert status==401,(status,body)
 status,body,h=fetch("/api/auth/logout","POST",{"origin":ROOT,"cookie":cookie},body={})
-assert status==200 and "Max-Age=0" in h.get("Set-Cookie","")
+assert status==200 and "Max-Age=0" in next((v for k,v in h.items() if k.lower()=="set-cookie"),"")
 print("SESSION_AND_TENANT_API_PASS")
 print("AUTHENTICATED_GATEWAY_MOCK_SMOKE_PASS")
