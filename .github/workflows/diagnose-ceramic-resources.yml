@@ -1,7 +1,7 @@
 name: Read-only ceramic resource eligibility audit
 on:
-  push:
-    branches: [fix/ga-resource-sets-20261013]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   audit:
