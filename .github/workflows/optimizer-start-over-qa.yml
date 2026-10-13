@@ -39,6 +39,8 @@ jobs:
         run: |
           node tests/start-over-ui.cjs
           node tests/optimizer-action-labels.cjs
+      - name: Install headless Chrome for integrated protected UI QA
+        run: npx playwright install --with-deps chromium
       - name: Verify real Gantt HTML with separate original auth service
         run: |
           python3 - <<'PY'
@@ -49,6 +51,10 @@ jobs:
           assert b'id="ganttScroll"' in html and b"function ppIncumbentCurrentPlan(){" in html
           open("/tmp/pp-gateway-fixture.html","wb").write(html)
           print("FRESH_START_UPSTREAM_HTML_READY",len(html))
+          modelReq=urllib.request.Request("https://production-planner-gateway-production.up.railway.app/api/model",headers={"User-Agent":"ProdPlanReadOnlyNewGAFixture/1.0"})
+          with urllib.request.urlopen(modelReq,timeout=40) as modelResponse:fixture=modelResponse.read()
+          open("/tmp/pp-ceramics-live-model.json","wb").write(fixture)
+          print("FRESH_START_MODEL_FIXTURE_READY",len(fixture))
           PY
           bun tests/auth-gateway-mock.ts >/tmp/auth-mock.log 2>&1 &
           mockpid=$!
@@ -89,5 +95,17 @@ jobs:
           assert status==200,(status,body[:200])
           print("FRESH_START_PROTECTED_LIVE_HTML_AND_RESET_PASS",flush=True)
           PY
+          node tests/start-over-browser.cjs
           if grep -q "APS_BRIDGE_ERROR" /tmp/bridge-smoke.log; then cat /tmp/bridge-smoke.log; exit 1; fi
           grep "PP_START_OVER_BUILD_OK" /tmp/bridge-smoke.log || true
+      - name: Keep synthetic visual screenshots for QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-ga-baseline-visual-smoke
+          path: |
+            start-over-reset-state.png
+            start-over-first-new-baseline.png
+            start-over-second-improved.png
+          retention-days: 3
+          if-no-files-found: ignore
