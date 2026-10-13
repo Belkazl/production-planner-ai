@@ -17,7 +17,7 @@ for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer
  status,body,h=fetch(path)
  assert status==401,(path,status,body[:180])
 for path in ["/api/db-storage","/api/optimizer-stop","/api/plan"]:
- status,body,h=fetch(path,"POST",body={"operation":"write"})
+ status,body,h=fetch(path,"POST",headers={"origin":ROOT},body={"operation":"write"})
  assert status==401,(path,status,body[:180])
 status,body,h=fetch("/__bridge_health")
 assert status==200 and '"auth":true' in body and 'gateway' not in body
