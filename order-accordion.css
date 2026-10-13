@@ -1,0 +1,103 @@
+
+/* Only the per-order production-parameter editor; do not modify other edit tables. */
+#sectionView .pp-edit-scroll:has(> .pp-oparam-table){overflow:visible!important;max-width:100%!important}
+#sectionView table.pp-edit-table.pp-oparam-table{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;border-collapse:separate!important;border-spacing:0!important}
+#sectionView .pp-oparam-table thead{display:none!important}
+#sectionView .pp-oparam-table tbody#ppOrderParamBody{display:flex!important;flex-direction:column!important;gap:12px!important;width:100%!important;min-width:0!important}
+#sectionView .pp-oparam-table tr[data-oparam-order]{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.42fr) 24px!important;
+  grid-template-areas:"oid area process remove" "params params params params"!important;
+  column-gap:14px!important;row-gap:14px!important;
+  position:relative!important;box-sizing:border-box!important;width:100%!important;min-width:0!important;
+  padding:14px 14px 15px!important;
+  margin:0!important;border:1px solid #dce4f0!important;border-radius:10px!important;background:#fff!important;
+  box-shadow:0 1px 2px rgba(27,48,78,.035)!important;
+}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td{
+  padding:0!important;margin:0!important;min-width:0!important;max-width:100%!important;width:100%!important;
+  border:0!important;vertical-align:top!important;background:transparent!important;
+  box-sizing:border-box!important;
+}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(1){grid-area:oid!important}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(2){grid-area:area!important}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(3){grid-area:process!important}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(5){grid-area:remove!important;display:flex!important;align-items:flex-start!important;justify-content:center!important;padding-top:26px!important}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(1)::before,
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(2)::before,
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(3)::before{
+  display:block!important;margin:0 0 7px!important;color:#566a88!important;
+  font-size:12px!important;font-weight:650!important;line-height:17px!important;
+}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(1)::before{content:"Заказ"}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(2)::before{content:"Объём выпуска"}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(3)::before{content:"Техпроцесс"}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(-n+3)>.pp-edit-input,
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(3)>.pp-edit-select{
+  display:block!important;box-sizing:border-box!important;width:100%!important;
+  min-width:0!important;max-width:100%!important;
+  height:38px!important;min-height:38px!important;
+}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(5) [data-odel]{width:24px!important;height:38px!important;min-width:0!important;margin:0!important;padding:0!important;display:grid!important;place-items:center!important}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td.pp-oparam-cell{
+  grid-area:params!important;display:block!important;width:100%!important;
+  margin:0!important;padding:0!important;overflow:hidden!important;
+  border:1px solid #dce4f0!important;border-radius:8px!important;
+  background:#fff!important;
+}
+#sectionView .pp-oparam-table .pp-order-param-toggle{
+  display:flex!important;align-items:center!important;gap:10px!important;
+  width:100%!important;min-height:42px!important;
+  margin:0!important;padding:11px 14px!important;
+  border:0!important;border-radius:0!important;background:#f7f9fc!important;
+  color:#233a58!important;text-align:left!important;cursor:pointer!important;
+  font:600 13px/1.35 Inter,system-ui,Arial,sans-serif!important;
+}
+#sectionView .pp-oparam-table .pp-order-param-toggle:hover{background:#eef3fa!important}
+#sectionView .pp-oparam-table .pp-order-param-toggle:focus-visible{outline:2px solid #2b70d8!important;outline-offset:-3px!important}
+#sectionView .pp-oparam-table .pp-order-param-toggle .pp-order-param-count{color:#8494ab!important;font-weight:400!important;font-size:12px!important}
+#sectionView .pp-oparam-table .pp-order-param-toggle .pp-order-param-chevron{
+  display:block!important;width:9px!important;height:9px!important;
+  border-right:1.8px solid #425777!important;border-bottom:1.8px solid #425777!important;
+  transform:rotate(45deg)!important;
+  margin:-5px 4px 0 auto!important;transition:transform .14s ease,margin .14s ease!important;
+}
+#sectionView .pp-oparam-table .pp-oparam-cell[data-pp-expanded="true"] .pp-order-param-chevron{
+  transform:rotate(225deg)!important;margin:5px 4px 0 auto!important;
+}
+#sectionView .pp-oparam-table .pp-oparam-cell>[data-oparam-list],
+#sectionView .pp-oparam-table .pp-oparam-cell>[data-padd]{
+  display:none!important;
+}
+#sectionView .pp-oparam-table .pp-oparam-cell[data-pp-expanded="true"]>[data-oparam-list]{
+  display:block!important;padding:12px 14px 2px!important;min-width:0!important;width:100%!important;box-sizing:border-box!important;
+}
+#sectionView .pp-oparam-table .pp-oparam-cell[data-pp-expanded="true"]>[data-padd]{
+  display:inline-flex!important;align-items:center!important;margin:0 14px 12px!important;
+}
+#sectionView .pp-oparam-table .pp-oparam-cell .pp-oparam-pair{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) 28px!important;
+  width:100%!important;min-width:0!important;max-width:100%!important;
+  gap:8px!important;align-items:center!important;box-sizing:border-box!important;
+}
+#sectionView .pp-oparam-table .pp-oparam-cell .pp-oparam-pair input{box-sizing:border-box!important;min-width:0!important;width:100%!important}
+#sectionView .pp-oparam-table .pp-oparam-cell .pp-oparam-pair [data-pdel]{width:28px!important;min-width:0!important}
+@media(max-width:900px){
+  #sectionView .pp-oparam-table tr[data-oparam-order]{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) 24px!important;
+    grid-template-areas:"oid area remove" "process process process" "params params params"!important;
+  }
+}
+@media(max-width:540px){
+  #sectionView .pp-oparam-table tr[data-oparam-order]{
+    grid-template-columns:minmax(0,1fr) 28px!important;
+    grid-template-areas:"oid remove" "area area" "process process" "params params"!important;
+    row-gap:10px!important;padding:12px!important;
+  }
+  #sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(5){padding-top:23px!important}
+  #sectionView .pp-oparam-table .pp-oparam-cell .pp-oparam-pair{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) 24px!important;gap:5px!important
+  }
+  #sectionView .pp-oparam-table .pp-oparam-cell[data-pp-expanded="true"]>[data-oparam-list]{padding:9px 8px 2px!important}
+}
