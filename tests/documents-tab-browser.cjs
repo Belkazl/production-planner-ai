@@ -61,7 +61,7 @@ const {chromium}=require("playwright");
   console.log("RESTART_REAL_PLAN_HEADER_1920",JSON.stringify(restartLayout));
   assert.equal(restartLayout.ready,true,"restart UI must initialize in authenticated Planning page");
   assert(restartLayout.restart&&restartLayout.restart.w>=130,"restart button must exist and have a useful width");
-  assert.equal(restartLayout.restart.display,"inline-flex","restart button must not be hidden by CSS");
+  assert(["flex","inline-flex"].includes(restartLayout.restart.display),"restart button must be flex-visible, not hidden by CSS");
   assert.equal(restartLayout.restart.visibility,"visible","restart button must be visible");
   assert.equal(restartLayout.nextElement,"opt","restart button must appear before Continue Optimization");
   assert(restartLayout.restart.right<=restartLayout.innerWidth-5,"restart must be fully ON SCREEN, not clipped past right edge");
