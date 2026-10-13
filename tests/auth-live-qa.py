@@ -17,7 +17,7 @@ for method,path in [
  ("GET","/api/resource"),("GET","/api/orders"),
  ("GET","/anything")
 ]:
- status,body,h=get(path,method)
+ status,body,h=get(path,method,headers={"Origin":base,"Sec-Fetch-Site":"same-origin"} if method=="POST" else None)
  assert status==401,(method,path,status,body[:120])
  assert "Керамика" not in body and "2601" not in body,(method,path,"data leaked")
  print("SECURED_QA_ANON_DENIED",method,path,status,flush=True)
