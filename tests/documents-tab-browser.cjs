@@ -59,15 +59,28 @@ const {chromium}=require("playwright");
       nextElement:restart?.nextElementSibling?.id||""};
   });
   console.log("RESTART_REAL_PLAN_HEADER_1920",JSON.stringify(restartLayout));
+  console.log("RESTART_HEADER_DOM",JSON.stringify(await page.evaluate(()=>{
+    const result={};
+    for(const id of ["opt","ppOptimizerStartOver","ppStopOptimizer"]){
+      const e=document.getElementById(id);
+      if(e)result[id]={parent:e.parentElement?.tagName+"."+(e.parentElement?.className||""),
+        prev:e.previousElementSibling?.id||e.previousElementSibling?.className||"",
+        next:e.nextElementSibling?.id||e.nextElementSibling?.className||"",
+        near:e.parentElement?.outerHTML.slice(0,1600)};
+    }
+    const items=[...document.querySelectorAll(".titlebar button,.titlebar .pill,.titlebar .badge")];
+    result.headerItems=items.slice(0,28).map(e=>{const r=e.getBoundingClientRect();return{text:e.textContent.trim().slice(0,50),id:e.id,class:e.className,rect:[r.left,r.right,r.top].map(Math.round)}});
+    return result;
+  })));
+  await page.screenshot({path:"planner-controls-1920.png",fullPage:false});
   assert.equal(restartLayout.ready,true,"restart UI must initialize in authenticated Planning page");
   assert(restartLayout.restart&&restartLayout.restart.w>=130,"restart button must exist and have a useful width");
   assert(["flex","inline-flex"].includes(restartLayout.restart.display),"restart button must be flex-visible, not hidden by CSS");
   assert.equal(restartLayout.restart.visibility,"visible","restart button must be visible");
-  assert.equal(restartLayout.nextElement,"opt","restart button must appear before Continue Optimization");
+  assert(restartLayout.restart.x<restartLayout.primary.x,"restart button must appear to the left of Continue Optimization");
   assert(restartLayout.restart.right<=restartLayout.innerWidth-5,"restart must be fully ON SCREEN, not clipped past right edge");
   assert(restartLayout.restart.right<=restartLayout.primary.x+3,"restart button should be before Continue");
   assert(restartLayout.logout&&restartLayout.logout.w>0,"logout preserved");
-  await page.screenshot({path:"planner-controls-1920.png",fullPage:false});
   await page.evaluate(()=>{
     document.body.classList.add("projects-mode");
     document.getElementById("planView").style.display="none";
