@@ -1,7 +1,7 @@
 name: Inspect order layout read only
 on:
-  push:
-    branches: [feat/order-params-accordion-20261013]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   inspect:
