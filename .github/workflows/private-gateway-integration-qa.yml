@@ -26,10 +26,12 @@ jobs:
           for path in ["/api/db-storage","/api/plan-progress","/api/plan"]:
             st,t=hit(path);print("QA_BLOCK_ANON",path,st,t[:110],flush=True);assert st==401,(path,st,t[:200])
           st,t=hit("/api/auth/me");print("QA_PRIVATE_AUTH_ME",st,t[:130],flush=True);assert st==401,(st,t[:200])
-          st,t=hit("/api/auth/login","POST",{"Origin":base,"Sec-Fetch-Site":"same-origin","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
+          st,t=hit("/api/auth/login","POST",{"Origin":"https://production-planner-gateway-v2-production.up.railway.app","Sec-Fetch-Site":"same-origin","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
           print("QA_PRIVATE_AUTH_WRONG_PASS",st,t[:180],flush=True)
           assert st in (400,401,422) and "cross_origin_forbidden" not in t and "authentication_service_unavailable" not in t,(st,t[:230])
           st,t=hit("/api/auth/login","POST",{"Origin":"https://untrusted.example","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
           print("QA_PRIVATE_AUTH_CROSS_ORIGIN",st,t[:130],flush=True);assert st==403
+          st,t=hit("/api/auth/login","POST",{"Origin":base,"Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
+          print("QA_OLD_CANARY_ORIGIN_DENIED",st,t[:100],flush=True);assert st==403
           print("QA_INTERNAL_GATEWAY_AUTH_PASS",flush=True)
           PY
