@@ -54,7 +54,7 @@ except Exception as e:
 try:
  status,html=read("/",2000000)
  print("LEGACY_HTML_HTTP",status,"LENGTH",len(html),flush=True)
- terms=["Нет доступного набора ресурсов","Нет доступного","__ppb__","resource_requirements","eligibleSets","eligible_resources","constraint","validator"]
+ terms=["Нет доступного набора ресурсов","Нет доступного","__ppb__","resource_requirements","eligibleSets","eligible_resources","constraint","validator","/api/project/model/import"]
  for term in terms:
   matches=list(re.finditer(re.escape(term),html,re.I))
   print("HTML_MATCH",term,len(matches),flush=True)
