@@ -14,28 +14,28 @@ const {chromium}=require("playwright");
   await page.locator("#go").click();
   await page.locator("#ppDocumentsView").waitFor({state:"attached",timeout:45000});
   await page.waitForFunction(()=>window.__PP_DOCUMENTS_TAB__?.actionsMoved,{timeout:15000});
-  // Read-only inventory of top-right elements near the authenticated logout control.
-  const neighbors=await page.evaluate(()=>{
-    const logout=document.getElementById("ppProtectedLogout");
-    if(!logout)return {missingLogout:true};
-    const l=logout.getBoundingClientRect(),w=innerWidth;
-    const items=[...document.querySelectorAll("body *")].filter(el=>{
-      if(el===logout||el.closest("#ppProtectedAccount"))return false;
-      const r=el.getBoundingClientRect();
-      if(r.width<2||r.height<2||r.top>=560||r.bottom<l.bottom-10||r.left<w*.63)return false;
-      const css=getComputedStyle(el);
-      if(css.display==="none"||css.visibility==="hidden")return false;
-      return el.children.length===0||(el.tagName==="BUTTON")||((el.id||el.className)&&r.width<500);
-    }).slice(0,90).map(el=>{
-      const r=el.getBoundingClientRect();
-      return {tag:el.tagName,id:el.id||"",class:String(el.className||"").slice(0,130),
-        text:(el.innerText||"").trim().slice(0,180),
-        rect:[r.x,r.y,r.width,r.height].map(x=>Math.round(x)),
-        html:el.outerHTML.slice(0,360)};
-    });
-    return {logout:[l.x,l.y,l.width,l.height].map(x=>Math.round(x)),items};
+  // Logout must be the only visible account control in the top-right header.
+  const cleanHeader=await page.evaluate(()=>{
+   const logout=document.getElementById("ppProtectedLogout");
+   const search=document.querySelector(".top .search");
+   const avatar=document.querySelector(".top .avatar");
+   const nav=document.querySelector(".top .nav");
+   return {
+    logoutText:logout?.textContent?.trim(),
+    logoutShown:!!logout&&logout.getBoundingClientRect().width>0&&getComputedStyle(logout).visibility!=="hidden",
+    searchExists:!!search,searchDisplay:search?getComputedStyle(search).display:null,
+    avatarExists:!!avatar,avatarDisplay:avatar?getComputedStyle(avatar).display:null,
+    navigationShown:!!nav&&nav.getBoundingClientRect().width>0
+   };
   });
-  console.log("PP_LOGOUT_NEIGHBOR_DIAGNOSTICS",JSON.stringify(neighbors));
+  assert.equal(cleanHeader.logoutText,"Выйти","logout action must be preserved");
+  assert.equal(cleanHeader.logoutShown,true,"logout must remain visible");
+  assert.equal(cleanHeader.searchExists,true,"expected legacy question search markup for cleanup");
+  assert.equal(cleanHeader.avatarExists,true,"expected legacy avatar markup for cleanup");
+  assert.equal(cleanHeader.searchDisplay,"none","redundant question search must be hidden");
+  assert.equal(cleanHeader.avatarDisplay,"none","overlapping legacy avatar must be hidden");
+  assert.equal(cleanHeader.navigationShown,true,"main top navigation must be preserved");
+  console.log("LOGOUT_HEADER_CLEAN_PASS",JSON.stringify(cleanHeader));
   const initial=await page.evaluate(()=>({
    moved:window.__PP_DOCUMENTS_TAB__.actionsMoved,
    topCount:document.querySelectorAll(".titlebar #ppImportBtn,.titlebar #ppTemplateBtn").length,
