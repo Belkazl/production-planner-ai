@@ -16,6 +16,18 @@ try:
  payload=json.loads(raw)
  m=normobj(payload.get("model",payload))
  print("MODEL_TOP_KEYS",list(m.keys()),flush=True)
+ recipes={}
+ for o in m.get("orders") or []:
+  p=o.get("parameters") or {}
+  primary=p.get("firing_recipe")
+  translated=p.get("Режим обжига")
+  recipes[str(o.get("id"))]={"recipe":primary,"ru":translated}
+ print("FIRING_RECIPES_BY_ORDER",json.dumps(recipes,ensure_ascii=False),flush=True)
+ ovens=[e for e in m.get("equipment") or [] if e.get("kind")=="firing"]
+ for oid,x in recipes.items():
+  matched=[e.get("id") for e in ovens if x["recipe"] in (e.get("capabilities") or {}).get("allowed_firing_recipes",[])]
+  print("RECIPE_ELIGIBILITY",oid,x["recipe"],"ovenIds",matched,flush=True)
+ print("CANONICAL_VALID",m.get("_canonical_valid"),"VALIDATION_ERRORS",json.dumps(m.get("_validation_errors"),ensure_ascii=False)[:1300],flush=True)
  for key in ["orders","equipment","autoclaves","employees","roles","technical_processes","operations","setup_rules","shifts","materials"]:
   arr=m.get(key,[])
   print("MODEL_ARRAY",key,len(arr) if isinstance(arr,list) else type(arr).__name__,flush=True)
