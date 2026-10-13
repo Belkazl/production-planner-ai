@@ -9,7 +9,23 @@ async function main(){
    console.log("HTML_STATUS",r.status());
    await page.waitForTimeout(1800);
    await describe("initial",page);
-   for(const tab of ["Заказы","Производство","Проекты"]){
+   const orders=page.locator(".side .item").filter({hasText:/^Заказы$/}).first();
+   console.log("ORDER_SIDEBAR_COUNT",await orders.count());
+   if(await orders.count()){
+     await orders.click();
+     await page.waitForTimeout(450);
+     await describe("orders",page);
+     const source=await page.evaluate(()=>{
+       const table=document.querySelector(".pp-oparam-table"),row=document.querySelector("tr[data-oparam-order]");
+       const cell=row?.querySelector(".pp-oparam-cell");
+       const children=cell?[...cell.children].map(e=>({tag:e.tagName,outer:e.outerHTML.slice(0,1500)})):[];
+       const styles=[".pp-oparam-table",".pp-oparam-table thead",".pp-oparam-table tbody",".pp-oparam-table tr",".pp-oparam-cell",".pp-oparam-pair",".pp-edit-scroll"];
+       const css=styles.map(sel=>{const el=document.querySelector(sel);if(!el)return {sel,found:false};const z=getComputedStyle(el);return{sel,display:z.display,width:z.width,gridTemplateColumns:z.gridTemplateColumns,padding:z.padding,verticalAlign:z.verticalAlign,position:z.position}});
+       return {tableHead:table?.querySelector("thead")?.outerHTML.slice(0,2500),rowCount:table?.querySelectorAll("tbody>tr").length,oneRow:row?.outerHTML.slice(0,7500),children,css,section:document.querySelector("#sectionView")?.innerText.slice(0,2500)};
+     });
+     console.log("ORDER_STRUCT",JSON.stringify(source).slice(0,16000));
+   }
+   for(const tab of ["Производство","Проекты"]){
      const exist=await page.getByText(tab,{exact:true}).count();
      console.log("TAB",tab,"matches",exist);
      if(!exist)continue;
