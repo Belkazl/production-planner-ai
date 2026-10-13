@@ -76,7 +76,7 @@ jobs:
           status,body=req("/api/optimizer-reset","POST",body={})
           assert status==401,(status,body[:200])
           status,body=req("/",cookie="pp_demo_auth=tenantA")
-          assert status==200 and 'id="ppOptimizerStartOver"' not in body,(status,len(body))
+          assert status==200 and 'fresh.id="ppOptimizerStartOver"' in body,(status,len(body))
           assert "pp-restart-optimizer-ui" in body and "ppFreshRestartPending" in body,(status,body[:240])
           assert "ppGanttToolV2" in body and "ppStopOptimizationV1" in body
           status,body=req("/api/optimizer-reset","POST",cookie="pp_demo_auth=tenantA",body={})
