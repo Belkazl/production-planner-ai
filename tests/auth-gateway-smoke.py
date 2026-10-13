@@ -42,7 +42,7 @@ for tenant in ["tenantA","tenantB"]:
  status,body,h=fetch("/api/model",headers={"cookie":"pp_demo_auth="+tenant})
  assert status==200 and '"id":"'+tenant+'"' in body,(tenant,status,body[:200])
  status,body,h=fetch("/",headers={"cookie":"pp_demo_auth="+tenant})
- assert status==200 and '<h1 id="qa-tenant">'+tenant+"</h1>" in body,(tenant,status,body[:300])
+ assert status==200 and "pp-order-stacked-accordion" in body and "pp-gantt-operation-details-script" in body,(tenant,status,body[:300])
  assert "ppProtectedLogout" in body,(tenant,status,"logout absent")
 status,body,h=fetch("/api/db-storage",headers={"cookie":"pp_demo_auth=bad"})
 assert status==401,(status,body)
