@@ -33,3 +33,8 @@ assert status==401,(status,body[:120])
 status,body,h=get("/api/auth/login","POST",headers={"Origin":"https://attacker.example","Content-Type":"application/json"},data=b"{}")
 assert status==403,(status,body[:120])
 print("SECURED_QA_NO_ANONYMOUS_ACCESS_PASS",flush=True)
+invalid_login=json.dumps({"email":"this-account-does-not-exist+securitytest@example.invalid","password":"synthetic-incorrect-password-only"}).encode()
+status,body,_=get("/api/auth/login","POST",headers={"Origin":base,"Content-Type":"application/json","Sec-Fetch-Site":"same-origin"},data=invalid_login)
+assert status in (400,401,422) and "cross_origin_forbidden" not in body,("genuine browser Origin incorrectly blocked",status,body[:200])
+print("PUBLIC_PROXY_ORIGIN_ACCEPTED_VALID_LOGIN_ROUTE",status,flush=True)
+
