@@ -27,8 +27,16 @@ function ppRequireSameOrigin(req){
  const h=req.headers;
  if(h.get("sec-fetch-site")==="cross-site")return false;
  const origin=h.get("origin");
- if(origin&&origin!==new URL(req.url).origin)return false;
- return true;
+ if(!origin)return false;
+ let parsed;
+ try{parsed=new URL(origin)}catch{return false}
+ const railwayHost=(typeof Bun!=="undefined"&&Bun.env?.RAILWAY_PUBLIC_DOMAIN||"").trim().replace(/^https?:\/\//,"").replace(/\/$/,"").toLowerCase();
+ if(railwayHost){
+  return parsed.protocol==="https:"&&parsed.host.toLowerCase()===railwayHost&&parsed.pathname==="/"&&parsed.search===""&&parsed.hash==="";
+ }
+ // Local-only fallback for isolated tests; no permissive forwarded-host trust.
+ const expected=new URL(req.url).origin;
+ return parsed.origin===expected;
 }
 async function ppAuthFetch(req,path){
  const h=new Headers();
