@@ -58,6 +58,7 @@ function restore(plan){
 function choose(plan){
  if(!valid(plan))return;
  selectedPlan=plan;stoppedPlanAvailable=true;
+ if(window.__ppFreshRestartMode){window.__ppFreshReferencePlan=plan;try{window.__ppFreshReferenceProject=localStorage.getItem("prodplan.project.active.v2")}catch(_){}}
  restore(plan);
  setActionAfterStop();
  try{
