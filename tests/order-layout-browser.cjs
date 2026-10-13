@@ -69,14 +69,14 @@ const URL="https://pp-progress-fix-qa-20261010-production.up.railway.app/";
   assert.equal(await first.locator("[data-oid]").inputValue(),"2601");
   assert.equal(await first.locator("[data-oarea]").inputValue(),"2400");
   await page.screenshot({path:"orders-expanded.png",fullPage:false});
+  const modelWrites=[];
+  page.on("request",req=>{if(req.method()==="POST"&&req.url().includes("/api/project/model/import"))modelWrites.push(req.url())});
   await page.locator("[data-order-add]").click();
   await page.waitForTimeout(300);
   assert.equal(await rows.count(),count+1,"adding order should still work");
   assert.equal(await rows.last().locator("[data-pp-order-toggle]").getAttribute("aria-expanded"),"false");
-  await page.reload({waitUntil:"domcontentloaded"});
-  await page.locator(".side .item").filter({hasText:/^Заказы$/}).first().click();
-  await page.waitForFunction(()=>document.querySelectorAll("#ppOrderParamBody>tr").length===12,{timeout:15000});
+  assert.equal(modelWrites.length,0,"adding an order without saving must not write production data");
   assert(!errors.length,"uncaught script errors: "+JSON.stringify(errors.slice(0,3)));
-  console.log("ORDER_STACKED_BROWSER_PASS",JSON.stringify({orders:count,parameters:n,threeColumns:true,below:true,collapsedByDefault:true,expand:true,editsPreserved:true,addDelete:true,newOrder:true,realModelUnchanged:true}));
+  console.log("ORDER_STACKED_BROWSER_PASS",JSON.stringify({orders:count,parameters:n,threeColumns:true,below:true,collapsedByDefault:true,expand:true,editsPreserved:true,addDelete:true,newOrder:true,modelWrites:0}));
  }finally{await browser.close()}
 })().catch(err=>{console.error(err);process.exit(1)});
