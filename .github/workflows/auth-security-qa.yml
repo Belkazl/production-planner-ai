@@ -55,3 +55,11 @@ jobs:
             sleep 1
           done
           python3 tests/auth-proxy-origin.py
+          PP_AUTH_PUBLIC_ORIGIN=production-planner-gateway-v2-production.up.railway.app PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8082 bun index.ts >/tmp/canonical-origin-bridge.log 2>&1 &
+          prodpid=$!
+          trap 'kill "$prodpid" "$proxypid" "$bridgepid" "$mockpid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 15); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8082/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          PP_ORIGIN_TEST_BASE=http://127.0.0.1:8082 PP_ORIGIN_TEST_ALLOWED=https://production-planner-gateway-v2-production.up.railway.app python3 tests/auth-proxy-origin.py
