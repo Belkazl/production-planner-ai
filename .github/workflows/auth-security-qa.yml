@@ -42,9 +42,11 @@ jobs:
           PY
           bun tests/auth-gateway-mock.ts >/tmp/mock-gateway.log 2>&1 &
           mockpid=$!
-          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/secured-bridge.log 2>&1 &
+          bun tests/planner-html-mock.ts >/tmp/mock-planner.log 2>&1 &
+          plannerpid=$!
+          PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/secured-bridge.log 2>&1 &
           bridgepid=$!
-          trap 'kill "$bridgepid" "$mockpid" 2>/dev/null || true' EXIT
+          trap 'kill "$bridgepid" "$plannerpid" "$mockpid" 2>/dev/null || true' EXIT
           for i in $(seq 1 25); do
             if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
             sleep 1
@@ -52,17 +54,17 @@ jobs:
           python3 tests/auth-gateway-smoke.py
           node tests/login-session-browser.cjs
           grep PP_SECURE_GATE_BUILD_OK /tmp/secured-bridge.log || true
-          RAILWAY_PUBLIC_DOMAIN=pp-progress-fix-qa-20261010-production.up.railway.app PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8081 bun index.ts >/tmp/proxy-origin-bridge.log 2>&1 &
+          RAILWAY_PUBLIC_DOMAIN=pp-progress-fix-qa-20261010-production.up.railway.app PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8081 bun index.ts >/tmp/proxy-origin-bridge.log 2>&1 &
           proxypid=$!
-          trap 'kill "$proxypid" "$bridgepid" "$mockpid" 2>/dev/null || true' EXIT
+          trap 'kill "$proxypid" "$bridgepid" "$plannerpid" "$mockpid" 2>/dev/null || true' EXIT
           for i in $(seq 1 15); do
             if curl -fsS --max-time 2 http://127.0.0.1:8081/__bridge_health >/dev/null 2>&1; then break; fi
             sleep 1
           done
           python3 tests/auth-proxy-origin.py
-          PP_AUTH_PUBLIC_ORIGIN=production-planner-gateway-v2-production.up.railway.app PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8082 bun index.ts >/tmp/canonical-origin-bridge.log 2>&1 &
+          PP_AUTH_PUBLIC_ORIGIN=production-planner-gateway-v2-production.up.railway.app PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8082 bun index.ts >/tmp/canonical-origin-bridge.log 2>&1 &
           prodpid=$!
-          trap 'kill "$prodpid" "$proxypid" "$bridgepid" "$mockpid" 2>/dev/null || true' EXIT
+          trap 'kill "$prodpid" "$proxypid" "$bridgepid" "$plannerpid" "$mockpid" 2>/dev/null || true' EXIT
           for i in $(seq 1 15); do
             if curl -fsS --max-time 2 http://127.0.0.1:8082/__bridge_health >/dev/null 2>&1; then break; fi
             sleep 1
