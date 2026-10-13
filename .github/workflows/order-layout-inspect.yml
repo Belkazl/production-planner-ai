@@ -1,0 +1,33 @@
+name: Inspect order layout read only
+on:
+  push:
+    branches: [feat/order-params-accordion-20261013]
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect live HTML for order form source
+        run: |
+          python3 - <<'PY'
+          import re,urllib.request
+          u="https://aps-setup-bridge-candidate-v2-production.up.railway.app/"
+          with urllib.request.urlopen(u,timeout=55) as r:h=r.read().decode('utf-8')
+          print('LIVE_HTML_BYTES',len(h))
+          for token in ['Производственные параметры','Площадь, м²','Техпроцесс','width_mm','renderOrders','orderParams','renderOrder','production_parameters','Заказ']:
+            matches=list(re.finditer(re.escape(token),h))
+            print('SOURCE_TOKEN',token,'COUNT',len(matches))
+            for m in matches[:4]:
+              print('SOURCE_CONTEXT',token,repr(h[max(0,m.start()-600):min(len(h),m.start()+1700)]))
+          PY
+      - name: Setup browser inspection
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Inspect rendered order form DOM
+        run: node tools/inspect-order-layout.cjs
