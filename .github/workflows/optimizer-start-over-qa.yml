@@ -1,0 +1,93 @@
+name: QA fresh optimizer baseline and reset
+on:
+  push:
+    branches: [fix/optimizer-start-over-baseline-20261013]
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile all approved production features and fresh reset
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-fresh-start-compile
+          node --check restart-optimizer-ui.js
+          node --check restart-optimizer-server.js
+          node --check restart-optimizer-html.js
+          node --check stop-ui.js
+          grep -q PP_START_OVER_INLINE index.ts
+          grep -q "ppFreshPlanResult(req,state,out)" index.ts
+      - name: Install DOM regression runner
+        run: npm install --no-save --no-package-lock jsdom@26 playwright@1.57.0
+      - name: Test server session resets and first-new-plan acceptance
+        run: node tests/start-over-session.cjs
+      - name: Test actual stop-UI and fresh-reset state transitions
+        run: |
+          node tests/start-over-ui.cjs
+          node tests/optimizer-action-labels.cjs
+      - name: Verify real Gantt HTML with separate original auth service
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          u="https://production-planner-gateway-production.up.railway.app/"
+          req=urllib.request.Request(u,headers={"User-Agent":"ProdPlanReadOnlyUIFixture/1.0"})
+          with urllib.request.urlopen(req,timeout=45) as r:html=r.read()
+          assert b'id="ganttScroll"' in html and b"function ppIncumbentCurrentPlan(){" in html
+          open("/tmp/pp-gateway-fixture.html","wb").write(html)
+          print("FRESH_START_UPSTREAM_HTML_READY",len(html))
+          PY
+          bun tests/auth-gateway-mock.ts >/tmp/auth-mock.log 2>&1 &
+          mockpid=$!
+          bun tests/planner-html-mock.ts >/tmp/planner-mock.log 2>&1 &
+          uipid=$!
+          PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/bridge-smoke.log 2>&1 &
+          bridgepid=$!
+          trap 'kill "$bridgepid" "$uipid" "$mockpid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json
+          base="http://127.0.0.1:8080"
+          def req(path,method="GET",cookie="",body=None):
+            headers={"User-Agent":"ProdPlanFreshStartProtectedQA/1.0","accept":"application/json"}
+            if cookie:headers["cookie"]=cookie
+            data=json.dumps(body).encode() if body is not None else None
+            if method=="POST":headers["origin"]=base;headers["content-type"]="application/json"
+            r=urllib.request.Request(base+path,method=method,headers=headers,data=data)
+            try:
+              with urllib.request.urlopen(r,timeout=35) as response:return response.status,response.read().decode("utf8","replace")
+            except urllib.error.HTTPError as e:return e.code,e.read().decode("utf8","replace")
+          status,body=req("/api/optimizer-reset","POST",body={})
+          assert status==401,(status,body[:200])
+          status,body=req("/",cookie="pp_demo_auth=tenantA")
+          assert status==200 and 'id="ppOptimizerStartOver"' not in body,(status,len(body))
+          assert "pp-restart-optimizer-ui" in body and "ppFreshRestartPending" in body,(status,body[:240])
+          assert "ppGanttToolV2" in body and "ppStopOptimizationV1" in body
+          status,body=req("/api/optimizer-reset","POST",cookie="pp_demo_auth=tenantA",body={})
+          d=json.loads(body)
+          assert status==200 and d["ok"] and d["total_generations"]==0 and d["run"]==0,(status,d)
+          status,body=req("/api/plan-progress",cookie="pp_demo_auth=tenantA")
+          d=json.loads(body)
+          assert status==200 and d.get("done")==0 and not d.get("best_preview"),(status,d)
+          status,body=req("/api/optimizer-reset","POST",cookie="pp_demo_auth=tenantB",body={})
+          assert status==200,(status,body[:200])
+          print("FRESH_START_PROTECTED_LIVE_HTML_AND_RESET_PASS",flush=True)
+          PY
+          if grep -q "APS_BRIDGE_ERROR" /tmp/bridge-smoke.log; then cat /tmp/bridge-smoke.log; exit 1; fi
+          grep "PP_START_OVER_BUILD_OK" /tmp/bridge-smoke.log || true
