@@ -30,7 +30,7 @@ function ppRequireSameOrigin(req){
  if(!origin)return false;
  let parsed;
  try{parsed=new URL(origin)}catch{return false}
- const railwayHost=(typeof Bun!=="undefined"&&Bun.env?.RAILWAY_PUBLIC_DOMAIN||"").trim().replace(/^https?:\/\//,"").replace(/\/$/,"").toLowerCase();
+ const railwayHost=(typeof Bun!=="undefined"&&(Bun.env?.PP_AUTH_PUBLIC_ORIGIN||Bun.env?.RAILWAY_PUBLIC_DOMAIN)||"").trim().replace(/^https?:\/\//,"").replace(/\/$/,"").toLowerCase();
  if(railwayHost){
   return parsed.protocol==="https:"&&parsed.host.toLowerCase()===railwayHost&&parsed.pathname==="/"&&parsed.search===""&&parsed.hash==="";
  }
