@@ -53,6 +53,7 @@ const {chromium}=require("playwright");
   // No file uploaded: test never mutates account model, saved plans, or orders.
   await page.locator(".top .nav span").filter({hasText:"Планирование"}).click();
   assert.equal(await page.locator("#ppDocumentsView").isVisible(),false);
+  const visibilityInfo=await page.evaluate(()=>({planStyle:document.getElementById("planView").style.cssText,planComputed:getComputedStyle(document.getElementById("planView")).display,mainDisplay:getComputedStyle(document.querySelector(".shell .main")).display,bodyClasses:document.body.className,documentsHidden:document.getElementById("ppDocumentsView").hidden,docsOpened:window.__PP_DOCUMENTS_TAB__?.opened,sectionStyle:document.getElementById("sectionView").style.cssText}));console.log("DOCS_PLAN_RETURN_DEBUG",JSON.stringify(visibilityInfo));
   assert.equal(await page.locator("#planView").isVisible(),true);
   assert.equal(await page.locator("#ppImportBtn").count(),1);
   await docs.focus();await page.keyboard.press("Enter");
