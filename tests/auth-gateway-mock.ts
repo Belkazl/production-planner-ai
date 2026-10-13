@@ -19,7 +19,10 @@ Bun.serve({port:PORT,async fetch(req){
  if(path==="/api/auth/me")return Response.json({ok:true,user:{id:tenant,company:"QA Tenant"}});
  if(path==="/api/db-storage")return Response.json({ok:true,tenant,storage:{"prodplan.projects.v2":"[]"}});
  if(path==="/api/model")return Response.json({ok:true,model:{start:"2026-10-05T08:00:00Z",orders:[{id:tenant}],setup_rules:[],equipment:[]}});
- if(path==="/")return new Response('<!doctype html><html><body><h1 id="qa-tenant">'+tenant+'</h1><main>QA mock production UI</main></body></html>',{headers:{"content-type":"text/html; charset=utf-8"}});
+ if(path==="/"){
+  const h=await Bun.file("/tmp/pp-gateway-fixture.html").text();
+  return new Response(h,{headers:{"content-type":"text/html; charset=utf-8"}});
+ }
  return Response.json({ok:true,tenant,path});
 }});
 console.log("QA_AUTH_GATEWAY_MOCK_READY",PORT);
