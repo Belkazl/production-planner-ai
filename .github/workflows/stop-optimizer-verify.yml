@@ -17,8 +17,46 @@ jobs:
         run: |
           bun run build-bridge.ts
           bun run feature-stop.ts
+          bun run gantt-details.ts
           bun build ./index.ts --target=bun --outdir=/tmp/pp-verified
           node --check stop-ui.js
+          node --check gantt-details.js
+          npm install --no-save --no-package-lock jsdom@26
+          node tests/gantt-details.cjs
+      - name: Runtime check with actual public Gantt HTML
+        run: |
+          bun run index.ts >/tmp/ga-runtime.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for n in $(seq 1 15); do
+            if curl -fsS --max-time 15 http://127.0.0.1:8080/ -o /tmp/ga-gantt.html; then break; fi
+            sleep 2
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html=Path('/tmp/ga-gantt.html').read_text()
+          m=re.search(r'<script id="ppRealOptProgressV1">(.*?)</script>',html,re.S)
+          assert m,'missing optimizer progress script'
+          code=m.group(1)
+          assert "Math.floor(done*100/total)" in code,'ratio from iteration count missing'
+          assert "Math.trunc(Number(d.total)||240)" in code,'total iteration count missing'
+          assert "const done=Math.max(0,Math.min(total," in code,'done clamp missing'
+          assert "btn.title=(d.phase||'Оптимизация')+' · итерация '+done+' / '+total" in code,'iteration tooltip missing'
+          assert "if(my===token)" in code and "token++;" in code,'finalizer token reset missing'
+          assert "btn.classList.remove('pp-opt-running')" in code,'button reset missing'
+          assert "btn.textContent=(typeof hasResult" in code,'continuation label missing'
+          assert "Math.min(99" not in code and "Number(last?.percent)" not in code,'stale progress cap'
+          assert 'ppStopOptimizationV1' in html,'stop control lost'
+          assert 'ppGanttToolV2' in html,'Gantt component lost'
+          assert 'pp-gantt-operation-details-script' in html,'operation details handler missing'
+          assert '__ppOperation=o' in html,'equipment operation metadata missing'
+          assert '__ppMaterialEvent' in html,'material or secondary operation metadata missing'
+          for d,expected in [(0,0),(1,0),(120,50),(238,99),(239,99),(240,100)]:
+            value=d*100//240
+            assert value==expected,(d,value,expected)
+          print('GA_240_RUNTIME_PASS',len(html),flush=True)
+          PY
       - name: Check stop endpoint and Gantt UI injection
         run: |
           grep -q 'PP_STOP_INLINE' index.ts
