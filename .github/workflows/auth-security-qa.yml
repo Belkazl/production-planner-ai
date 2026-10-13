@@ -47,3 +47,11 @@ jobs:
           done
           python3 tests/auth-gateway-smoke.py
           grep PP_SECURE_GATE_BUILD_OK /tmp/secured-bridge.log || true
+          RAILWAY_PUBLIC_DOMAIN=pp-progress-fix-qa-20261010-production.up.railway.app PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8081 bun index.ts >/tmp/proxy-origin-bridge.log 2>&1 &
+          proxypid=$!
+          trap 'kill "$proxypid" "$bridgepid" "$mockpid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 15); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8081/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          python3 tests/auth-proxy-origin.py
