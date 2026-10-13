@@ -1,0 +1,13 @@
+name: Read-only ceramic resource eligibility audit
+on:
+  push:
+    branches: [fix/ga-resource-sets-20261013]
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect model resources and exact operation requirements without changing data
+        run: python3 tests/diagnose-ceramic-resources.py
