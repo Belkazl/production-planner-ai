@@ -9,6 +9,7 @@ const URL="https://pp-progress-fix-qa-20261010-production.up.railway.app/";
   const resp=await page.goto(URL,{waitUntil:"domcontentloaded",timeout:90000});
   assert.equal(resp.status(),200);
   await page.waitForFunction(()=>Boolean(window.__PP_ORDER_PARAMS_ACCORDION_V1__?.installed),{timeout:30000});
+  await page.waitForFunction(()=>typeof model!=="undefined"&&Array.isArray(model?.orders)&&model.orders.length>=12,null,{timeout:65000});
   const side=page.locator(".side .item").filter({hasText:/^Заказы$/}).first();
   assert.equal(await side.count(),1);
   await side.click();
