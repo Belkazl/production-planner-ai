@@ -16,7 +16,7 @@ Bun.serve({port:PORT,async fetch(req){
   return Response.json({ok:true},{headers:{"set-cookie":"pp_demo_auth=; Path=/; HttpOnly; Max-Age=0; Secure; SameSite=Lax"}});
  const tenant=authorized(req);
  if(!tenant)return Response.json({error:"authentication_required"},{status:401});
- if(path==="/api/auth/me")return Response.json({ok:true,user:{id:tenant,company:"QA Tenant"}});
+ if(path==="/api/auth/me")return Response.json({error:"route_not_found"},{status:404});
  if(path==="/api/db-storage")return Response.json({ok:true,tenant,storage:{"prodplan.projects.v2":"[]"}});
  if(path==="/api/model")return Response.json({ok:true,model:{start:"2026-10-05T08:00:00Z",orders:[{id:tenant}],setup_rules:[],equipment:[]}});
  if(path==="/"){
