@@ -5,7 +5,7 @@ const {chromium}=require("playwright");
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
   const context=await browser.newContext({viewport:{width:1600,height:1000}});
-  await context.addCookies([{name:"pp_demo_auth",value:"tenantA",url:"http://127.0.0.1:8080",httpOnly:true,path:"/"}]);
+  await context.addCookies([{name:"pp_demo_auth",value:"tenantA",url:"http://127.0.0.1:8080",httpOnly:true}]);
   const page=await context.newPage();
   const pageErrors=[],requests=[],durations=[4600,4320];
   page.on("pageerror",e=>pageErrors.push(String(e)));
@@ -29,16 +29,16 @@ const {chromium}=require("playwright");
   assert.equal(pageResponse.status(),200);
   await page.locator("#ppOptimizerStartOver").waitFor({timeout:12000});
   assert.equal(await page.locator("#ppOptimizerStartOver").innerText(),"Начать оптимизацию заново");
-  await page.evaluate(model=>{
+  await page.evaluate(givenModel=>{
    window.__qaOldStored={id:"prj-ceramic-qa",revision:55,name:"Керамика",lastPlan:{
     valid:true,duration_minutes:2539,batch_count:65,operator_wait_minutes:76231,machine_idle_minutes:8930,
     operations:[{operation_id:"old",order:2601,operation_name:"Обжиг",equipment_ids:["E9"],start_min:0,end_min:80}]
    },savedPlans:[{id:"saved_1",plan:{duration_minutes:2539}}]};
    localStorage.setItem("prodplan.project.active.v2","prj-ceramic-qa");
    localStorage.setItem("prodplan.projects.v2",JSON.stringify([window.__qaOldStored]));
-   window.model=model;
-   window.modelReady=true;
-   window.hasResult=true;
+   model=givenModel;
+   modelReady=true;
+   hasResult=true;
    window.__ppOptimizerCommittedPlan=window.__qaOldStored.lastPlan;
    window.__ppTabPlan=window.__qaOldStored.lastPlan;
    document.getElementById("opt").disabled=false;
