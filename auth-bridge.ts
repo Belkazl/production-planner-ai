@@ -12,6 +12,9 @@ once(
  'const UPSTREAM=(typeof Bun!=="undefined"&&Bun.env?.APS_UPSTREAM)||"https://production-planner-gateway-production.up.railway.app";',
  runtime+'\nconst UPSTREAM=PP_AUTH_GATEWAY_ORIGIN;',
  "protect_and_retarget_upstream");
+once('async function serveGanttUi(req){const r=await fetch(UPSTREAM+"/",',
+     'const PP_PLANNER_HTML_ORIGIN=(typeof Bun!=="undefined"&&Bun.env?.PP_PLANNER_HTML_ORIGIN)||"https://production-planner-gateway-production.up.railway.app";\nasync function serveGanttUi(req){const r=await fetch(PP_PLANNER_HTML_ORIGIN+"/",',
+     "serve_compatible_ui_from_planner_gateway");
 once("await handler(req)}catch(e)","await ppAuthenticatedHandler(req)}catch(e)","enforce_at_server_entrypoint");
 once('if(modelCache.model&&Date.now()-modelCache.at<1200)return modelCache.model;',
      'if(false&&modelCache.model&&Date.now()-modelCache.at<1200)return modelCache.model;',"disable_shared_model_cache");
@@ -36,4 +39,4 @@ once('new URL(req.url).searchParams.get("ppProgressCache")!=="off"?ppCachedProgr
 if(source.includes("ppActiveObjectiveRun=null")||source.includes("const UPSTREAM=(typeof Bun")||source.includes("await handler(req)}catch(e)"))
  throw Error("UNPROTECTED_SERVER_INVARIANT");
 writeFileSync("index.ts",source);
-console.log("PP_SECURE_GATE_BUILD_OK",JSON.stringify({bytes:source.length,auth:"gateway-v2",serverProtected:true,tenantScopedGA:true,sharedCachesDisabled:true,loginUi:true}));
+console.log("PP_SECURE_GATE_BUILD_OK",JSON.stringify({bytes:source.length,auth:"gateway-v2",serverProtected:true,plannerUiSource:"separate-planner-gateway",tenantScopedGA:true,sharedCachesDisabled:true,loginUi:true}));
