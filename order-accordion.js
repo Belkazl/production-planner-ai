@@ -53,6 +53,8 @@ function updateCounter(cell){
 }
 function apply(){
  if(!document.querySelector("#ppOrderParamBody"))return 0;
+ const oldTitle=document.querySelector("#ppOrderParamBody")?.closest("table")?.querySelector("thead th:nth-child(2)");
+ if(oldTitle&&oldTitle.textContent.trim()!=="Объём выпуска")oldTitle.textContent="Объём выпуска";
  const rows=[...document.querySelectorAll("#ppOrderParamBody > tr[data-oparam-order]")];
  for(const row of rows){
   prepareRow(row);
