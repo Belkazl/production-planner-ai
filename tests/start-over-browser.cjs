@@ -27,7 +27,7 @@ const {chromium}=require("playwright");
   });
   const pageResponse=await page.goto("http://127.0.0.1:8080/",{waitUntil:"domcontentloaded",timeout:30000});
   assert.equal(pageResponse.status(),200);
-  await page.locator("#ppOptimizerStartOver").waitFor({timeout:12000});
+  await page.locator("#ppOptimizerStartOver").waitFor({state:"attached",timeout:12000});
   assert.equal(await page.locator("#ppOptimizerStartOver").innerText(),"Начать оптимизацию заново");
   await page.evaluate(givenModel=>{
    window.__qaOldStored={id:"prj-ceramic-qa",revision:55,name:"Керамика",lastPlan:{
@@ -36,6 +36,9 @@ const {chromium}=require("playwright");
    },savedPlans:[{id:"saved_1",plan:{duration_minutes:2539}}]};
    localStorage.setItem("prodplan.project.active.v2","prj-ceramic-qa");
    localStorage.setItem("prodplan.projects.v2",JSON.stringify([window.__qaOldStored]));
+   document.body.classList.remove("projects-mode");
+   document.getElementById("planView").style.display="block";
+   document.getElementById("sectionView").style.display="none";
    model=givenModel;
    modelReady=true;
    hasResult=true;
@@ -50,6 +53,7 @@ const {chromium}=require("playwright");
    document.getElementById("meta").textContent="GA · всего 32640 поколений · запуск 141";
    document.getElementById("validator").textContent="Новый вариант не применён: ухудшена длительность";
   },modelFixture);
+  await page.locator("#ppOptimizerStartOver").waitFor({state:"visible",timeout:8000});
   await page.locator("#ppOptimizerStartOver").click();
   await Promise.race([seen,new Promise((_,reject)=>setTimeout(()=>reject(Error("new optimizer never started")),16000))]);
   assert.equal(requests.length,1);
