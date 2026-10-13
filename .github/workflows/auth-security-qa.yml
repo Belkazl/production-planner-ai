@@ -24,6 +24,10 @@ jobs:
           bun run order-accordion.ts
           bun run auth-bridge.ts
           bun build ./index.ts --target=bun --outdir=/tmp/pp-auth-release-check
+      - name: Install Chromium browser
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
       - name: Mock original tenant gateway and run protected bridge
         run: |
           python3 - <<'PY'
@@ -46,6 +50,7 @@ jobs:
             sleep 1
           done
           python3 tests/auth-gateway-smoke.py
+          node tests/login-session-browser.cjs
           grep PP_SECURE_GATE_BUILD_OK /tmp/secured-bridge.log || true
           RAILWAY_PUBLIC_DOMAIN=pp-progress-fix-qa-20261010-production.up.railway.app PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8081 bun index.ts >/tmp/proxy-origin-bridge.log 2>&1 &
           proxypid=$!
