@@ -1,5 +1,5 @@
 import urllib.request,urllib.error,json
-base="https://pp-progress-fix-qa-20261010-production.up.railway.app"
+base="https://pp-auth-session-ci-20261013.up.railway.app"
 def get(path,method="GET",headers=None,data=None):
  req=urllib.request.Request(base+path,method=method,headers={"Cache-Control":"no-cache","User-Agent":"ProdPlanSecuredCanary/1.0",**(headers or {})},data=data)
  try:
