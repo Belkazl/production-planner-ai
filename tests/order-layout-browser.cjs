@@ -13,7 +13,17 @@ const URL="https://pp-progress-fix-qa-20261010-production.up.railway.app/";
   assert.equal(await side.count(),1);
   await side.click();
   const rows=page.locator("#ppOrderParamBody > tr[data-oparam-order]");
-  await rows.first().waitFor({timeout:20000});
+  await page.waitForTimeout(700);
+  const snapshot=await page.evaluate(()=>({
+    url:location.href,orders:document.querySelectorAll("#ppOrderParamBody>tr").length,
+    section:document.getElementById("sectionView")?.innerText.slice(0,2500),
+    sectionDisplay:getComputedStyle(document.getElementById("sectionView")).display,
+    table:document.querySelector(".pp-oparam-table")?.outerHTML.slice(0,450),
+    localStorageKeys:Object.keys(localStorage).slice(0,16),
+    global:window.__PP_ORDER_PARAMS_ACCORDION_V1__
+  }));
+  console.log("QA_ORDER_DIAG",JSON.stringify(snapshot).slice(0,4800),"PAGE_ERRORS",JSON.stringify(errors.slice(0,5)));
+  await rows.first().waitFor({state:"attached",timeout:15000});
   const count=await rows.count();
   assert(count>=1,"orders must be present");
   await page.waitForFunction(()=>document.querySelectorAll("#ppOrderParamBody .pp-oparam-cell[data-pp-expanded=false]").length===document.querySelectorAll("#ppOrderParamBody>tr").length,{timeout:10000});
