@@ -23,6 +23,7 @@ jobs:
           bun run gantt-details.ts
           bun run order-accordion.ts
           bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
           bun build ./index.ts --target=bun --outdir=/tmp/pp-auth-release-check
       - name: Install Chromium browser
         run: |
@@ -39,7 +40,13 @@ jobs:
           assert b'id="ganttScroll"' in html,len(html)
           open("/tmp/pp-gateway-fixture.html","wb").write(html)
           print("MOCK_UPSTREAM_FIXTURE_READY",len(html))
+          model_request=urllib.request.Request("https://production-planner-gateway-production.up.railway.app/api/model",headers={"User-Agent":"ProdPlan-ReadOnly-Test-Model/1.0"})
+          with urllib.request.urlopen(model_request,timeout=40) as model_response:
+              fixture=model_response.read()
+          open("/tmp/pp-ceramics-live-model.json","wb").write(fixture)
+          print("MODEL_FIXTURE_READY",len(fixture))
           PY
+          node tests/ga-resource-repair.cjs
           bun tests/auth-gateway-mock.ts >/tmp/mock-gateway.log 2>&1 &
           mockpid=$!
           bun tests/planner-html-mock.ts >/tmp/mock-planner.log 2>&1 &
@@ -53,6 +60,7 @@ jobs:
           done
           python3 tests/auth-gateway-smoke.py
           node tests/login-session-browser.cjs
+          node tests/ga-resource-integration.cjs
           grep PP_SECURE_GATE_BUILD_OK /tmp/secured-bridge.log || true
           RAILWAY_PUBLIC_DOMAIN=pp-progress-fix-qa-20261010-production.up.railway.app PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8081 bun index.ts >/tmp/proxy-origin-bridge.log 2>&1 &
           proxypid=$!
