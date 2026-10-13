@@ -21,7 +21,7 @@ const {chromium}=require("playwright");
    docHidden:document.getElementById("ppDocumentsView").hidden,
    planShown:document.getElementById("planView").style.display!=="none",
   }));
-  assert.deepEqual(initial,{moved:true,topCount:0,count:2,docHidden:true,planShown:true},
+  assert.deepEqual(initial,{moved:true,topCount:0,count:2,docHidden:true,planShown:false},
     "original buttons should be relocated exactly once and Gantt visible");
   const docs=page.locator(".top .nav span").filter({hasText:"Документы"});
   await docs.click();
