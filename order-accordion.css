@@ -30,7 +30,7 @@
   font-size:12px!important;font-weight:650!important;line-height:17px!important;
 }
 #sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(1)::before{content:"Заказ"}
-#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(2)::before{content:"Площадь, м²"}
+#sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(2)::before{content:"Объём выпуска"}
 #sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(3)::before{content:"Техпроцесс"}
 #sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(-n+3)>.pp-edit-input,
 #sectionView .pp-oparam-table tr[data-oparam-order]>td:nth-child(3)>.pp-edit-select{
