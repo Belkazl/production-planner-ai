@@ -1,0 +1,13 @@
+name: Read-only ceramics material schema audit
+on:
+  push:
+    branches: [feature/2026-10-14-ceramics-material-consumption]
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read public demo model and material UI schema (no writes)
+        run: python3 tests/ceramic-material-schema-audit.py
