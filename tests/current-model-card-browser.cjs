@@ -1,5 +1,9 @@
 const assert=require("node:assert/strict");
 const {chromium}=require("playwright");
+const fs=require("node:fs");
+const fixtureHtml=fs.readFileSync("/tmp/pp-gateway-fixture.html","utf8");
+const modelTitleAt=fixtureHtml.indexOf("Текущая модель");
+console.log("CURRENT_MODEL_MARKUP_SOURCE",JSON.stringify({found:modelTitleAt>=0,excerpt:modelTitleAt>=0?fixtureHtml.slice(Math.max(0,modelTitleAt-550),modelTitleAt+950):""}));
 
 (async()=>{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
