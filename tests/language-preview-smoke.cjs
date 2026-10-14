@@ -1,6 +1,6 @@
 const assert=require("node:assert/strict");
 const {chromium}=require("playwright");
-const PREVIEW_URL=process.env.PP_LANGUAGE_PREVIEW_URL||"https://prodplan-english-language-qa-production.up.railway.app/";
+const PREVIEW_URL=process.env.PP_LANGUAGE_PREVIEW_URL||"https://production-planner-gateway-v2-production.up.railway.app/";
 (async()=>{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
@@ -17,11 +17,11 @@ const PREVIEW_URL=process.env.PP_LANGUAGE_PREVIEW_URL||"https://prodplan-english
   assert.equal(await page.evaluate(()=>document.documentElement.lang),"en");
   const languageBounds=await page.locator("#ppLanguageSelect").boundingBox();
   assert(languageBounds&&languageBounds.width>40&&languageBounds.height>15,"Language switch must be visible");
-  await page.screenshot({path:"preview-login-english.png",fullPage:true});
+  await page.screenshot({path:"production-login-english.png",fullPage:true});
   await page.locator("#ppLanguageSelect").selectOption("ru");
   assert.equal(await page.locator("#loginTab").innerText(),"Войти");
   assert.equal(await page.locator('label[for="password"]').innerText(),"Пароль");
-  await page.screenshot({path:"preview-login-russian.png",fullPage:true});
+  await page.screenshot({path:"production-login-russian.png",fullPage:true});
   await page.reload({waitUntil:"domcontentloaded"});
   await page.locator("#ppLanguageSelect").waitFor({state:"visible",timeout:10000});
   assert.equal(await page.locator("#ppLanguageSelect").inputValue(),"ru","Language choice must persist");
@@ -29,7 +29,7 @@ const PREVIEW_URL=process.env.PP_LANGUAGE_PREVIEW_URL||"https://prodplan-english
   const auth=await context.request.get(new URL("/api/auth/me",PREVIEW_URL).href,{timeout:30000});
   assert.equal(auth.status(),401,"Preview must never expose authenticated user data");
   assert.deepEqual(jsErrors,[],"No uncaught browser errors");
-  console.log("PUBLIC_I18N_PREVIEW_PASS",JSON.stringify({
+  console.log("PUBLIC_I18N_PRODUCTION_PASS",JSON.stringify({
    url:PREVIEW_URL,defaultLanguage:"en",languages:["en","ru"],
    selectionPersists:true,login:true,noAuthenticationLeak:true,
    visibleLanguageControl:true,browserErrors:0

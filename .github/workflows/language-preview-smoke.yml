@@ -1,4 +1,4 @@
-name: Verify deployed EN/RU preview login
+name: Verify deployed EN/RU production login
 on:
   pull_request:
     branches: [main]
@@ -16,15 +16,15 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.57.0
           npx playwright install --with-deps chromium
-      - name: Exercise public read-only language preview
+      - name: Exercise production language switch and auth anonymously
         run: node tests/language-preview-smoke.cjs
       - name: Save login screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: i18n-preview-en-ru-login
+          name: i18n-production-en-ru-login
           path: |
-            preview-login-english.png
-            preview-login-russian.png
+            production-login-english.png
+            production-login-russian.png
           retention-days: 3
           if-no-files-found: ignore
