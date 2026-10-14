@@ -1,0 +1,47 @@
+const assert=require("node:assert/strict");
+const {chromium}=require("playwright");
+const URL=process.env.PP_MATERIAL_TEST_URL||"http://127.0.0.1:8080/materials-test";
+(async()=>{
+ const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+ try{
+  const page=await browser.newPage({viewport:{width:1500,height:1000}});
+  const errs=[];page.on("pageerror",e=>errs.push(String(e)));
+  const health=await page.request.get(URL+"/health");assert.equal(health.status(),200);
+  const modelResp=await page.request.get(URL+"/model");assert.equal(modelResp.status(),200);
+  const m=(await modelResp.json()).model;
+  assert.equal(m.orders.length,12);assert.equal(m.materials.length,6);
+  const planResp=await page.request.get(URL+"/plan");assert.equal(planResp.status(),200);
+  const plan=(await planResp.json()).plan;
+  assert.equal(plan.operations.length,84,"12 orders x 7 stages must appear");
+  assert.equal(plan.batches.length,12);
+  assert.equal(plan.preview_only,true);
+  assert.equal(plan.operations.flatMap(o=>o.resources).filter(r=>r.resource_type==="material").length,72);
+  const result=await page.goto(URL,{waitUntil:"domcontentloaded",timeout:50000});assert.equal(result.status(),200);
+  await page.waitForFunction(()=>window.__PP_MATERIALS_TEST__?.ready,{timeout:45000});
+  const state=await page.evaluate(()=>window.__PP_MATERIALS_TEST__);
+  assert.equal(state.model.materials.length,6);
+  assert.equal(state.stats.rows,6);
+  assert.equal(state.stats.receipts,6);
+  assert.equal(state.stats.consumption,72);
+  const gantt=page.locator("#ppTabsView .pp3-card");
+  await gantt.waitFor({state:"visible"});
+  await page.screenshot({path:"test-etalon-materials-gantt.png",fullPage:true});
+  await page.locator("#ppmt-bar [data-ppmt=materials]").click();
+  await page.locator("#matBody tr[data-m]").first().waitFor({state:"visible"});
+  assert.equal(await page.locator("#matBody tr[data-m]").count(),6);
+  assert.equal(await page.locator("#matBody tr[data-m]").first().locator("[data-f=stock]").inputValue(),"185000");
+  await page.screenshot({path:"test-etalon-materials-editor.png",fullPage:true});
+  await page.locator("#ppmt-bar [data-ppmt=orders]").click();
+  assert((await page.locator("#ppTabsView .pp3-row").count())>=12);
+  await page.locator("#ppmt-bar [data-ppmt=employees]").click();
+  assert((await page.locator("#ppTabsView .pp3-row").count())>=2);
+  await page.locator("#ppmt-bar [data-ppmt=rebuild]").click();
+  await page.waitForTimeout(300);
+  const rebuild=await page.evaluate(()=>window.__PP_MATERIALS_TEST__);
+  assert.equal(rebuild.stats.consumption,72);
+  assert.deepEqual(errs,[],"JS runtime errors in visual preview");
+  const rejected=await page.request.post(URL+"/model",{data:{bad:true}});
+  assert.equal(rejected.status(),403,"Preview POSTs must be rejected");
+  console.log("EXISTING_TEST_ETALON_MATERIAL_GANTT_VISUAL_PASS",JSON.stringify({orders:m.orders.length,materials:m.materials.length,operations:plan.operations.length,consumption:state.stats.consumption,receipts:state.stats.receipts,protectedWrites:true,visible:true}));
+ }finally{await browser.close()}
+})().catch(err=>{console.error(err);process.exit(1)});
