@@ -23,8 +23,9 @@ def enrich(original: dict) -> dict:
     model = copy.deepcopy(original)
     orders = model.get("orders")
     processes = model.get("technical_processes")
-    if not isinstance(orders, list) or tuple(sorted(o.get("id") for o in orders)) != EXPECTED_IDS:
-        raise ValueError("This utility only enriches the exact 12-order ceramics demonstration model")
+    ids = tuple(sorted(o.get("id") for o in orders)) if isinstance(orders, list) else ()
+    if len(ids) not in (6, 12) or len(set(ids)) != len(ids) or not set(ids).issubset(EXPECTED_IDS):
+        raise ValueError("Expected the verified 6- or 12-order ceramic demo, not a customer model")
     if not isinstance(processes, list) or len(processes) != 1 or processes[0].get("id") != "TP_TILE":
         raise ValueError("Expected TP_TILE ceramic technology, refusing non-demo model")
     if model.get("_demo_materials_version") == VERSION:
@@ -35,8 +36,13 @@ def enrich(original: dict) -> dict:
     if not {"OP_PRESS", "OP_GLAZE", "OP_DECOR", "OP_PACK"}.issubset(op_map):
         raise ValueError("Demo operation identities changed")
     area = sum(float(o.get("area") or o.get("quantity") or 0) for o in orders)
-    if area != 23100.0 or any(float(o.get("area") or 0) <= 0 for o in orders):
-        raise ValueError("Orders/area differ from the verified 23100 m2 demo")
+    if not 0 < area <= 23100.0 or any(float(o.get("area") or 0) <= 0 for o in orders):
+        raise ValueError("Unexpected ceramic demo area; refusing to overwrite production data")
+    if any((o.get("parameters") or {}).get("mass_kg_m2") != 18 for o in orders):
+        raise ValueError("The known ceramic demo mass specification is missing")
+    if any(r.get("resource_type") == "material" for op in op_map.values()
+           for r in op.get("resource_requirements", [])):
+        raise ValueError("Material requirements already exist; refusing to duplicate them")
     material_list = []
     for material_id, name, unit, rate, operation_id, initial, delivery, at in SPEC:
         planned_demand = round(area * rate, 5)
@@ -85,7 +91,7 @@ def main():
         "orders": len(enriched["orders"]),
         "materials": len(enriched["materials"]),
         "requirements": sum(len(x["resource_requirements"]) for x in enriched["technical_processes"][0]["operations"]),
-        "volume_m2": 23100,
+        "volume_m2": sum(float(o.get("area") or o.get("quantity") or 0) for o in enriched["orders"]),
         "material_ids": [m["id"] for m in enriched["materials"]],
     },ensure_ascii=False),flush=True)
 
