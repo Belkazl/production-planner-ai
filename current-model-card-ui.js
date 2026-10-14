@@ -11,6 +11,7 @@
   let textNode;
   while((textNode=walker.nextNode())){
    if(String(textNode.nodeValue||"").replace(/\s+/g," ").trim()!==TITLE)continue;
+   if(textNode.parentElement?.closest('[data-pp-current-model-hidden="1"]'))continue;
    let el=textNode.parentElement;
    for(let depth=0;depth<8&&el&&el!==document.body;depth++,el=el.parentElement){
     const text=String(el.textContent||"");
@@ -25,16 +26,25 @@
   return null;
  }
  function scan(){
-  if(hiddenCard&&hiddenCard.isConnected)return true;
-  const el=findCard();
-  if(!el)return false;
-  el.dataset.ppCurrentModelHidden="1";
-  el.style.setProperty("display","none","important");
-  hiddenCard=el;
-  return true;
+  let changed=false;
+  for(let i=0;i<8;i++){
+   const el=findCard();
+   if(!el)break;
+   el.dataset.ppCurrentModelHidden="1";
+   el.style.setProperty("display","none","important");
+   hiddenCard=el;
+   changed=true;
+  }
+  return changed||!!(hiddenCard&&hiddenCard.isConnected);
  }
- function queueScan(){
-  if(hiddenCard&&hiddenCard.isConnected)return;
+ function queueScan(changes){
+  if(hiddenCard&&hiddenCard.isConnected){
+   // Re-scan only if a newly inserted DOM subtree contains another model card.
+   const hasNewTitle=changes.some(change=>[...change.addedNodes].some(n=>
+    n.nodeType===3?String(n.nodeValue||"").includes(TITLE):
+    n.nodeType===1?String(n.textContent||"").includes(TITLE):false));
+   if(!hasNewTitle)return;
+  }
   if(scheduled)return;
   scheduled=true;
   requestAnimationFrame(()=>{scheduled=false;scan()});
