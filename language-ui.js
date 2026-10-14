@@ -500,7 +500,7 @@ function transformText(node){
  if(current!==tr)node.nodeValue=tr;
 }
 function transformAttrs(el){
- if(!el||el.nodeType!==1||el.matches("script,style,noscript,textarea"))return;
+ if(!el||el.nodeType!==1||el.matches("script,style,noscript"))return;
  const existing=attributeStore.get(el)||new Map();
  for(const name of ["placeholder","title","aria-label","alt"]){
   const value=el.getAttribute(name);
