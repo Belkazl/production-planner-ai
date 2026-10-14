@@ -74,6 +74,7 @@ jobs:
           done
           node tests/documents-tab-browser.cjs
           node tests/current-model-card-browser.cjs
+          node tests/i18n-interface-audit.cjs
           node tests/start-over-browser.cjs
           node tests/restart-after-stop-browser.cjs
           node tests/restart-after-complete-browser.cjs
