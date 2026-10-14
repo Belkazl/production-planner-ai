@@ -11,7 +11,11 @@ if(!source.includes("PP_START_OVER_INLINE"))throw Error("PP_DOCS_MUST_PRESERVE_F
 if(!js.includes("ppDocumentsActionSlot")||!js.includes("ppImportBtn")||!js.includes("ppTemplateBtn")||
    !js.includes("moveOriginalActions")||!css.includes("#ppDocumentsView[hidden]"))
  throw Error("PP_DOCS_FEATURE_SOURCES_INVALID");
-const inline='<style id="pp-documents-tab-style">'+css+'</style><script id="pp-documents-tab-script">'+js+'</script>';
+const modelCardUi=readFileSync("current-model-card-ui.js","utf8");
+if(!modelCardUi.includes("PP_CURRENT_MODEL_CARD_UI__")||!modelCardUi.includes("Текущая модель"))
+ throw Error("PP_CURRENT_MODEL_CARD_PATCH_MISSING");
+const inline='<style id="pp-documents-tab-style">'+css+'</style><script id="pp-documents-tab-script">'+js+'</script>'+
+ '<script id="pp-current-model-card-ui">'+modelCardUi+'</script>';
 once("async function serveGanttUi(req){",
      "const PP_DOCUMENTS_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){","constant");
 once("+PP_STOP_INLINE+PP_GANTT_DETAILS_INLINE+PP_ORDER_STACKED_UI_INLINE+PP_START_OVER_INLINE+'</body>'",
