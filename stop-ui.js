@@ -108,6 +108,9 @@ btn.onclick=async function(event){
  if(running || btn.disabled)return;
  const my=++generation;
  running=true;requestStop=false;items=[];stop.disabled=true;selectedPlan=null;modalShown=false;stoppedPlanAvailable=false;window.__ppStopUiLocked=false;
+ // Make the restart control unavailable immediately, even before the original
+ // GA handler updates the primary button's disabled attribute.
+ window.dispatchEvent(new Event("pp:optimizer-started"));
  stop.textContent="Остановить оптимизацию";stop.classList.add("pp-on");
  criterion=(typeof window.ppOptimizerObjective==="function"?window.ppOptimizerObjective():null)||(typeof model!=="undefined"&&model?.objective)||"duration";
  prevPlan=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||null;
@@ -126,6 +129,9 @@ btn.onclick=async function(event){
    setActionAfterStop();
    if(!modalShown)setTimeout(showModal,30);
   }
+  // Completed normally or failed: running has just become false. The restart
+  // control must update independently from historical progress/inFlight flags.
+  window.dispatchEvent(new Event("pp:optimizer-finished"));
  }
 };
 stop.onclick=async function(){
