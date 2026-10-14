@@ -53,6 +53,9 @@ const examplePlan=n=>({ok:true,valid:true,partial:false,operations:[{operation_i
  const third=services.ppFreshPlanResult(A,newState,examplePlan(5700));
  assert.equal(third.optimization_run,1);
  assert.equal(third.total_generations,240);
+ const bounded=services.ppFreshPlanResult(A,newState,{...examplePlan(5500),generations:120});
+ assert.equal(bounded.optimization_run,2);
+ assert.equal(bounded.total_generations,360,"count reported generations rather than claiming another 240");
  console.log("PP_FRESH_SESSION_SERVER_PASS",JSON.stringify({
  previousCurrentPlan:2539,firstFreshPlan:4600,secondPlan:4320,
  freshFirstGenerationCount:240,secondGenerationCount:480,
