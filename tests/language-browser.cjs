@@ -34,6 +34,11 @@ const {chromium}=require("playwright");
   response=await page.goto("http://127.0.0.1:8080/",{waitUntil:"domcontentloaded",timeout:30000});
   assert.equal(response.status(),200);
   await page.locator("#ppLanguageSelect").waitFor({state:"visible",timeout:10000});
+  console.log("PP_LANGUAGE_CROSS_AUTH_STATE",JSON.stringify(await page.evaluate(()=>({
+   url:location.href,stored:localStorage.getItem("prodplan.ui.language.v1"),
+   lang:document.documentElement.lang,chosen:document.getElementById("ppLanguageSelect")?.value,
+   current:window.__PP_LANGUAGE__?.current,installed:window.__PP_LANGUAGE__?.installed
+  }))));
   assert.equal(await page.locator("#ppLanguageSelect").inputValue(),"ru");
   assert.equal(await page.locator("#ppProtectedLogout").count(),1);
   const projectsText=await page.locator(".top .nav > span").first().textContent();
