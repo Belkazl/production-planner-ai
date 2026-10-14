@@ -17,16 +17,17 @@ let resetting=false;
 const find=id=>document.getElementById(id);
 const currentProject=()=>{try{return localStorage.getItem("prodplan.project.active.v2")}catch(_){return null}};
 function isBusy(){
- const status=window.__PP_STOP_DEBUG__?.();
- if(resetting)return true;
- // Once the stop API has confirmed a complete candidate, stale in-flight
- // progress flags must not keep "Start over" locked behind a cancelled run.
- if(status?.stopped&&!status.running&&status.stoppedPlanAvailable)return false;
- return !!btn.disabled||!!status?.running||window.__ppOptimizationInFlight===true;
+ // The stop controller is the authoritative source for a GA pass in progress.
+ // The original opt.disabled and __ppOptimizationInFlight can remain stale
+ // after a normal completion; neither should lock an independent restart.
+ // The server also rejects a reset if a pass is still actually running.
+ return resetting || window.__PP_STOP_DEBUG__?.().running===true;
 }
 function updateDisabled(){fresh.disabled=isBusy()}
 const observer=new MutationObserver(updateDisabled);
 observer.observe(btn,{attributes:true,attributeFilter:["disabled"]});
+window.addEventListener("pp:optimizer-started",updateDisabled);
+window.addEventListener("pp:optimizer-finished",updateDisabled);
 window.addEventListener("pp:optimizer-stopped",updateDisabled);
 function setText(id,text){
  const node=find(id);
