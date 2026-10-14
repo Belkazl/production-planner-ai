@@ -4,6 +4,8 @@ const {chromium}=require("playwright");
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
   const ctx=await browser.newContext({viewport:{width:1440,height:900}});
+  // Legacy functional checks intentionally exercise the Russian language option.
+  await ctx.addInitScript(()=>{try{localStorage.setItem('prodplan.ui.language.v1','ru')}catch(_){}});
   const page=await ctx.newPage();
   const errors=[];
   page.on("pageerror",e=>errors.push(String(e)));
