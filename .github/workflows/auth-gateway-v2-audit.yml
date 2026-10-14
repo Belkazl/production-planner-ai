@@ -1,0 +1,45 @@
+name: Audit gateway v2 account UI and API enforcement
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect account UI markers without exposing credentials
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.error,re,json
+          u="https://production-planner-gateway-v2-production.up.railway.app"
+          with urllib.request.urlopen(urllib.request.Request(u+"/",headers={"User-Agent":"ProdPlanAuthAudit/1.0"}),timeout=25) as resp:html=resp.read(600000).decode("utf8","replace")
+          scripts=re.findall(r'<script\b[^>]*>(.*?)</script>',html,re.S|re.I)
+          print("SCRIPTS",len(scripts),flush=True)
+          matches=[]
+          for script in scripts:
+             flags={t:len(re.findall(re.escape(t),script,re.I)) for t in ["ACCOUNT_UI","login","logout","auth","войти","password","localStorage","sessionStorage","document.cookie","fetch(","/api/","crypto","tenant","register"]}
+             if flags["login"]+flags["logout"]+flags["войти"]>0:matches.append(flags)
+          print("AUTH_SCRIPT_COUNTS",json.dumps(matches,ensure_ascii=False),flush=True)
+          body=re.search(r'<body[^>]*>(.*?)</body>',html,re.S|re.I)
+          if body:
+             openers=re.findall(r'<(?:button|input|form|dialog|div)\b[^>]*>',body.group(1),re.I)
+             authTags=[x for x in openers if re.search(r'auth|login|password|account|logout|user|session|signin',x,re.I)]
+             for x in authTags[:50]:
+                x=re.sub(r'(?i)(?:value|password|token|secret|api_key)\s*=\s*(["\']).*?\1',r'\1[REDACTED]\1',x)
+                print("AUTH_ELEMENT",x[:370],flush=True)
+          patterns=[r'\bfunction\s+(\w*(?:auth|login|logout|account|session|tenant)\w*)\s*\(',r'\b(?:const|let|var)\s+(\w*(?:auth|login|logout|account|session|tenant)\w*)\s*[=;]',r'\b(?:fetch|open)\s*\(\s*[\'\"](/[^\'\"]+)']
+          for pat in patterns:
+             results=[]
+             for script in scripts:
+                results.extend(re.findall(pat,script,re.I))
+             print("STRUCTURAL_IDENTIFIERS",pat,json.dumps(sorted(set(results))[:90],ensure_ascii=False),flush=True)
+          for path in ["/api/db-storage","/api/project/model","/api/project/model/import","/api/auth/me","/auth/me","/api/account","/api/accounts"]:
+             req=urllib.request.Request(u+path,headers={"User-Agent":"ProdPlanAuthAudit/1.0"})
+             try:
+                with urllib.request.urlopen(req,timeout=13) as r:
+                    blob=r.read(10000)
+                    print("ANONYMOUS_GATEWAY_V2",json.dumps({"path":path,"http":r.status,"bytes_at_least":len(blob)},ensure_ascii=False),flush=True)
+             except urllib.error.HTTPError as ex:print("ANONYMOUS_GATEWAY_V2",json.dumps({"path":path,"http":ex.code},ensure_ascii=False),flush=True)
+             except Exception as ex:print("ANONYMOUS_GATEWAY_V2_ERROR",path,str(ex)[:200],flush=True)
+          PY

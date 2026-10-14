@@ -1,0 +1,29 @@
+name: Inspect gateway auth protocol
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read public client authentication implementation
+        run: |
+          python3 - <<'PY'
+          import re,urllib.request,json
+          url="https://production-planner-gateway-v2-production.up.railway.app/"
+          h=urllib.request.urlopen(url,timeout=45).read().decode("utf8","replace")
+          for i,m in enumerate(re.finditer(r'<script\b[^>]*>(.*?)</script>',h,re.S|re.I)):
+            c=m.group(1)
+            if 'login' not in c.lower() and '/api/auth' not in c:continue
+            print('SCRIPT',i,'SIZE',len(c))
+            for key in ['loginForm','loginTab','password','fetch(\'/api/auth','fetch("/api/auth','/api/auth','logout','sessionStorage','localStorage','set-cookie','credentials:','register']:
+              for hit in list(re.finditer(re.escape(key),c,re.I))[:4]:
+                snippet=c[max(0,hit.start()-330):min(len(c),hit.start()+1100)]
+                print('PROTOCOL_SNIPPET',i,key,json.dumps(snippet,ensure_ascii=False),flush=True)
+          for tok in ['id="loginTab"','id="password"','id="loginForm"','id="auth','<form','</form>','id="registerTab"']:
+            idx=h.find(tok)
+            if idx>=0:print('HTML_AUTH',tok,json.dumps(h[max(0,idx-350):min(len(h),idx+1000)],ensure_ascii=False),flush=True)
+          for k in ['<title','<head','<body','id="app"','id="sectionView"','id="loginForm"']:
+            p=h.find(k);print('ANCHOR',k,p)
+          PY
