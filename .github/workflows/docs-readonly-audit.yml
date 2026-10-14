@@ -1,0 +1,13 @@
+name: Audit current documents controls and navigation
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect only public UI code
+        run: python3 tests/docs-readonly-audit.py
