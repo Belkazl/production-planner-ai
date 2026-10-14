@@ -92,7 +92,8 @@ const {chromium}=require("playwright");
   const orderNav=page.locator(".side > .item").filter({hasText:"Заказы"});
   await orderNav.click();
   await page.locator("#sectionView").waitFor({state:"visible",timeout:8000});
-  await page.waitForFunction(()=>document.getElementById("sectionView").innerText.includes("Edit orders"),null,{timeout:8000});
+  console.log("PP_EN_ORDER_SECTION",JSON.stringify(await page.evaluate(()=>({text:document.getElementById("sectionView").innerText.slice(0,1500),active:[...document.querySelectorAll(".side > .item.active")].map(x=>x.textContent.trim()),language:window.__PP_LANGUAGE__?.current}))));
+  await page.waitForFunction(()=>document.getElementById("sectionView").innerText.includes("Production volume"),null,{timeout:8000});
   assert(await page.locator("#sectionView").innerText().then(x=>x.includes("Production volume")),
    "order inputs must show translated labels");
   await page.locator(".side > .item").filter({hasText:"Оборудование"}).click();
