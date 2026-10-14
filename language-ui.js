@@ -5,6 +5,45 @@ if(window.__PP_LANGUAGE__)return;
 // UI-only localization. Do not translate model payloads, API requests, user input,
 // project names, saved plans or free-form AI conversations.
 const KEY="prodplan.ui.language.v1";
+const DB="prodplan-ui-preferences";
+let preferenceRevision=0;
+function storeInDb(value){
+ try{
+  if(!("indexedDB" in window))return;
+  const request=indexedDB.open(DB,1);
+  request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains("settings"))db.createObjectStore("settings")};
+  request.onsuccess=()=>{
+   try{
+    const db=request.result;
+    const tx=db.transaction("settings","readwrite");
+    tx.objectStore("settings").put(value,"language");
+    tx.oncomplete=()=>db.close();
+    tx.onerror=()=>db.close();
+   }catch(_){}
+  };
+ }catch(_){}
+}
+function readFromDb(onResult){
+ try{
+  if(!("indexedDB" in window))return;
+  const request=indexedDB.open(DB,1);
+  request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains("settings"))db.createObjectStore("settings")};
+  request.onsuccess=()=>{
+   try{
+    const db=request.result,tx=db.transaction("settings","readonly");
+    const get=tx.objectStore("settings").get("language");
+    get.onsuccess=()=>onResult(get.result);
+    tx.oncomplete=()=>db.close();
+   }catch(_){}
+  };
+ }catch(_){}
+}
+function readStoredLanguage(){
+ for(const source of [sessionStorage,localStorage]){
+  try{const value=source.getItem(KEY);if(value==="en"||value==="ru")return value}catch(_){}
+ }
+ return null;
+}
 const texts={
  // Authentication and top-level navigation
  "Вход — ProdPlan AI":"Sign in — ProdPlan AI",
@@ -533,12 +572,17 @@ function refresh(){
   }
   const select=document.getElementById("ppLanguageSelect");
   if(select&&select.value!==lang)select.value=lang;
+  const switchLabel=document.querySelector(".pp-language-label");
+  if(switchLabel)switchLabel.textContent=lang==="ru"?"Язык":"Language";
  }finally{resettingUi=false}
 }
 function selectLanguage(value){
  if(value!=="en"&&value!=="ru")return;
+ ++preferenceRevision;
  lang=value;
+ try{sessionStorage.setItem(KEY,lang)}catch(_){}
  try{localStorage.setItem(KEY,lang)}catch(_){}
+ storeInDb(lang);
  refresh();
  window.dispatchEvent(new CustomEvent("pp:language-changed",{detail:{language:lang}}));
 }
@@ -601,10 +645,24 @@ function observe(){
 function start(){
  if(started)return;
  started=true;
- try{const saved=localStorage.getItem(KEY);lang=saved==="ru"?"ru":"en"}catch(_){lang="en"}
+ const saved=readStoredLanguage();
+ lang=saved==="ru"?"ru":"en";
  control();
  refresh();
  observe();
+ // The original production project initializer replaces localStorage with
+ // authenticated project data on sign-in. Keep the locale in sessionStorage,
+ // with independent IndexedDB persistence across tabs/browser restarts.
+ if(saved){
+  try{sessionStorage.setItem(KEY,saved)}catch(_){}
+  storeInDb(saved);
+ }else{
+  const initialRevision=preferenceRevision;
+  readFromDb(value=>{
+   if(initialRevision!==preferenceRevision||value!=="ru"&&value!=="en")return;
+   selectLanguage(value);
+  });
+ }
 }
 window.__PP_LANGUAGE__={
  get current(){return lang},
