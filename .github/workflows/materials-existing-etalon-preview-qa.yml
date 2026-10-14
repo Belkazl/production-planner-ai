@@ -1,0 +1,43 @@
+name: QA materials on existing test etalon
+on:
+  push:
+    branches: [feature/2026-10-14-ceramics-material-consumption]
+  workflow_dispatch:
+jobs:
+  test-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check test etalon with materials preview
+        run: bun build previews/materials-test-etalon-source-20261014.ts --target=bun --outdir=/tmp/pp-material-etalon
+      - name: Install browser
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Verify original test etalon renders read-only material Gantt
+        run: |
+          PORT=8080 bun previews/materials-test-etalon-source-20261014.ts >/tmp/etalon-material-server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8080/materials-test/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/existing-etalon-materials-visual.cjs || (tail -n 80 /tmp/etalon-material-server.log && exit 1)
+      - name: Keep proof screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: existing-test-etalon-materials-visual
+          path: |
+            test-etalon-materials-gantt.png
+            test-etalon-materials-editor.png
+          retention-days: 3
+          if-no-files-found: ignore
