@@ -21,6 +21,12 @@ assert updated["employees"]==original["employees"],"staff changed"
 assert updated.get("shifts")==original.get("shifts"),"shifts changed"
 assert updated.get("constraints")==original.get("constraints"),"constraints changed"
 assert module.enrich(updated)==updated,"migration is not idempotent"
+legacy_six=copy.deepcopy(original)
+legacy_six["orders"]=legacy_six["orders"][:6]
+legacy_enriched=module.enrich(legacy_six)
+assert len(legacy_enriched["orders"])==6 and len(legacy_enriched["materials"])==6
+assert legacy_enriched["orders"]==legacy_six["orders"],"six-order tenant model changed"
+assert module.enrich(legacy_enriched)==legacy_enriched
 bad=copy.deepcopy(original);bad["orders"][0]["id"]=1
 try:module.enrich(bad)
 except ValueError:pass
@@ -45,4 +51,4 @@ for old,new in zip(original["technical_processes"][0]["operations"],updated["tec
  assert new.get("resource_requirements",[])[:len(oldreq)]==oldreq
  assert {k:v for k,v in old.items() if k!="resource_requirements"}=={k:v for k,v in new.items() if k!="resource_requirements"}
 totals={mid:round(area*rate,3) for mid,_,_,rate,_,_,_,_ in module.SPEC}
-print("CERAMICS_MATERIALS_VALIDATION_PASS",json.dumps({"orders":len(updated["orders"]),"volume_m2":area,"materials":len(names),"totalDemand":totals,"preserved":["orders","setup_rules","equipment","employees","shifts","constraints"],"idempotent":True,"safeScope":True},ensure_ascii=False))
+print("CERAMICS_MATERIALS_VALIDATION_PASS",json.dumps({"orders":len(updated["orders"]),"volume_m2":area,"materials":len(names),"totalDemand":totals,"preserved":["orders","setup_rules","equipment","employees","shifts","constraints"],"idempotent":True,"safeScope":True,"legacySixOrdersSupported":True},ensure_ascii=False))
