@@ -16,6 +16,9 @@ const {chromium}=require("playwright");
   await page.locator("#go").click();
   await page.locator("#ppDocumentsView").waitFor({state:"attached",timeout:45000});
   await page.waitForFunction(()=>window.__PP_DOCUMENTS_TAB__?.actionsMoved,{timeout:15000});
+  // Select Russian explicitly: the standalone language-switch regression tests English default.
+  await page.locator("#ppLanguageSelect").selectOption("ru");
+  await page.waitForFunction(()=>window.__PP_LANGUAGE__?.current==="ru");
   // Logout must be the only visible account control in the top-right header.
   const cleanHeader=await page.evaluate(()=>{
    const logout=document.getElementById("ppProtectedLogout");
