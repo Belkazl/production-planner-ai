@@ -1,0 +1,33 @@
+name: Verify published material Gantt on test etalon
+on:
+  push:
+    branches: [feature/2026-10-14-ceramics-material-consumption]
+  workflow_dispatch:
+jobs:
+  check-public-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test tooling
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Check actual published test etalon read-only material UI
+        env:
+          PP_MATERIAL_TEST_URL: https://aps-setup-bridge-production.up.railway.app/materials-test
+        run: |
+          node tests/existing-etalon-materials-visual.cjs
+      - name: Preserve published browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-test-etalon-material-gantt
+          path: |
+            test-etalon-materials-gantt.png
+            test-etalon-materials-editor.png
+          retention-days: 3
+          if-no-files-found: ignore
