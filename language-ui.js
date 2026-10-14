@@ -618,6 +618,14 @@ function processQueue(){
  const roots=[...changed];changed.clear();
  if(!roots.length)return;
  for(const root of roots){if(root?.isConnected||root===document.body)translateBranch(root)}
+ // The editor often inserts detached table fragments and then replaces its
+ // table body. Sweep only that affected editor once more to catch text written
+ // after the original fragment was queued (e.g. "15 параметров").
+ if(lang==="en"){
+  const editor=document.getElementById("sectionView");
+  if(editor&&roots.some(root=>root===editor||editor.contains(root)||root?.contains?.(editor)))
+   translateBranch(editor);
+ }
  // An account header can be injected by the auth bridge after our own script.
  if(!document.getElementById("ppLanguageControl"))control();
 }
