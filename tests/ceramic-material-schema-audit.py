@@ -23,4 +23,9 @@ for needle in ["function renderSection", "function editMaterials", "renderMateri
  matches=list(re.finditer(re.escape(needle),html,re.I))
  contexts=[html[max(0,match.start()-250):match.start()+800] for match in matches[:3]]
  print("MATERIAL_AUDIT_HTML",json.dumps({"needle":needle,"hits":len(matches),"samples":contexts},ensure_ascii=False)[:4300],flush=True)
+for name in ["function renderMaterials(){","function mats(){","function materialRow(","function renderEditable(","function renderSection(name){","function renderTech","function processes()","data-f=\"stock\"","mats().push","model.materials="]:
+ p=html.find(name)
+ if p<0:continue
+ excerpt=html[p:p+10500]
+ print("MATERIAL_AUDIT_EDITOR",json.dumps({"name":name,"html":excerpt[:6000]},ensure_ascii=False)[:7000],flush=True)
 print("MATERIAL_AUDIT_PASS",flush=True)
