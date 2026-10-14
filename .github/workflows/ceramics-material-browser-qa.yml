@@ -1,0 +1,69 @@
+name: QA ceramic material editor and consumption Gantt
+on:
+  push:
+    branches: [feature/2026-10-14-ceramics-material-consumption]
+  workflow_dispatch:
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fetch public ceramic fixtures for isolated browser QA
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          base='https://production-planner-gateway-production.up.railway.app'
+          for path,output in [('/', '/tmp/pp-gateway-fixture.html'),('/api/model', '/tmp/pp-ceramics-live-model.json')]:
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers={'User-Agent':'ProdPlanCeramicMaterialsBrowserReadOnly/1.0'}),timeout=50) as r:
+                  data=r.read(4000000)
+              open(output,'wb').write(data)
+          PY
+          python3 scripts/enrich_ceramic_materials.py --input /tmp/pp-ceramics-live-model.json --output /tmp/pp-ceramics-material-model.json
+      - name: Compile approved auth gateway and preserve all existing code
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-material-build
+      - name: Install isolated browser test runner
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Render actual material editor and Gantt (no production writes)
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/pp-material-auth.log 2>&1 &
+          a_pid=$!
+          bun tests/planner-html-mock.ts >/tmp/pp-material-ui.log 2>&1 &
+          ui_pid=$!
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/pp-material-bridge.log 2>&1 &
+          bridge_pid=$!
+          trap 'kill "$a_pid" "$ui_pid" "$bridge_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/ceramics-material-browser.cjs
+      - name: Save screenshots for visual QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceramic-materials-editor-and-gantt
+          path: |
+            ceramics-materials-editor.png
+            ceramics-materials-gantt.png
+          retention-days: 3
+          if-no-files-found: ignore
