@@ -102,8 +102,13 @@ const {chromium}=require("playwright");
     text:document.getElementById("sectionView")?.innerText?.slice(0,600),
     html:document.getElementById("sectionView")?.innerHTML?.slice(0,400)};
   },modelFixture)));
-  await page.waitForTimeout(250);
+  // The observer must translate new rows without a manual refresh.
+  await page.waitForFunction(()=>
+   !/\d+\s+параметр(?:ов|а)?/.test(document.getElementById("sectionView")?.innerText||""),
+   null,{timeout:8000});
   const autoTranslation=await page.locator("#sectionView").innerText();
+  assert(!/\d+\s+параметр(?:ов|а)?/.test(autoTranslation),
+   "Dynamic parameter counts must auto-translate into English");
   await page.evaluate(()=>window.__PP_LANGUAGE__.refresh());
   const afterRefresh=await page.locator("#sectionView").innerText();
   console.log("PP_EN_ORDERS_TRANSLATION_PROBE",JSON.stringify({
@@ -121,8 +126,8 @@ const {chromium}=require("playwright");
   if(editorLoaded){
    assert(orderText.includes("Production parameters"),
     "Production parameter section must be translated");
-   console.log("PP_EN_ORDER_COLLAPSED_PARAMETER_LABELS",
-     JSON.stringify((orderText.match(/\\d+ параметр(?:ов|а)?/g)||[]).slice(0,8)));
+   assert(!/\d+\s+параметр(?:ов|а)?/.test(orderText),
+    "Collapsed parameter counters still show Russian in English mode");
   }
   await page.locator(".side > .item").filter({hasText:"Оборудование"}).click();
   assert.equal(await page.locator(".side > .item.active").textContent().then(x=>x.trim()),"Оборудование");
