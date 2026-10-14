@@ -57,6 +57,8 @@ const {chromium}=require("playwright");
   await page.locator("#ppOptimizerStartOver").click();
   await Promise.race([seen,new Promise((_,reject)=>setTimeout(()=>reject(Error("new optimizer never started")),16000))]);
   assert.equal(requests.length,1);
+  assert.equal(requests[0].generations,60,"one bounded pass must request 60 GA generations");
+  assert.equal(requests[0].population,32,"one bounded pass must use bounded GA population");
   assert.equal(requests[0].continue,false,"first pass must NOT continue the old 2539 plan");
   const intermediate=await page.evaluate(()=>({
     duration:document.getElementById("dur").textContent,
