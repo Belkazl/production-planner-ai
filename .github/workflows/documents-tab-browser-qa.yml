@@ -31,8 +31,7 @@ jobs:
           grep -q 'pp-restart-optimizer-ui' index.ts
           grep -q 'PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE' index.ts
           grep -q 'PP_ORDER_STACKED_UI_INLINE' index.ts
-          grep -q 'pp-current-model-card-ui' index.ts
-          node --check current-model-card-ui.js
+          grep -q 'pp-current-model-card-style' index.ts
           grep -q 'PP_CERAMIC_RESOURCE_MIGRATION_BUILD_PASS' ceramics-resource-repair.ts
       - name: Fetch existing Gantt HTML read-only for test fixture
         run: |
