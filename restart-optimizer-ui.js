@@ -18,11 +18,16 @@ const find=id=>document.getElementById(id);
 const currentProject=()=>{try{return localStorage.getItem("prodplan.project.active.v2")}catch(_){return null}};
 function isBusy(){
  const status=window.__PP_STOP_DEBUG__?.();
- return resetting||!!btn.disabled||!!status?.running||window.__ppOptimizationInFlight===true;
+ if(resetting)return true;
+ // Once the stop API has confirmed a complete candidate, stale in-flight
+ // progress flags must not keep "Start over" locked behind a cancelled run.
+ if(status?.stopped&&!status.running&&status.stoppedPlanAvailable)return false;
+ return !!btn.disabled||!!status?.running||window.__ppOptimizationInFlight===true;
 }
 function updateDisabled(){fresh.disabled=isBusy()}
 const observer=new MutationObserver(updateDisabled);
 observer.observe(btn,{attributes:true,attributeFilter:["disabled"]});
+window.addEventListener("pp:optimizer-stopped",updateDisabled);
 function setText(id,text){
  const node=find(id);
  if(node)node.textContent=text;
