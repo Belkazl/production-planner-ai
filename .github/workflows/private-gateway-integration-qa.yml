@@ -13,7 +13,7 @@ jobs:
           python3 - <<'PY'
           import json,urllib.request,urllib.error
           from urllib.parse import urlparse
-          base="https://prodplan-auth-integration-qa-production.up.railway.app"
+          base="https://production-planner-gateway-v2-production.up.railway.app"
           def hit(path,method="GET",headers=None,body=None):
             d=json.dumps(body).encode() if body is not None else None
             req=urllib.request.Request(base+path,data=d,method=method,headers={"User-Agent":"ProdPlanPrivateAuthReadOnlyQA/1.0","Cache-Control":"no-cache",**(headers or {})})
@@ -31,7 +31,7 @@ jobs:
           assert st in (400,401,422) and "cross_origin_forbidden" not in t and "authentication_service_unavailable" not in t,(st,t[:230])
           st,t=hit("/api/auth/login","POST",{"Origin":"https://untrusted.example","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
           print("QA_PRIVATE_AUTH_CROSS_ORIGIN",st,t[:130],flush=True);assert st==403
-          st,t=hit("/api/auth/login","POST",{"Origin":base,"Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
+          st,t=hit("/api/auth/login","POST",{"Origin":"https://prodplan-auth-integration-qa-production.up.railway.app","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
           print("QA_OLD_CANARY_ORIGIN_DENIED",st,t[:100],flush=True);assert st==403
           print("QA_INTERNAL_GATEWAY_AUTH_PASS",flush=True)
           PY
