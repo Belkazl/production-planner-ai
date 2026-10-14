@@ -76,6 +76,7 @@ jobs:
           node tests/current-model-card-browser.cjs
           node tests/start-over-browser.cjs
           node tests/restart-after-stop-browser.cjs
+          node tests/restart-after-complete-browser.cjs
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         if: always()
@@ -90,5 +91,6 @@ jobs:
             start-over-first-new-baseline.png
             start-over-second-improved.png
             restart-unlocked-after-stop.png
+            restart-enabled-after-normal-completion.png
           retention-days: 3
           if-no-files-found: ignore
