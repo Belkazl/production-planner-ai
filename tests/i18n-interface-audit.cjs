@@ -28,6 +28,17 @@ const fs=require("node:fs");
   await page.goto("http://127.0.0.1:8080/",{waitUntil:"domcontentloaded",timeout:30000});
   await page.waitForTimeout(200);
   console.log("PP_I18N_AUDIT_INITIAL "+JSON.stringify(await collect()));
+  console.log("PP_I18N_AUDIT_NAV_MARKUP "+JSON.stringify(await page.evaluate(()=>({
+   top:document.querySelector(".top .nav")?.outerHTML?.slice(0,2100),
+   side:document.querySelector(".side")?.outerHTML?.slice(0,1600),
+   ganttTabs:document.querySelector("#planView .tabs")?.outerHTML?.slice(0,1500)
+  }))));
+  console.log("PP_I18N_AUDIT_TEXT_DEPENDENCIES "+JSON.stringify(
+   fs.readFileSync("/tmp/pp-gateway-fixture.html","utf8")
+     .split("\\n").flatMap(line=>[...line.matchAll(/.{0,95}(?:textContent|innerText).{0,110}/g)]
+     .map(m=>m[0]).filter(x=>/[А-Яа-яЁё]/.test(x)))
+     .slice(0,110)
+  ));
   const modelFixture=JSON.parse(fs.readFileSync("/tmp/pp-ceramics-live-model.json","utf8")).model;
   const sections=["Производство","Заказы","Материалы","Оборудование","Сотрудники","Настройки","Аналитика","Сценарии","Планирование"];
   await page.evaluate(data=>{model=data;modelReady=true;document.body.classList.remove("projects-mode");document.getElementById("planView").style.display="block";},modelFixture);
