@@ -39,7 +39,7 @@ const {chromium}=require("playwright");
   }));
   const opened=await page.goto("http://127.0.0.1:8080/",{waitUntil:"domcontentloaded",timeout:30000});
   assert.equal(opened.status(),200);
-  await page.locator("#ppOptimizerStartOver").waitFor({state:"visible",timeout:12000});
+  await page.locator("#ppOptimizerStartOver").waitFor({state:"attached",timeout:12000});
   await page.evaluate(givenModel=>{
    const previous={id:"qa-completed-restart",revision:7,name:"Керамика",
     lastPlan:{valid:true,duration_minutes:4509,batch_count:65,
@@ -58,6 +58,7 @@ const {chromium}=require("playwright");
    document.getElementById("opt").disabled=false;
    document.getElementById("opt").textContent="Продолжить оптимизацию";
   },modelFixture);
+  await page.locator("#ppOptimizerStartOver").waitFor({state:"visible",timeout:10000});
   assert.equal(await page.locator("#ppOptimizerStartOver").isDisabled(),false,
    "restart must be available when no GA is running");
   await page.locator("#opt").click();
