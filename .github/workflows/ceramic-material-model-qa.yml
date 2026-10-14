@@ -1,0 +1,33 @@
+name: QA ceramic material consumption data
+on:
+  push:
+    branches: [feature/2026-10-14-ceramics-material-consumption]
+  workflow_dispatch:
+jobs:
+  material-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch original ceramic model read only
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          u='https://production-planner-gateway-production.up.railway.app/api/model'
+          with urllib.request.urlopen(urllib.request.Request(u,headers={'User-Agent':'ProdPlanBOMFixtureReadOnly/1.0'}),timeout=55) as r:
+              data=r.read(4000000)
+              assert r.status==200
+          open('/tmp/pp-ceramics-live-model.json','wb').write(data)
+          print('PUBLIC_CERAMICS_BASE_FIXTURE_OK',len(data))
+          PY
+      - name: Validate material consumption, stock coverage and no regression to orders/setups
+        run: |
+          python3 scripts/enrich_ceramic_materials.py --input /tmp/pp-ceramics-live-model.json --output /tmp/pp-ceramics-material-model.json
+          python3 tests/ceramic-material-model.py
+      - name: Upload isolated enriched ceramic model for account import testing
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceramics-material-consumption-model
+          path: /tmp/pp-ceramics-material-model.json
+          retention-days: 2
