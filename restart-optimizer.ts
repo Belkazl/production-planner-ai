@@ -24,7 +24,7 @@ once("async function progress(req){\n const r=await fetch(upstreamUrl(req),",
      "async function progress(req){\n const fresh=ppFreshSession(req);if(fresh?.awaitingRun)return jsonifyBridge({ok:true,running:false,success:false,done:0,total:240,percent:0,phase:'fresh_ready',candidate_preview:null,best_preview:null});\n const r=await fetch(upstreamUrl(req),",
      "suppress_old_result_before_start");
 once("const data=await r.json();if(!data?.ok||!(data.candidate_preview||data.best_preview))return jsonifyBridge(data);",
-     "const data=await r.json();if(fresh){const state=ppActiveObjectiveRuns.get(ppSecureSessionKey(req));if(!state||state.freshEpoch!==fresh.epoch||(!state.seenRunning&&!data.running))return jsonifyBridge({ok:true,running:false,success:false,done:0,total:240,percent:0,phase:'fresh_starting',candidate_preview:null,best_preview:null})}if(!data?.ok||!(data.candidate_preview||data.best_preview))return jsonifyBridge(data);",
+     "const data=await r.json();if(fresh){const state=ppActiveObjectiveRuns.get(ppSecureSessionKey(req));if(state&&Number(data.total)>0)state.lastProgressTotal=Math.round(Number(data.total));if(!state||state.freshEpoch!==fresh.epoch||(!state.seenRunning&&!data.running))return jsonifyBridge({ok:true,running:false,success:false,done:0,total:240,percent:0,phase:'fresh_starting',candidate_preview:null,best_preview:null})}if(!data?.ok||!(data.candidate_preview||data.best_preview))return jsonifyBridge(data);",
      "suppress_stale_optimizer_previews");
 once("async function serveGanttUi(req){",htmlTransform+"\nconst PP_START_OVER_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){","inject_client_and_html_transform");
 once("new Response(ppGaPollHtml.replace('</body>',",
