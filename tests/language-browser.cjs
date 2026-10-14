@@ -109,13 +109,21 @@ const {chromium}=require("playwright");
   console.log("PP_EN_ORDERS_TRANSLATION_PROBE",JSON.stringify({
    auto:autoTranslation.slice(0,450),refreshed:afterRefresh.slice(0,450)
   }));
-  // In an empty account, opening Orders correctly reports that the model has
-  // not been saved yet. Dynamic UI translation must still handle that state.
-  assert(afterRefresh.includes("No model created yet")||afterRefresh.includes("Production volume"),
-   "English Orders view must not display untranslated empty-state messaging");
+  // A demo fixture loads the real orders editor; an empty account displays
+  // the no-model message. Validate either state without assuming an expanded row.
   const orderText=await page.locator("#sectionView").innerText();
-  assert(orderText.includes("No model created yet")||orderText.includes("Production volume"),
-   "Orders view must localize the no-model case or editor labels");
+  const editorLoaded=orderText.includes("Edit orders");
+  assert(editorLoaded||orderText.includes("No model created yet"),
+   "English Orders view must show its translated editor or empty state");
+  assert(!orderText.includes("Редактирование заказов")&&
+   !orderText.includes("Модель ещё не создана"),
+   "Orders editor and empty-state headings must be translated");
+  if(editorLoaded){
+   assert(orderText.includes("Production parameters"),
+    "Production parameter section must be translated");
+   console.log("PP_EN_ORDER_COLLAPSED_PARAMETER_LABELS",
+     JSON.stringify((orderText.match(/\\d+ параметр(?:ов|а)?/g)||[]).slice(0,8)));
+  }
   await page.locator(".side > .item").filter({hasText:"Оборудование"}).click();
   assert.equal(await page.locator(".side > .item.active").textContent().then(x=>x.trim()),"Оборудование");
   const equipmentText=await page.locator("#sectionView").innerText();
