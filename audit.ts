@@ -1,8 +1,8 @@
 import postgres from "postgres";
 import {createHash} from "node:crypto";
 const SQL=postgres(Bun.env.DATABASE_URL,{max:1,connect_timeout:14,idle_timeout:3});
-const APPLY=false;
-const EXPECTED_SHA="";
+const APPLY=true;
+const EXPECTED_SHA="3774a5f2fec826e8a5d720defb8de9ca5d12df3e318585ff97f4eecabb3c8dde";
 const VERSION="ceramics-material-consumption-2026-10-14-v1";
 const PROJECT_ID="prj_mugww6lr_kanzz5";
 const SPECS=[
