@@ -26,6 +26,7 @@ jobs:
           bun run restart-optimizer.ts
           bun run documents-tab.ts
           bun run ga-execution-budget.ts
+          bun run language-build.ts
           bun build ./index.ts --target=bun --outdir=/tmp/pp-docs-check
           grep 'PP_DOCUMENTS_TAB_BUILD_OK' /dev/null || true
           grep -q 'pp-documents-tab-script' index.ts
@@ -33,6 +34,9 @@ jobs:
           grep -q 'PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE' index.ts
           grep -q 'PP_ORDER_STACKED_UI_INLINE' index.ts
           grep -q 'pp-current-model-card-style' index.ts
+          grep -q 'ppLanguageUiJs' index.ts
+          grep -q 'ppLanguageUiCss' index.ts
+          node --check language-ui.js
           grep -q 'ppGaBudgetHtml(ppStartOverHtml(ppGaPollHtml))' index.ts
           node tests/start-over-session.cjs
           grep -q 'PP_CERAMIC_RESOURCE_MIGRATION_BUILD_PASS' ceramics-resource-repair.ts
