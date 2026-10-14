@@ -34,8 +34,11 @@ function ppFreshPlanResult(req,state,result){
     !result?.ok||result.valid===false||result.partial||
     !(result.operations||[]).length)return result;
  session.runs++;
- // Each complete GA pass consists of 240 optimization generations.
- session.total+=240;
+ // Count generations actually reported by the completed pass. Never assume 240
+ // after changing GA's computation budget. Keep a legacy fallback for old APIs.
+ const reported=Number(result.generations);
+ const executed=Number.isFinite(reported)&&reported>0&&reported<1000000?Math.round(reported):240;
+ session.total+=executed;
  const fresh={...result,
   optimization_run:session.runs,
   total_generations:session.total,
