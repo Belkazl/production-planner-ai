@@ -1,0 +1,9 @@
+{
+  "name": "pp-ceramic-materials-audit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "postgres": "3.4.7"
+  }
+}
