@@ -28,4 +28,9 @@ for name in ["function renderMaterials(){","function mats(){","function material
  if p<0:continue
  excerpt=html[p:p+10500]
  print("MATERIAL_AUDIT_EDITOR",json.dumps({"name":name,"html":excerpt[:6000]},ensure_ascii=False)[:7000],flush=True)
+for name in ["function reqRow(","function resourceRow(","function renderRequirements(","function renderTechProcess(","function renderProcess(","function reqs(","function addRequirement(","consumption_rule", "data-rf=\\"quantity\\"", "material_ratio", "per_unit", "per_batch"]:
+ matches=list(re.finditer(re.escape(name),html,re.I))
+ if not matches:continue
+ for match in matches[:2]:
+  print("MATERIAL_AUDIT_REQUIREMENT",json.dumps({"name":name,"pos":match.start(),"html":html[max(0,match.start()-250):match.start()+3500]},ensure_ascii=False)[:4100],flush=True)
 print("MATERIAL_AUDIT_PASS",flush=True)
