@@ -144,10 +144,21 @@ stop.onclick=async function(){
   requestStop=true;
   stoppedPlanAvailable=items.some(x=>valid(x.plan))||valid(prevPlan);
   window.__ppStopUiLocked=true;
+  // The stop API has confirmed the server-side run is complete. Release the
+  // client-side running guard immediately, without waiting for the cancelled
+  // /api/plan request's delayed promise/finalizers. Invalidate stale polls.
+  generation++;
+  running=false;
+  clearTimeout(timer);
   try{window.__ppCurrentOptimizationAbort?.abort("stopped_by_user")}catch(e){}
-  clearTimeout(timer);stop.classList.remove("pp-on");
+  window.__ppOptimizationInFlight=false;
+  btn.disabled=false;
+  stop.classList.remove("pp-on");
   stop.textContent="Остановить оптимизацию";
   setActionAfterStop();
+  // The fresh-start control also depends on stop state (not only the disabled
+  // attribute of the primary button). Make that transition explicit.
+  window.dispatchEvent(new Event("pp:optimizer-stopped"));
   const status=document.getElementById("valid");if(status)status.textContent="GA: остановлено · выбери вариант";
   setTimeout(showModal,40);
  }catch(e){
