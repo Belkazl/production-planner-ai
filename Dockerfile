@@ -3,4 +3,6 @@ WORKDIR /app
 COPY package.json ./
 RUN bun install --production
 COPY audit.ts ./
-CMD ["bun","run","audit.ts"]
+COPY run.sh ./
+RUN chmod +x ./run.sh
+CMD ["./run.sh"]
