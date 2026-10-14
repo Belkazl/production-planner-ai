@@ -36,8 +36,8 @@ function ppFreshPlanResult(req,state,result){
  session.runs++;
  // Count generations actually reported by the completed pass. Never assume 240
  // after changing GA's computation budget. Keep a legacy fallback for old APIs.
- const reported=Number(result.generations);
- const executed=Number.isFinite(reported)&&reported>0&&reported<1000000?Math.round(reported):240;
+ const counts=[Number(result.generations),Number(state.lastProgressTotal)].filter(n=>Number.isFinite(n)&&n>0&&n<1000000);
+ const executed=counts.length?Math.round(Math.max(...counts)):240;
  session.total+=executed;
  const fresh={...result,
   optimization_run:session.runs,
