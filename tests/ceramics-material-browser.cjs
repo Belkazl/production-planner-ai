@@ -27,6 +27,19 @@ const {chromium}=require("playwright");
   for(const mat of fixture.materials)assert(names.includes(mat.name),"material missing in edit table: "+mat.name);
   assert.equal(await page.locator("#matBody tr[data-m]").first().locator("[data-f=stock]").inputValue(),"185000");
   await page.screenshot({path:"ceramics-materials-editor.png",fullPage:true});
+  // Save through the actual existing UI, but ONLY into our isolated mock tenant.
+  // The real production project and global fixture are never written.
+  await page.locator("#sectionView [data-save]").click();
+  await page.waitForFunction(()=>document.getElementById("ppEditStatus")?.textContent==="Сохранено",null,{timeout:20000});
+  const persistedResponse=await context.request.get("http://127.0.0.1:8080/api/model");
+  assert.equal(persistedResponse.status(),200);
+  const persisted=(await persistedResponse.json()).model;
+  assert.equal(persisted.materials.length,6,"Material rows lost on existing UI Save");
+  assert.deepEqual(persisted.orders,fixture.orders,"Saving materials mutated demo orders");
+  assert.deepEqual(persisted.setup_rules,fixture.setup_rules,"Saving materials mutated changeover rules");
+  const materialRequirements=persisted.technical_processes[0].operations.flatMap(op=>(op.resource_requirements||[]).filter(r=>r.resource_type==="material"));
+  assert.equal(materialRequirements.length,6,"Material per-m2 requirements lost during backend round trip");
+  for(const req of materialRequirements)assert.equal(req.consumption_rule,"per_m2");
   const materials=fixture.materials.map(x=>({id:x.id,quantity:x.consumption_per_unit*order.area}));
   const ref=id=>({resource_type:"material",id,quantity:materials.find(x=>x.id===id).quantity});
   const start=fixture.start;
@@ -57,6 +70,6 @@ const {chromium}=require("playwright");
   assert(stats.title.includes("материал"),"Material Gantt title missing");
   await page.screenshot({path:"ceramics-materials-gantt.png",fullPage:true});
   assert.deepEqual(errors,[],"No JavaScript errors");
-  console.log("CERAMICS_MATERIALS_BROWSER_PASS",JSON.stringify({materialRows:stats.rows,receipts:stats.deliveries,consumptions:stats.consumption,russian:true,ordersIntact:fixture.orders.length,visible:true,browserErrors:0}));
+  console.log("CERAMICS_MATERIALS_BROWSER_PASS",JSON.stringify({materialRows:stats.rows,receipts:stats.deliveries,consumptions:stats.consumption,russian:true,ordersIntact:fixture.orders.length,visible:true,mockBackendSaved:true,browserErrors:0}));
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
