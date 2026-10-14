@@ -79,6 +79,7 @@ jobs:
           node tests/documents-tab-browser.cjs
           node tests/current-model-card-browser.cjs
           node tests/i18n-interface-audit.cjs
+          node tests/language-browser.cjs
           node tests/start-over-browser.cjs
           node tests/restart-after-stop-browser.cjs
           node tests/restart-after-complete-browser.cjs
@@ -97,5 +98,7 @@ jobs:
             start-over-second-improved.png
             restart-unlocked-after-stop.png
             restart-enabled-after-normal-completion.png
+            language-login-english.png
+            language-planner-english.png
           retention-days: 3
           if-no-files-found: ignore
