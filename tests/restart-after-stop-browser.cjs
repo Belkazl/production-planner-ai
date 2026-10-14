@@ -10,6 +10,8 @@ const {chromium}=require("playwright");
  let releaseOldRequest=null;
  try{
   const context=await browser.newContext({viewport:{width:1600,height:900}});
+  // Legacy functional checks intentionally exercise the Russian language option.
+  await context.addInitScript(()=>{try{localStorage.setItem('prodplan.ui.language.v1','ru')}catch(_){}});
   await context.addCookies([{name:"pp_demo_auth",value:"tenantA",url:"http://127.0.0.1:8080",httpOnly:true}]);
   const page=await context.newPage();
   const errors=[],planRequests=[];
