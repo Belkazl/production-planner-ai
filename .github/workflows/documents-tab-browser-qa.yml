@@ -50,6 +50,8 @@ jobs:
           open("/tmp/pp-gateway-fixture.html","wb").write(html)
           print("DOCUMENTS_QA_UPSTREAM_HTML_READY",len(html))
           PY
+      - name: Inspect production GA request builder read-only
+        run: python3 tests/inspect-live-ga-html.py
       - name: Install Chrome test runtime
         run: |
           npm install --no-save --no-package-lock playwright@1.57.0
