@@ -33,7 +33,7 @@ const URL=process.env.LANDING_URL||"http://127.0.0.1:3000/";
    assert(pageWidth.scroll<=pageWidth.client+3,"Horizontal overflow at "+width+": "+JSON.stringify(pageWidth));
    const nav=page.locator('.main-nav a[href="#benefits"]');
    assert.equal(await nav.count(),1,"Benefits must be linked in navigation");
-   if(width<=900){
+   if(width<=1100){
     const toggle=page.locator(".menu-toggle");assert(await toggle.isVisible());
     await toggle.click();assert(await nav.isVisible(),"Menu benefits link must be visible on narrow screen");
     await nav.click();
