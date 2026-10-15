@@ -652,6 +652,8 @@ function brandFixedUi(){
  // Old project-storage identifiers are intentionally not renamed. This only
  // updates the product wordmark in permanent UI chrome, never user content.
  document.title=document.title.replaceAll("ProdPlan AI","PlanTrick").replaceAll("ProdPlan","PlanTrick");
+ if(!document.getElementById("loginTab")&&!document.title.includes("PlanTrick"))
+  document.title=lang==="ru"?"PlanTrick — Планирование производства":"PlanTrick — Production planning";
  for(const el of document.querySelectorAll(
   "body > .box > .logo, .top .brand, .top .logo, .top .app-title, .side .brand, .side .logo, header .brand, header .logo"
  )){
