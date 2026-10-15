@@ -6,7 +6,7 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 19
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -57,6 +57,11 @@ jobs:
             sleep 1
           done
           node tests/i18n-sweep-browser.cjs
+          node tests/language-browser.cjs
+          node tests/gantt-browser.cjs
+          node tests/documents-tab-browser.cjs
+          node tests/start-over-browser.cjs
+          node tests/restart-after-stop-browser.cjs
       - name: Keep screenshots for direct visual comparison
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,5 +70,13 @@ jobs:
           path: |
             i18n-sweep-equipment.png
             i18n-sweep-setup-modal.png
+            language-login-english.png
+            language-planner-english.png
+            gantt-click-dialog.png
+            docs-actions-desktop.png
+            docs-actions-mobile.png
+            start-over-reset-state.png
+            start-over-first-new-baseline.png
+            restart-unlocked-after-stop.png
           retention-days: 3
           if-no-files-found: ignore
