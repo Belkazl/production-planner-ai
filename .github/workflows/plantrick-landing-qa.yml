@@ -1,7 +1,7 @@
 name: QA LiftOrbit landing rebrand
 on:
   push:
-    branches: [brand/liftorbit-landing-2026-10-15]
+    branches: [domain/liftorbit-landing-2026-10-15]
   workflow_dispatch:
 jobs:
   brand:
