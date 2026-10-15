@@ -17,7 +17,7 @@ const get=async(path,opts)=>fetch(base+path,{redirect:"manual",...opts});
  assert(html.includes('name="twitter:card"'));
  assert(html.includes('LiftOrbit helps small manufacturers plan orders'));
  assert(!html.includes('name="description" content="Production planning made simpler'));
- assert.equal((html.match(/<h1\\b/g)||[]).length,1);
+ assert.equal((html.match(/<h1\b/g)||[]).length,1);
  const schemas=[...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(m=>m[1]);
  assert.equal(schemas.length,1);
  const schema=JSON.parse(schemas[0]);assert.equal(schema["@context"],"https://schema.org");
