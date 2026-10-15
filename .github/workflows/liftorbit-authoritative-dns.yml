@@ -1,0 +1,33 @@
+name: LiftOrbit authoritative DNS post-propagation check
+on:
+  push:
+    branches: [research/liftorbit-domain-check-2026-10-15]
+    paths: [.github/workflows/liftorbit-authoritative-dns.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare Cloudflare authoritative DNS with required Railway records
+        run: |
+          set -eu
+          echo "NS_SERVERS"
+          dig +short NS liftorbit.app
+          NS="$(dig +short NS liftorbit.app | head -n 1)"
+          test -n "$NS"
+          echo "AUTHORITATIVE_SERVER=$NS"
+          for fqdn in liftorbit.app app.liftorbit.app; do
+            echo "AUTHORITATIVE_NAME=$fqdn"
+            echo "CNAME:"
+            dig @"$NS" "$fqdn" CNAME +noall +answer
+            echo "A:"
+            dig @"$NS" "$fqdn" A +noall +answer
+            echo "TXT:"
+            dig @"$NS" "_railway-verify.$fqdn" TXT +noall +answer
+          done
+          echo "RECURSIVE_CNAME"
+          dig +short app.liftorbit.app CNAME
+          echo "DNS_POST_PROPAGATION_CHECK_COMPLETE"
