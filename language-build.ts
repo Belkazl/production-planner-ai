@@ -25,7 +25,7 @@ function ppNonBlockingDbSyncHtml(html:string){
  const oldSync=tag.match(syncPattern)||[];
  if(oldSync.length!==1||tag.split("if(S.length)sync();").length!==2)
   throw Error("PP_DB_PERSISTENCE_SYNC_ANCHOR_MISMATCH");
- const replacement=readFileSync("nonblocking-db-shim.js","utf8");
+ const replacement=PP_ASYNC_DB_SHIM;
  tag=tag.replace(syncPattern,replacement);
  tag=tag.replace("if(S.length)sync();","/* storage already loaded from server: do not POST back on every page load */");
  // No need to send the entire account storage again when nothing changed.
@@ -39,6 +39,7 @@ function ppNonBlockingDbSyncHtml(html:string){
  return html.slice(0,begin)+tag+html.slice(end);
 }
 
+const asyncDbShim=readFileSync("nonblocking-db-shim.js","utf8");
 const inline="<style id=\"ppLanguageUiCss\">"+css+"</style>"+
  "<script id=\"ppLanguageUiJs\">"+js+"</script>";
 // Replace the legacy autoclave-only heading in the proxied UI HTML before localization.
@@ -47,7 +48,7 @@ one("const h=await r.text();const pp3Mode",
     "const h=ppNonBlockingDbSyncHtml((await r.text()).replaceAll('Занятость автоклавов','Загрузка оборудования'));const pp3Mode",
     "generic_equipment_heading");
 one("async function serveGanttUi(req){",
- ppNonBlockingDbSyncHtml.toString()+"\nconst PP_LANGUAGE_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){",
+ "const PP_ASYNC_DB_SHIM="+JSON.stringify(asyncDbShim)+";\n"+ppNonBlockingDbSyncHtml.toString()+"\nconst PP_LANGUAGE_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){",
  "inject_language_bundle");
 one("+PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE+'</body>'",
  "+PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE+PP_LANGUAGE_INLINE+'</body>'",
