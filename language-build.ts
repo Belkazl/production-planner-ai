@@ -25,29 +25,15 @@ function ppNonBlockingDbSyncHtml(html:string){
  const oldSync=tag.match(syncPattern)||[];
  if(oldSync.length!==1||tag.split("if(S.length)sync();").length!==2)
   throw Error("PP_DB_PERSISTENCE_SYNC_ANCHOR_MISMATCH");
- const replacement=[
- 'var pending=false,writing=false,saveTimer=null,saveRetries=0;',
- 'function sync(){if(initializing)return;pending=true;if(!writing&&!saveTimer)saveTimer=setTimeout(flush,250)}',
- 'async function flush(){',
- '  saveTimer=null;if(writing||!pending)return;pending=false;writing=true;',
- '  let unauthorized=false;',
- '  try{',
- '    const r=await fetch("/api/db-storage",{method:"POST",credentials:"same-origin",',
- '      headers:{"Content-Type":"application/json"},body:JSON.stringify({storage:snap()}),cache:"no-store"});',
- '    if(!r.ok){unauthorized=r.status===401||r.status===403;throw Error("db_save_"+r.status)}',
- '    saveRetries=0;',
- '  }catch(e){',
- '    if(!unauthorized){pending=true;saveRetries=Math.min(saveRetries+1,5)}',
- '    console.error("DB async persistence write failed",e);',
- '  }finally{',
- '    writing=false;',
- '    if(pending&&!saveTimer)saveTimer=setTimeout(flush,saveRetries?Math.min(15000,1000*Math.pow(2,saveRetries)):200);',
- '  }',
- '}',
- 'window.__PP_ASYNC_DB_SYNC__=true;'
- ].join("\n");
+ const replacement=readFileSync("nonblocking-db-shim.js","utf8");
  tag=tag.replace(syncPattern,replacement);
  tag=tag.replace("if(S.length)sync();","/* storage already loaded from server: do not POST back on every page load */");
+ // No need to send the entire account storage again when nothing changed.
+ const beforeUnload="window.addEventListener('beforeunload',function(){try{";
+ if(!tag.includes(beforeUnload))throw Error("PP_DB_BEACON_ANCHOR_MISSING");
+ tag=tag.replace(beforeUnload,
+   "window.addEventListener('beforeunload',function(){if(!ppPendingSave&&!ppSaving)return;try{");
+
  if(!tag.includes("window.__PP_ASYNC_DB_SYNC__=true;")||tag.includes("x.open('POST','/api/db-storage',false)"))
   throw Error("PP_ASYNC_STORAGE_PATCH_INTEGRITY");
  return html.slice(0,begin)+tag+html.slice(end);
