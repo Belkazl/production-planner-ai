@@ -1,0 +1,68 @@
+name: Verify LiftOrbit custom domains and authentication
+on:
+  push:
+    branches: [domain/liftorbit-landing-2026-10-15]
+    paths:
+      - .github/workflows/liftorbit-custom-domain-qa.yml
+      - tests/liftorbit-domain-public.cjs
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  custom-domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Show public DNS
+        run: |
+          echo "APEX:"
+          dig +short liftorbit.app A || true
+          echo "APP CNAME:"
+          dig +short app.liftorbit.app CNAME || true
+          echo "APP ADDRESSES:"
+          dig +short app.liftorbit.app A || true
+      - name: Install Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Wait for custom domains and the updated landing link
+        run: |
+          for i in $(seq 1 90); do
+            landing="$(curl -fsS --max-time 10 https://liftorbit.app/ || true)"
+            app="$(curl -fsS --max-time 10 https://app.liftorbit.app/ || true)"
+            if printf '%s' "$landing" | grep -q 'https://app.liftorbit.app/' && printf '%s' "$app" | grep -q 'Вход — LiftOrbit'; then
+              echo "BOTH_LIFTORBIT_CUSTOM_DOMAINS_READY"
+              exit 0
+            fi
+            if [ $((i % 15)) -eq 0 ]; then
+              echo "Custom domain not ready; attempt $i"
+              dig +short app.liftorbit.app CNAME || true
+            fi
+            sleep 2
+          done
+          echo "Custom domain landing/app not yet ready"
+          exit 1
+      - name: Exercise live domains in Chromium and verify authenticated API security
+        run: node tests/liftorbit-domain-public.cjs
+      - name: Check published landing responsive layout
+        env:
+          LANDING_URL: https://liftorbit.app/
+        run: |
+          node tests/landing-smoke.cjs
+          node tests/landing-benefits.cjs
+          node tests/landing-v4-no-russian-gallery.cjs
+          node tests/plantrick-landing-browser.cjs
+      - name: Archive public evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: liftorbit-custom-domain-public
+          path: |
+            liftorbit-custom-domain-*.png
+            liftorbit-landing-*.png
+          if-no-files-found: ignore
+          retention-days: 7
