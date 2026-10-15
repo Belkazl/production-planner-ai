@@ -1,0 +1,39 @@
+name: Verify public ProdPlan landing v1
+on:
+  push:
+    branches:
+      - landing/v1-self-service-2026-10-15
+  workflow_dispatch:
+jobs:
+  published-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium and browser test tool
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Check public website and interactive mobile/desktop flows
+        env:
+          LANDING_URL: https://prodplan-landing-v1-production.up.railway.app/
+        run: |
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 4 https://prodplan-landing-v1-production.up.railway.app/health >/dev/null; then break; fi
+            sleep 2
+          done
+          node tests/landing-smoke.cjs
+      - name: Preserve public screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prodplan-landing-public-desktop-tablet-mobile
+          path: |
+            landing-v1-desktop.png
+            landing-v1-tablet.png
+            landing-v1-mobile.png
+          retention-days: 7
+          if-no-files-found: ignore
