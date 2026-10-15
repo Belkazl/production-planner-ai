@@ -33,11 +33,17 @@ const fs=require("node:fs");
    return [...new Map(items.map(item=>[item.text+"|"+item.id,item])).values()].slice(0,200);
   });
   const log=async name=>{await page.waitForTimeout(150);const rem=await collect();console.log("PP_I18N_SWEEP_"+name+" "+JSON.stringify(rem).slice(0,12000));return rem};
-  await log("PLANNER");
+  assert.deepEqual(await log("PLANNER"),[],"The planning screen still has untranslated static copy");
   for(const [i,name] of ["Заказы","Материалы","Оборудование","Сотрудники","Производство","Настройки"].entries()){
    try{
     await page.evaluate(name=>renderSection(name),name);
-    await log("SECTION_"+i+"_"+name);
+    const left=await log("SECTION_"+i+"_"+name);
+    if(name==="Производство"){
+      // Model-owned process name and job titles are intentionally preserved.
+      // These are the user's production data, not localizable application copy.
+      assert(left.every(x=>x.cls.includes("pp-proc-tab")||x.cls.includes("pp-mref-btn")),
+       "Unexpected untranslated production UI label: "+JSON.stringify(left));
+    }else assert.deepEqual(left,[],"Untranslated application strings in "+name);
     if(name==="Оборудование")await page.screenshot({path:"i18n-sweep-equipment.png"});
    }catch(e){console.log("PP_I18N_SWEEP_SECTION_ERROR",name,String(e).slice(0,400))}
   }
@@ -47,7 +53,7 @@ const fs=require("node:fs");
     '<span>−39 мин (−0,9%)</span><span>0 цикла (0%)</span><span>−869 мин (−0,2%)</span><span>+256 мин (+1,4%)</span><span>882 операций · 56 переналадок · масштаб 100%</span><span>Переналадка — отдельная операция</span><span>Переналадка: Формат пресса</span><span>Всего проверено 240 поколений.</span>';
    document.body.appendChild(temp);
   });
-  await log("METRIC_DYNAMIC");
+  assert.deepEqual(await log("METRIC_DYNAMIC"),[],"Dynamic statistics or Gantt footer not localized");
   await page.evaluate(()=>{
    const bar=document.createElement("div");
    bar.id="i18n-sweep-setup";
@@ -61,14 +67,31 @@ const fs=require("node:fs");
    window.__PP_GANTT_BLOCK_DETAILS_V1__.open(bar);
   });
   const modal=await log("SETUP_MODAL");
+  assert.deepEqual(modal,[],"Setup dialog is not fully English");
+  assert((await page.locator("#ppGanttOperationDetails").innerText()).includes("Setup: Press format"));
+  assert((await page.locator("#ppGanttOperationDetails").innerText()).includes("Close: press Esc"));
   await page.screenshot({path:"i18n-sweep-setup-modal.png",fullPage:false});
   await page.locator("#ppGanttOperationDetails .pgd-close").click();
   try{
    await page.evaluate(()=>window.__PP_DOCUMENTS_TAB__?.open());
-   await log("DOCUMENTS");
+   assert.deepEqual(await log("DOCUMENTS"),[],"Documents screen has untranslated static copy");
   }catch(e){console.log("PP_I18N_SWEEP_DOC_ERROR",String(e).slice(0,230))}
-  const done=await page.evaluate(()=>({lang:window.__PP_LANGUAGE__?.current,changedModel:JSON.stringify(model)!==JSON.stringify(window.__i18nBaseline),modalState:document.getElementById("ppGanttOperationDetails")?.hidden}));
-  console.log("PP_I18N_SWEEP_AUDIT_OK "+JSON.stringify({mode:done.lang,modalRu:modal.map(x=>x.text),browserErrors:errors,screenshots:["i18n-sweep-equipment.png","i18n-sweep-setup-modal.png"]}));
+  // Switching RU -> EN must round-trip every generated UI string without
+  // modifying source production models or project-owned field values.
+  const sourceBefore=await page.evaluate(()=>JSON.stringify(model));
+  await page.locator("#ppLanguageSelect").selectOption("ru");
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator("#i18n-sweep-dynamic span").first().innerText(),"−39 мин (−0,9%)");
+  assert.equal(await page.locator("#ppLanguageControl").getAttribute("aria-label"),"Язык");
+  await page.evaluate(()=>window.__PP_GANTT_BLOCK_DETAILS_V1__.open(document.getElementById("i18n-sweep-setup")));
+  assert((await page.locator("#ppGanttOperationDetails").innerText()).includes("Закрыть: Esc"));
+  await page.locator("#ppGanttOperationDetails .pgd-close").click();
+  await page.locator("#ppLanguageSelect").selectOption("en");
+  assert.equal(await page.locator("#ppLanguageControl").getAttribute("aria-label"),"Language");
+  assert.deepEqual(await log("ROUNDTRIP_EN"),[],"Language switching left untranslated UI behind");
+  assert.equal(await page.evaluate(()=>JSON.stringify(model)),sourceBefore,"Localization modified model data");
+  const done=await page.evaluate(()=>({lang:window.__PP_LANGUAGE__?.current,modalState:document.getElementById("ppGanttOperationDetails")?.hidden}));
+  console.log("PP_I18N_SWEEP_AUDIT_OK "+JSON.stringify({mode:done.lang,untranslatedApplicationCopy:0,sourceModelUnchanged:true,roundTrip:true,browserErrors:errors,screenshots:["i18n-sweep-equipment.png","i18n-sweep-setup-modal.png"]}));
   assert.deepEqual(errors,[]);
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
