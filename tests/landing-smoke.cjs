@@ -10,7 +10,7 @@ async function test(){
   assert.equal(resp.status(),200,"landing homepage must be available");
   await desktop.locator(".full-row").first().waitFor({state:"visible",timeout:9000});
   assert.equal(await desktop.title(),"ProdPlan AI — Production planning made simple");
-  assert((await desktop.locator("#hero-title").innerText()).includes("Not the chaos."));
+  assert((await desktop.locator("#hero-title").innerText()).includes("Under control."));
   assert.equal(await desktop.locator(".full-row").count(),6);
   const before=await desktop.locator(".full-row").first().locator(".full-bar").first().evaluate(el=>el.style.left);
   await desktop.locator('[data-mode-choice="original"]').click();
