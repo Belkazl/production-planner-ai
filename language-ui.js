@@ -87,7 +87,7 @@ const texts={
  "Гантт сотрудников":"Employee Gantt",
  "Гант оборудования":"Equipment Gantt",
  "Гант сотрудников":"Employee Gantt",
- "Занятость автоклавов":"Autoclave utilization",
+ "Загрузка оборудования":"Equipment utilization",
  "Загрузка ресурсов":"Resource utilization",
  "Узкие места":"Bottlenecks",
  "Ключевые показатели":"Key metrics",

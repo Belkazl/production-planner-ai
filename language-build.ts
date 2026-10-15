@@ -12,6 +12,11 @@ function one(before:string,after:string,label:string){
 }
 const inline="<style id=\"ppLanguageUiCss\">"+css+"</style>"+
  "<script id=\"ppLanguageUiJs\">"+js+"</script>";
+// Replace the legacy autoclave-only heading in the proxied UI HTML before localization.
+// This is presentation-only: optimizer, saved models, routing and API payloads stay unchanged.
+one("const h=await r.text();const pp3Mode",
+    "const h=(await r.text()).replaceAll('Занятость автоклавов','Загрузка оборудования');const pp3Mode",
+    "generic_equipment_heading");
 one("async function serveGanttUi(req){",
  "const PP_LANGUAGE_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){",
  "inject_language_bundle");
