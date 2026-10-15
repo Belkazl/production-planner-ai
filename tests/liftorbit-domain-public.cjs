@@ -12,7 +12,7 @@ const LEGACY="https://production-planner-gateway-v2-production.up.railway.app/";
   page.on("pageerror",e=>errors.push(e.message));
   let res=await page.goto(LANDING,{waitUntil:"domcontentloaded",timeout:50000});
   assert.equal(res.status(),200,"LiftOrbit landing must respond 200");
-  assert.equal(await page.title(),"LiftOrbit — Production planning made simple");
+  assert.equal(await page.title(),"Production Scheduling Software for Small Manufacturers | LiftOrbit");
   const links=await page.locator("a[href^='https://app.liftorbit.app/']").count();
   assert(links>=3,"Landing login and app links must point to the custom domain");
   assert.equal(await page.locator("link[rel='canonical']").getAttribute("href"),LANDING);

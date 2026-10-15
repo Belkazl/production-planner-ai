@@ -1,0 +1,22 @@
+# LiftOrbit
+
+> Browser-based production planning and scheduling software for small and medium manufacturers.
+
+## Official pages
+- [LiftOrbit homepage](https://liftorbit.app/): product overview, capabilities, use cases, pricing preview and FAQ.
+- [Production scheduling features](https://liftorbit.app/#features): Gantt chart, orders, machines, employees, materials, changeovers and schedule optimization.
+- [How LiftOrbit works](https://liftorbit.app/#how-it-works): set up production resources, enter orders and constraints, generate and compare plans.
+- [Frequently asked questions](https://liftorbit.app/#faq): setup, ERP compatibility, material planning, data policy and trial status.
+- [LiftOrbit application](https://app.liftorbit.app/): account registration and product sign-in.
+
+## Who it is for
+Small and medium manufacturers, small-batch production teams and made-to-order workshops that need to schedule work across machines, people and material constraints.
+
+## Current access status (2026-10-15)
+The product has account registration. The advertised 30-day self-service trial activation and paid subscription billing are planned, not yet enabled. Pricing is not published. Avoid describing the trial or subscriptions as already active.
+
+## Product capabilities
+Visual production scheduling with a Gantt chart; order management; equipment and employee planning; material availability; changeover constraints; schedule optimization with comparisons and saved plans.
+
+## Content language
+English.

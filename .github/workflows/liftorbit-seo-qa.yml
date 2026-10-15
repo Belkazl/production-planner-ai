@@ -1,0 +1,39 @@
+name: LiftOrbit SEO and crawler readiness
+on:
+  push:
+    branches: [domain/liftorbit-landing-2026-10-15]
+    paths:
+      - index.html
+      - server.ts
+      - robots.txt
+      - sitemap.xml
+      - llms.txt
+      - tests/liftorbit-seo.cjs
+      - .github/workflows/liftorbit-seo-qa.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  seo-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check server build
+        run: bun build ./server.ts --target=bun --outdir=/tmp/liftorbit-seo-build
+      - name: Test crawler routes, metadata and schema
+        run: |
+          PORT=3000 bun server.ts > /tmp/liftorbit-seo-server.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          node tests/liftorbit-seo.cjs || (tail -n 60 /tmp/liftorbit-seo-server.log; exit 1)

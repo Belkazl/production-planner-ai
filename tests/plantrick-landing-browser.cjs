@@ -12,7 +12,7 @@ const BASE=process.env.LANDING_URL||"http://127.0.0.1:3000/";
    const response=await page.goto(BASE,{waitUntil:"domcontentloaded",timeout:45000});
    assert.equal(response.status(),200);
    await page.locator("#hero-title").waitFor({state:"visible",timeout:12000});
-   assert.equal(await page.title(),"LiftOrbit — Production planning made simple");
+   assert.equal(await page.title(),"Production Scheduling Software for Small Manufacturers | LiftOrbit");
    assert((await page.locator('meta[property="og:title"]').getAttribute("content")).startsWith("LiftOrbit "));
    assert.deepEqual((await page.locator(".logo-type").allInnerTexts()).map(x=>x.trim()),["LiftOrbit","LiftOrbit"]);
    assert.equal(await page.locator('header a.logo').getAttribute("aria-label"),"LiftOrbit home");
