@@ -4,7 +4,9 @@ const ROUTES=new Map([
  ["/index.html",{file:"index.html",type:"text/html; charset=utf-8"}],
  ["/site.css",{file:"site.css",type:"text/css; charset=utf-8"}],
  ["/site.js",{file:"site.js",type:"application/javascript; charset=utf-8"}],
- ["/favicon.svg",{file:"favicon.svg",type:"image/svg+xml"}]
+ ["/favicon.svg",{file:"favicon.svg",type:"image/svg+xml"}],
+ ["/assets/demo/real-material-gantt.png",{file:"assets/demo/real-material-gantt.png",type:"image/png"}],
+ ["/assets/demo/real-material-editor.png",{file:"assets/demo/real-material-editor.png",type:"image/png"}]
 ]);
 const HEADERS={
  "x-content-type-options":"nosniff",
