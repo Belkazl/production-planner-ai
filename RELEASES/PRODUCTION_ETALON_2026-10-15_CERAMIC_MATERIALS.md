@@ -29,6 +29,7 @@ The **actual live authenticated tenant project data** (not a public demo fixture
 - **Other project:** `Покраска` included in the recovery snapshot and not modified by the snapshot operation.
 - **Snapshot operation:** created immutable table row and verified hash and readback transactionally; it **did not update any active project model, orders, saved plans, or optimizer data**.
 - **Railway snapshot job:** `5461382d-ee3f-4407-bfbd-8f8a4cfc9710`, status **SUCCESS**, event `PP_CERAMIC_20261015_ETALON_SNAPSHOT_SAVED`.
+- **Independent read-only verification:** Railway job `f584aa72-41c4-41f9-9449-fa000c9447a1`, status **SUCCESS**, event `PP_CERAMIC_20261015_ETALON_INDEPENDENTLY_VERIFIED`; verified SHA-256, matching live project storage, 12 orders, 6 materials, 6 requirements, 8 setup rules, **6 saved plans**, active plan, separate «Покраска» project, and retention of the previous backup.
 
 **Important recovery limitation:** The data snapshot is stored **inside the same production database**, not in an external backup service. It is a copy of the app's project-storage record, not a full PostgreSQL backup of every database table or a guarantee against loss of the database itself. Do not publish the raw snapshot to a public repository.
 
