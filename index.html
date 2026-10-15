@@ -22,7 +22,7 @@
         <span class="logo-type">prodplan<span class="logo-ai">AI</span></span>
       </a>
       <nav class="main-nav" aria-label="Main navigation" id="main-nav">
-        <a href="#platform">Platform</a><a href="#benefits">Benefits</a><a href="#how-it-works">How it works</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a>
+        <a href="#platform">Platform</a><a href="#benefits">Benefits</a><a href="#results">Results</a><a href="#use-cases">Use cases</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a>
       </nav>
       <div class="nav-actions">
         <a class="nav-login" href="https://production-planner-gateway-v2-production.up.railway.app/" rel="noopener">Log in <span aria-hidden="true">↗</span></a>
@@ -37,9 +37,9 @@
       <div class="hero-grid-line hero-grid-line-one"></div><div class="hero-grid-line hero-grid-line-two"></div>
       <div class="container hero-layout">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="eyebrow-signal"></span> THE SMARTER WAY TO PLAN PRODUCTION</div>
-          <h1 id="hero-title">Plan the work.<br>Not the <span class="highlight-word">chaos.<span class="underline-sketch"></span></span></h1>
-          <p class="hero-lede">A simpler way to schedule orders, machines, people and materials. See your whole production in one place — and find a better way to run it.</p>
+          <div class="eyebrow"><span class="eyebrow-signal"></span> PRODUCTION PLANNING FOR SMALL &amp; MEDIUM MANUFACTURERS</div>
+          <h1 id="hero-title">Your production schedule.<br><span class="highlight-word">Under control.<span class="underline-sketch"></span></span></h1>
+          <p class="hero-lede">Turn orders, machines, employees and materials into a clear production plan. Build schedules and improve them without complex software or endless spreadsheets.</p>
           <div class="hero-actions">
             <button class="btn btn-primary btn-lg" data-trial-trigger>Start 30-day free trial <span class="circle-arrow" aria-hidden="true">↗</span></button>
             <a class="btn btn-outline btn-lg" href="#platform">Explore the platform <span aria-hidden="true">↘</span></a>
@@ -90,20 +90,6 @@
       </div>
     </section>
 
-    <section class="section why-section" id="problem">
-      <div class="container why-layout">
-        <div class="why-heading"><span class="section-kicker"><span class="kicker-line"></span> BUILT FOR THE REAL WORLD</span><h2>Production is complex.<br><span class="muted-head">Planning doesn't have to be.</span></h2></div>
-        <div class="why-text"><p>New orders. Machine availability. Changing priorities. Missing materials. In a small team, keeping everything in sync can become a full-time job.</p><p>ProdPlan brings your moving parts together so you can focus less on rearranging spreadsheets — and more on making things.</p><a class="text-link" href="#how-it-works">See how it works <span>↗</span></a></div>
-      </div>
-      <div class="container">
-        <div class="three-outcomes">
-          <article><span class="outcome-number">01 /</span><div class="outcome-icon"><svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h12M3 17h7M17 15l2 2 4-5"/></svg></div><h3>Know what's next.</h3><p>See jobs, dependencies and upcoming work in one clear timeline.</p></article>
-          <article><span class="outcome-number">02 /</span><div class="outcome-icon"><svg viewBox="0 0 24 24"><path d="M4 18V9m6 9V4m6 14v-7m5 7v-5M2 20h20"/></svg></div><h3>Use capacity wisely.</h3><p>Plan around real equipment, staff and material availability.</p></article>
-          <article><span class="outcome-number">03 /</span><div class="outcome-icon"><svg viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/><path d="M4 6h7M4 9h4"/></svg></div><h3>Make better calls.</h3><p>Compare schedules and improve them without losing your overview.</p></article>
-        </div>
-      </div>
-    </section>
-
     <section class="section platform-section" id="platform">
       <div class="container">
         <div class="platform-head"><div><span class="section-kicker on-dark"><span class="kicker-line"></span> A CLOSER LOOK AT THE PLATFORM</span><h2>Your entire workflow.<br><em>Finally, in the same picture.</em></h2></div><p>See production as a schedule — not scattered spreadsheets. Switch between machines, materials and orders to keep everything connected.</p></div>
@@ -118,6 +104,24 @@
             </div></div>
             <div class="showcase-legend"><span><i class="legend-dot cyan-bg"></i> Production</span><span><i class="legend-dot rose-bg"></i> Processing</span><span><i class="legend-dot gold-bg"></i> Next operation</span><span><i class="legend-dot dark-bg"></i> Setup</span><span class="legend-note">Illustrative schedule — not a measured performance claim</span></div>
           </div>
+        </div>
+        <div class="actual-product" id="real-preview" aria-labelledby="real-preview-title">
+          <div class="actual-product-intro">
+            <div><span class="actual-product-pill"><i></i> ACTUAL PRODUCT SCREEN</span>
+              <h3 id="real-preview-title">The real interface. No stock dashboard.</h3>
+              <p>Captured from our read-only ceramic production demo with 12 orders and 6 materials. The original test data and its labels are shown as entered.</p>
+            </div>
+            <div class="actual-product-switch" role="group" aria-label="Choose actual product screenshot">
+              <button type="button" data-real-preview="gantt" aria-pressed="true" class="active">Materials Gantt</button>
+              <button type="button" data-real-preview="editor" aria-pressed="false">Material editor</button>
+            </div>
+          </div>
+          <button class="actual-product-screen" type="button" data-real-open aria-label="Enlarge actual ProdPlan screenshot">
+            <img id="real-preview-img" src="/assets/demo/real-material-gantt.png" width="932" height="427" alt="Actual ProdPlan AI materials Gantt from the verified ceramic test model" loading="lazy">
+            <span class="actual-enlarge">View larger ↗</span>
+          </button>
+          <div class="actual-product-foot"><span>Original interface · Read-only demo · Not a genetic optimization result</span>
+            <a href="https://production-planner-gateway-v2-production.up.railway.app/" rel="noopener">Go to ProdPlan AI <span aria-hidden="true">↗</span></a></div>
         </div>
         <div class="platform-foot"><span><span class="platform-foot-icon">↗</span> Built from the same planning concepts as the live product</span><a href="https://production-planner-gateway-v2-production.up.railway.app/" rel="noopener" class="text-link on-dark-link">Open the application <span>↗</span></a></div>
       </div>
@@ -184,6 +188,25 @@
       </div>
     </section>
 
+    <section class="section results-section" id="results" aria-labelledby="results-title">
+      <div class="container">
+        <div class="results-header"><div><span class="section-kicker"><span class="kicker-line"></span> SEE WHAT CHANGED</span><h2 id="results-title">A better plan is<br><span class="muted-head">a measurable plan.</span></h2></div>
+          <div><p>Optimization is about choices — not magic. Compare figures from an actual ceramic demo optimization run. Some metrics improve while others can move in the opposite direction.</p>
+          <div class="results-buttons" role="group" aria-label="Compare initial and optimized example metrics">
+            <button type="button" data-results-mode="before" aria-pressed="false">Initial plan</button>
+            <button type="button" data-results-mode="after" aria-pressed="true" class="active">Optimized plan</button>
+          </div></div>
+        </div>
+        <div class="results-grid" aria-live="polite">
+          <article class="result-card"><span class="result-num">01 / PLAN DURATION</span><div class="result-value"><strong data-result-value="duration">4,338</strong><small>min</small></div><span data-result-delta="duration" class="result-delta good">−39 min (−0.9%)</span><div class="result-meter"><span data-result-meter="duration" style="width:91%"></span></div><p>Time to complete the planned work.</p></article>
+          <article class="result-card"><span class="result-num">02 / PRODUCTION CYCLES</span><div class="result-value"><strong data-result-value="cycles">118</strong><small>cycles</small></div><span data-result-delta="cycles" class="result-delta neutral">No change</span><div class="result-meter"><span data-result-meter="cycles" style="width:86%"></span></div><p>The number of production cycles.</p></article>
+          <article class="result-card"><span class="result-num">03 / OPERATOR WAITING</span><div class="result-value"><strong data-result-value="operator">412,569</strong><small>min</small></div><span data-result-delta="operator" class="result-delta good">−869 min (−0.2%)</span><div class="result-meter"><span data-result-meter="operator" style="width:79%"></span></div><p>Aggregated waiting time across operations.</p></article>
+          <article class="result-card"><span class="result-num">04 / EQUIPMENT IDLE TIME</span><div class="result-value"><strong data-result-value="idle">18,706</strong><small>min</small></div><span data-result-delta="idle" class="result-delta caution">+256 min (+1.4%)</span><div class="result-meter"><span data-result-meter="idle" style="width:66%"></span></div><p>This run reduced duration but increased equipment idle time.</p></article>
+        </div>
+        <div class="results-note"><span class="results-note-icon">i</span><p>Figures taken from one previously reviewed ProdPlan AI ceramic demo optimization screen. They are an example, <strong>not a guaranteed saving or a benchmark</strong>. The screenshot-based example and the read-only Gantt preview above are different demonstration snapshots.</p></div>
+      </div>
+    </section>
+
     <section class="section steps-section" id="how-it-works">
       <div class="container"><div class="section-head-centered"><span class="section-kicker"><span class="kicker-line"></span> THREE STEPS TO A CLEARER PLAN</span><h2>From production details<br>to a plan you can see.</h2><p>Get started at your own pace. No consultants, no lengthy implementation, no mandatory calls.</p></div>
         <div class="steps">
@@ -205,12 +228,36 @@
       </div>
     </div></section>
 
-    <section class="section audience-section"><div class="container audience-layout"><div><span class="section-kicker"><span class="kicker-line"></span> SMALL TEAM. BIG PICTURE.</span><h2>Made for manufacturers, not just manufacturing giants.</h2><p>You shouldn't need an enterprise IT department to make a reliable production plan.</p><div class="audience-tags"><span>Small factories</span><span>Workshops</span><span>Growing production teams</span><span>Made-to-order operations</span></div><a href="#pricing" class="text-link">See how to get started <span>↗</span></a></div><div class="audience-visual"><div class="audience-grid"></div><div class="audience-roundel"><span>YOUR</span><strong>SHOP<br>FLOOR.</strong><small>UNDER CONTROL.</small></div><div class="audience-caption"><span class="caption-dot"></span> BUILT FOR EVERYDAY OPERATIONS</div></div></div></section>
+    <section class="section use-cases-section" id="use-cases" aria-labelledby="use-cases-title">
+      <div class="container">
+        <div class="cases-head"><div><span class="section-kicker"><span class="kicker-line"></span> DOES THIS SOUND LIKE YOUR FACTORY?</span><h2 id="use-cases-title">Your production.<br><span class="muted-head">Your kind of challenges.</span></h2></div><p>Every workshop is different. Here are the kinds of scheduling problems ProdPlan is designed to help teams model and explore.</p></div>
+        <div class="cases-grid">
+          <article class="case-card"><span class="case-number">01 /</span><span class="case-symbol" aria-hidden="true">▥</span><h3>Small-batch manufacturing</h3><p>Multiple orders sharing a few machines? See their operations and resource demands in one plan.</p><span class="case-meta">Orders · equipment · timing</span></article>
+          <article class="case-card"><span class="case-number">02 /</span><span class="case-symbol" aria-hidden="true">↗</span><h3>Made-to-order workshops</h3><p>Different products, changing priorities? Model the steps and compare possible schedules.</p><span class="case-meta">Order mix · production steps</span></article>
+          <article class="case-card"><span class="case-number">03 /</span><span class="case-symbol" aria-hidden="true">⤨</span><h3>Frequent machine changeovers</h3><p>Switching formats or finishes takes time. Make those setup operations visible in your plan.</p><span class="case-meta">Setup rules · machine capacity</span></article>
+          <article class="case-card"><span class="case-number">04 /</span><span class="case-symbol" aria-hidden="true">◇</span><h3>Material-dependent production</h3><p>Waiting for raw materials? Include consumption, stock and deliveries in your scheduling model.</p><span class="case-meta">Materials · stock · deliveries</span></article>
+        </div>
+        <div class="cases-foot"><span>These are planning examples, not ready-made industry templates.</span><a href="#pricing" class="text-link">Get started on your terms <span aria-hidden="true">↗</span></a></div>
+      </div>
+    </section>
 
     <section class="section pricing-section" id="pricing"><div class="container"><div class="pricing-layout">
       <div class="pricing-message"><span class="section-kicker"><span class="kicker-line"></span> SIMPLE FROM THE START</span><h2>Try it with your own production.</h2><p>No sales process. No upfront commitment. Explore the full planning workflow and decide whether it works for your business.</p><div class="trial-ticks"><div><span>✓</span> 30 days free</div><div><span>✓</span> No credit card required</div><div><span>✓</span> No automatic charges</div></div></div>
-      <div class="pricing-card"><div class="pricing-card-top"><span>ALL-IN-ONE PRODUCTION PLANNING</span><span class="pricing-pill">30 DAYS FREE</span></div><h3>Start without the risk.</h3><div class="price-value">€0 <span>/ first 30 days</span></div><p>After your trial, choose a paid subscription to continue planning. Pricing will be published before public launch.</p><div class="pricing-separator"></div><div class="pricing-details"><div><span>✓</span> Visual Gantt planning</div><div><span>✓</span> Machines, employees & materials</div><div><span>✓</span> Setup rules and optimization</div><div><span>✓</span> Saved plans & comparisons</div></div><button type="button" class="btn btn-primary pricing-button" data-trial-trigger>Start 30-day free trial <span class="circle-arrow" aria-hidden="true">↗</span></button><small>Preview note: automatic trial activation and subscription billing are not connected yet.</small></div>
+      <div class="pricing-card"><div class="pricing-card-top"><span>ALL-IN-ONE PRODUCTION PLANNING</span><span class="pricing-pill">30 DAYS FREE</span></div><h3>Start without the risk.</h3><div class="price-value">€0 <span>/ proposed 30-day trial</span></div><p>After the planned trial, continue with a simple paid subscription. We intend to offer monthly and annual billing; exact pricing will be published before launch.</p><div class="pricing-separator"></div><div class="pricing-details"><div><span>✓</span> Visual Gantt planning</div><div><span>✓</span> Machines, employees & materials</div><div><span>✓</span> Setup rules and optimization</div><div><span>✓</span> Saved plans & comparisons</div></div><button type="button" class="btn btn-primary pricing-button" data-trial-trigger>Start 30-day free trial <span class="circle-arrow" aria-hidden="true">↗</span></button><small>Website preview: 30-day trial activation, billing and cancellation workflows are still being built. No card is requested here.</small></div>
     </div></div></section>
+
+    <section class="section trust-section" id="data" aria-labelledby="trust-title"><div class="container trust-layout">
+      <div class="trust-copy"><span class="section-kicker"><span class="kicker-line"></span> YOUR PRODUCTION DATA MATTERS</span>
+        <h2 id="trust-title">Your business runs on these details.<br><span class="muted-head">We take that seriously.</span></h2>
+        <p>Orders, machine settings and manufacturing processes are business information. Before self-service subscriptions launch, we will publish the details of access, retention, data export and cancellation.</p>
+        <a href="#faq" class="text-link">Read the FAQ <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="trust-facts">
+        <div><span class="trust-index">01</span><h3>Account-based access</h3><p>The current application protects planning pages behind login. We will document the access model before public release.</p></div>
+        <div><span class="trust-index">02</span><h3>Clear data policies</h3><p>Privacy Policy and Terms will describe what is stored, how long it is kept and what happens when a plan expires.</p></div>
+        <div><span class="trust-index">03</span><h3>Export &amp; continuity</h3><p>We plan to define data export and project retention rules before enabling paid subscriptions. Details are not final yet.</p></div>
+      </div>
+    </div></section>
 
     <section class="section faq-section" id="faq"><div class="container faq-layout"><div><span class="section-kicker"><span class="kicker-line"></span> QUESTIONS, ANSWERED</span><h2>Good to know<br>before you begin.</h2><p>Simple answers to the things growing production teams ask first.</p></div><div class="faq-list">
       <details><summary>Do I need a demo call before I can start?<span class="faq-plus"></span></summary><p>No. ProdPlan is designed as a self-service tool. The planned trial will let you register, set up your production and explore the core features without a sales call.</p></details>
@@ -218,12 +265,18 @@
       <details><summary>Does it replace my ERP system?<span class="faq-plus"></span></summary><p>Not necessarily. ProdPlan focuses on production scheduling and resource planning. It can complement the tools you already use.</p></details>
       <details><summary>What happens after the 30-day trial?<span class="faq-plus"></span></summary><p>The planned subscription model gives you 30 days to evaluate the platform. After that, a paid subscription will be needed to keep planning. We intend to retain your projects and saved plans if you pause.</p></details>
       <details><summary>Can I plan materials and machine changeovers?<span class="faq-plus"></span></summary><p>Yes. You can set up raw-material stock, deliveries, consumption requirements and machine setup rules, and include them when building a production plan.</p></details>
+      <details><summary>How will my production data be handled?<span class="faq-plus"></span></summary><p>The authenticated planner stores project data, but a complete public Privacy Policy, data retention rules and export conditions are being finalized. We will publish them before launching subscriptions.</p></details>
       <details><summary>Is the 30-day trial available today?<span class="faq-plus"></span></summary><p>This is the first website preview. The existing application has registration, but automated trial timing and paid subscription billing still need to be connected before a public self-service launch.</p></details>
     </div></div></section>
 
     <section class="final-cta"><div class="container final-inner"><span class="section-kicker on-dark"><span class="kicker-line"></span> READY FOR A CLEARER SCHEDULE?</span><h2>Make more room<br>for <em>making things.</em></h2><p>One place to plan the work, understand the constraints and keep your production moving.</p><button type="button" class="btn btn-lime btn-lg" data-trial-trigger>Start 30-day free trial <span class="circle-arrow" aria-hidden="true">↗</span></button><div class="final-note">No credit card. No automatic charges. Just a better way to plan.</div><div class="final-decor" aria-hidden="true"><i></i><i></i><i></i></div></div></section>
   </main>
-  <footer class="site-footer"><div class="container footer-main"><div class="footer-brand"><a class="logo" href="#top"><span class="logo-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span><span class="logo-type">prodplan<span class="logo-ai">AI</span></span></a><p>Production planning, made clear.<br>For teams that make things.</p></div><div class="footer-links"><div><b>Explore</b><a href="#platform">Platform</a><a href="#benefits">Benefits</a><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a></div><div><b>Account</b><a href="https://production-planner-gateway-v2-production.up.railway.app/" rel="noopener">Sign in</a><button type="button" data-trial-trigger>Start free trial</button></div></div></div><div class="container footer-bottom"><span>© <span id="year">2026</span> ProdPlan AI. Landing preview v1.</span><span>Built with purpose for smaller manufacturers. <a href="#top">Back to top ↑</a></span></div></footer>
+  <footer class="site-footer"><div class="container footer-main"><div class="footer-brand"><a class="logo" href="#top"><span class="logo-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span><span class="logo-type">prodplan<span class="logo-ai">AI</span></span></a><p>Production planning, made clear.<br>For teams that make things.</p></div><div class="footer-links"><div><b>Explore</b><a href="#platform">Platform</a><a href="#benefits">Benefits</a><a href="#results">Results</a><a href="#use-cases">Use cases</a><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a></div><div><b>Account</b><a href="https://production-planner-gateway-v2-production.up.railway.app/" rel="noopener">Sign in</a><button type="button" data-trial-trigger>Start free trial</button></div></div></div><div class="container footer-bottom"><span>© <span id="year">2026</span> ProdPlan AI. Landing preview v3.</span><span>Built with purpose for smaller manufacturers. <a href="#top">Back to top ↑</a></span></div></footer>
+  <dialog id="real-image-dialog" class="real-image-dialog" aria-label="Enlarged actual ProdPlan AI interface screenshot">
+    <button type="button" class="real-image-close" data-real-close aria-label="Close enlarged image">×</button>
+    <img id="real-image-enlarged" src="/assets/demo/real-material-gantt.png" width="932" height="427" alt="Enlarged original ProdPlan Gantt">
+    <p>Real read-only ceramic demo. Screens retain the sample's originally entered field names.</p>
+  </dialog>
   <dialog class="trial-dialog" id="trial-dialog" aria-labelledby="trial-title"><form method="dialog" class="dialog-inner"><button class="modal-close" value="cancel" aria-label="Close dialog" type="submit">×</button><span class="modal-symbol">↗</span><span class="section-kicker"><span class="kicker-line"></span> EARLY ACCESS PREVIEW</span><h2 id="trial-title">Ready to give it a try?</h2><p>We’re building a fully self-service 30-day trial with no credit card required. For now, registration is available in the existing application, but the automatic trial timer and paid subscription flow are not enabled yet.</p><a class="btn btn-primary modal-continue" href="https://production-planner-gateway-v2-production.up.railway.app/" rel="noopener">Open ProdPlan AI <span aria-hidden="true">↗</span></a><button type="submit" value="cancel" class="modal-later">Keep exploring the landing page</button></form></dialog>
 </body>
 </html>
