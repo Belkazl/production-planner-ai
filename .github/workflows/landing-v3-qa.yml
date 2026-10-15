@@ -9,6 +9,8 @@ on:
       - server.ts
       - Dockerfile
       - tests/landing-v3-browser.cjs
+      - tests/landing-benefits.cjs
+      - tests/landing-smoke.cjs
       - .github/workflows/landing-v3-qa.yml
   workflow_dispatch:
 jobs:
