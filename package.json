@@ -1,0 +1,9 @@
+{
+  "name": "prodplan-landing-v1",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Isolated self-service manufacturing planning SaaS landing preview",
+  "scripts": {
+    "start": "bun run server.ts"
+  }
+}
