@@ -1,0 +1,89 @@
+name: QA PlanTrick protected planner rebrand
+on:
+  push:
+    branches: [brand/plantrick-planner-2026-10-15]
+  workflow_dispatch:
+jobs:
+  protected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assemble exact protected source and change branding only
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/plantrick-app-build
+          node --check auth-runtime.js
+          node --check language-ui.js
+          test -f index.ts
+      - name: Fetch read-only original UI and ceramic demo fixture
+        run: |
+          python3 - <<'PY'
+          import urllib.request,time
+          origin='https://production-planner-gateway-production.up.railway.app'
+          for path,out in [('/', '/tmp/pp-gateway-fixture.html'),('/api/model','/tmp/pp-ceramics-live-model.json')]:
+              data=None
+              for n in range(4):
+                  try:
+                      with urllib.request.urlopen(urllib.request.Request(origin+path,headers={'User-Agent':'PlanTrickBrandQACheck/1.0'}),timeout=40) as r:
+                          data=r.read(4000000)
+                      break
+                  except Exception as e:
+                      print("Fixture request",path,"attempt",n+1,":",str(e)[:150],flush=True)
+                      time.sleep(3)
+              if not data:raise RuntimeError("Missing read-only fixture: "+path)
+              open(out,'wb').write(data)
+              print("Original read-only fixture",path,len(data),flush=True)
+          PY
+      - name: Install Chromium for browser test
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Verify branding, protected login, localization, Gantt, optimization controls
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/plantrick-auth-mock.log 2>&1 &
+          authpid=$!
+          bun tests/planner-html-mock.ts >/tmp/plantrick-ui-mock.log 2>&1 &
+          uipid=$!
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/plantrick-app.log 2>&1 &
+          apid=$!
+          trap 'kill "$authpid" "$uipid" "$apid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/plantrick-planner-browser.cjs
+          node tests/language-browser.cjs
+          node tests/gantt-browser.cjs
+          node tests/documents-tab-browser.cjs
+          node tests/start-over-browser.cjs
+          node tests/restart-after-stop-browser.cjs
+          node tests/login-session-browser.cjs
+      - name: Archive login and protected planner screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plantrick-planner-qa-login-app-en-ru
+          path: |
+            plantrick-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Inspect bridge logs on failure
+        if: failure()
+        run: |
+          test ! -f /tmp/plantrick-app.log || tail -n 80 /tmp/plantrick-app.log
