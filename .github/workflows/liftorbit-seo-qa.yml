@@ -5,6 +5,8 @@ on:
     paths:
       - index.html
       - server.ts
+      - Dockerfile
+      - 65dead239d02c66083c4a583bb7b69c432fb9582.txt
       - robots.txt
       - sitemap.xml
       - llms.txt
@@ -16,7 +18,7 @@ permissions:
 jobs:
   seo-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -37,3 +39,13 @@ jobs:
             sleep 1
           done
           node tests/liftorbit-seo.cjs || (tail -n 60 /tmp/liftorbit-seo-server.log; exit 1)
+      - name: Verify actual production Docker image serves crawlable files
+        run: |
+          docker build -t liftorbit-seo-smoke .
+          docker run --rm -d --name liftorbit-seo-smoke -p 3001:3000 -e PORT=3000 liftorbit-seo-smoke
+          trap 'docker rm -f liftorbit-seo-smoke >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3001/health >/dev/null; then break; fi
+            sleep 1
+          done
+          LANDING_URL=http://127.0.0.1:3001/ node tests/liftorbit-seo.cjs

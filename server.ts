@@ -8,10 +8,13 @@ const ROUTES=new Map([
  ["/robots.txt",{file:"robots.txt",type:"text/plain; charset=utf-8"}],
  ["/sitemap.xml",{file:"sitemap.xml",type:"application/xml; charset=utf-8"}],
  ["/llms.txt",{file:"llms.txt",type:"text/plain; charset=utf-8"}],
+ ["/65dead239d02c66083c4a583bb7b69c432fb9582.txt",{file:"65dead239d02c66083c4a583bb7b69c432fb9582.txt",type:"text/plain; charset=utf-8"}],
  ["/assets/demo/real-material-gantt.png",{file:"assets/demo/real-material-gantt.png",type:"image/png"}],
  ["/assets/demo/real-material-editor.png",{file:"assets/demo/real-material-editor.png",type:"image/png"}]
 ]);
-const structuredDataScriptHashes=[...(await Bun.file(new URL("./index.html",import.meta.url)).text()).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(m=>"'sha256-"+createHash("sha256").update(m[1],"utf8").digest("base64")+"'").join(" ");
+const landingHtml=await Bun.file(new URL("./index.html",import.meta.url)).text();
+const landingContentHash=createHash("sha256").update(landingHtml,"utf8").digest("hex");
+const structuredDataScriptHashes=[...landingHtml.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(m=>"'sha256-"+createHash("sha256").update(m[1],"utf8").digest("base64")+"'").join(" ");
 const HEADERS={
  "x-content-type-options":"nosniff",
  "referrer-policy":"strict-origin-when-cross-origin",
@@ -32,7 +35,7 @@ const app=Bun.serve({
   if(!route)return new Response("Not Found",{status:404,headers:{...HEADERS,"x-robots-tag":"noindex"}});
   const file=Bun.file(new URL("./"+route.file,import.meta.url));
   if(!(await file.exists()))return new Response("Missing asset",{status:500,headers:HEADERS});
-  const headers={...HEADERS,"content-type":route.type,"cache-control":path==="/"?"public, max-age=120, must-revalidate":path==="/robots.txt"||path==="/sitemap.xml"||path==="/llms.txt"?"public, max-age=3600":"public, max-age=600"};
+  const headers={...HEADERS,"content-type":route.type,"cache-control":path==="/"?"public, max-age=120, must-revalidate":path==="/robots.txt"||path==="/sitemap.xml"||path==="/llms.txt"?"public, max-age=3600":"public, max-age=600",...(path==="/"?{"x-landing-content-sha256":landingContentHash}:{})};
   return new Response(req.method==="HEAD"?null:file,{status:200,headers});
  },
  error(error){

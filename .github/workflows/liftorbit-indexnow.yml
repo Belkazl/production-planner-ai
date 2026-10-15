@@ -1,0 +1,57 @@
+name: Submit LiftOrbit updates to IndexNow
+on:
+  push:
+    branches: [domain/liftorbit-landing-2026-10-15]
+    paths:
+      - index.html
+      - server.ts
+      - Dockerfile
+      - robots.txt
+      - sitemap.xml
+      - 65dead239d02c66083c4a583bb7b69c432fb9582.txt
+      - .github/workflows/liftorbit-indexnow.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-indexnow-publish
+  cancel-in-progress: true
+jobs:
+  indexnow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm updated landing is live before notifying search engines
+        run: |
+          set -euo pipefail
+          key="$(tr -d '\r\n' < '65dead239d02c66083c4a583bb7b69c432fb9582.txt')"
+          expected_hash="$(sha256sum index.html | cut -d' ' -f1)"
+          echo "Checking LiftOrbit production document fingerprint before IndexNow submission."
+          for i in $(seq 1 100); do
+            current_hash="$(curl -fsSI --connect-timeout 8 --max-time 15 https://liftorbit.app/ 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="x-landing-content-sha256:"{print $2}' | tail -1 || true)"
+            current_key="$(curl -fsS --connect-timeout 8 --max-time 15 "https://liftorbit.app/${key}.txt" 2>/dev/null | tr -d '\r\n' || true)"
+            if [[ "$current_hash" == "$expected_hash" && "$current_key" == "$key" ]]; then
+              echo "LIVE_SITE_MATCHED_COMMIT_AND_INDEXNOW_KEY"
+              exit 0
+            fi
+            if (( i % 10 == 0 )); then
+              echo "Production is not at current branch content yet. Attempt $i."
+            fi
+            sleep 5
+          done
+          echo "::error::Did not observe the expected public deployment."
+          exit 1
+      - name: Notify IndexNow participants about the LiftOrbit homepage
+        run: |
+          set -euo pipefail
+          key="$(tr -d '\r\n' < '65dead239d02c66083c4a583bb7b69c432fb9582.txt')"
+          payload="{\"host\":\"liftorbit.app\",\"key\":\"${key}\",\"keyLocation\":\"https://liftorbit.app/${key}.txt\",\"urlList\":[\"https://liftorbit.app/\"]}"
+          status="$(curl -sS --connect-timeout 10 --max-time 40 -o /tmp/indexnow-response.txt -w '%{http_code}' -X POST https://api.indexnow.org/indexnow -H 'Content-Type: application/json; charset=utf-8' --data "$payload")"
+          if [[ "$status" != "200" && "$status" != "202" ]]; then
+            echo "IndexNow submission rejected with HTTP $status"
+            cat /tmp/indexnow-response.txt
+            exit 1
+          fi
+          echo "INDEXNOW_SUBMISSION_ACCEPTED HTTP=$status URL=https://liftorbit.app/"
+          echo "Notice is not a guarantee of search engine crawling or indexing."
