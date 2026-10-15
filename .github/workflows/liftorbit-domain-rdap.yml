@@ -1,0 +1,19 @@
+name: Check LiftOrbit domain registration via RDAP
+on:
+  push:
+    branches:
+      - research/liftorbit-domain-check-2026-10-15
+    paths:
+      - .github/workflows/liftorbit-domain-rdap.yml
+      - tools/check_liftorbit_rdap.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check public registry RDAP records
+        run: python3 tools/check_liftorbit_rdap.py
