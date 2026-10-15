@@ -1,5 +1,11 @@
 # Current production etalon
 
+## Live working update after the approved snapshot
+
+**15 October 2026:** English UI completion has now been deployed to the live site at commit `ca03b6129d704f155e4007839c6af17eb9123f57` (Railway deployment `eb661751-8cf9-4c08-8f5c-4a7a9f5f644b`, **SUCCESS**). It passed independent protected and production-anonymous browser checks.
+
+**The last user-approved rollback etalon remains the materials snapshot below** (code `1a6d4ae9ffb6978e064830c0aafd3ec92bb3422c`, Postgres snapshot `production-2026-10-15-ceramic-materials-v1`). The new live language-only patch has **not yet been explicitly accepted as a new etalon**. See the [production UI translation audit release record](./PRODUCTION_UI_TRANSLATION_AUDIT_2026-10-15.md).
+
 **Current user-approved production baseline: 15 October 2026 — Ceramic demo materials (with English default and Russian switch).**
 
 - **Production application source:** `1a6d4ae9ffb6978e064830c0aafd3ec92bb3422c`.
