@@ -75,6 +75,13 @@ jobs:
             sleep 1
           done
           node tests/liftorbit-blank-browser-qa.cjs
+          node tests/plantrick-planner-browser.cjs
+          node tests/language-browser.cjs
+          node tests/gantt-browser.cjs
+          node tests/documents-tab-browser.cjs
+          node tests/start-over-browser.cjs
+          node tests/restart-after-stop-browser.cjs
+          node tests/login-session-browser.cjs
       - name: Upload diagnostic screenshots
         if: always()
         uses: actions/upload-artifact@v4
