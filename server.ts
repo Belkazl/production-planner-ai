@@ -35,4 +35,4 @@ const app=Bun.serve({
   return new Response("Internal server error",{status:500,headers:HEADERS});
  }
 });
-console.log("ProdPlan landing preview listening on :"+String(app.port));
+console.log("PlanTrick landing listening on :"+String(app.port));
