@@ -115,6 +115,91 @@ switches.forEach(function(btn){btn.addEventListener("click",function(){
  switches.forEach(function(b){const active=b===btn;b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));});
  renderChart();
 });});
+// Read-only screenshot gallery: these are archived browser captures from the
+// ceramic test etalon, NOT generated marketing illustrations or live tenant data.
+const REAL_SCREENS={
+ gantt:{src:"/assets/demo/real-material-gantt.png",width:932,height:427,
+  alt:"Actual ProdPlan AI ceramic materials Gantt from the read-only test etalon"},
+ editor:{src:"/assets/demo/real-material-editor.png",width:975,height:418,
+  alt:"Actual ProdPlan AI six-material editor from the read-only test etalon"}
+};
+let currentRealScreen="gantt";
+const actualButtons=document.querySelectorAll("[data-real-preview]");
+const previewImage=document.getElementById("real-preview-img");
+const enlargedImage=document.getElementById("real-image-enlarged");
+const realDialog=document.getElementById("real-image-dialog");
+function showRealScreen(name){
+ if(!Object.hasOwn(REAL_SCREENS,name))return;
+ currentRealScreen=name;
+ const item=REAL_SCREENS[name];
+ if(previewImage){
+  previewImage.src=item.src;previewImage.alt=item.alt;
+  previewImage.width=item.width;previewImage.height=item.height;
+ }
+ actualButtons.forEach(function(button){
+  const active=button.getAttribute("data-real-preview")===name;
+  button.classList.toggle("active",active);
+  button.setAttribute("aria-pressed",String(active));
+ });
+}
+actualButtons.forEach(function(button){button.addEventListener("click",function(){
+ showRealScreen(button.getAttribute("data-real-preview"));
+});});
+const openReal=document.querySelector("[data-real-open]");
+if(openReal&&realDialog)openReal.addEventListener("click",function(){
+ const source=REAL_SCREENS[currentRealScreen];
+ if(enlargedImage){enlargedImage.src=source.src;enlargedImage.alt=source.alt;}
+ if(typeof realDialog.showModal==="function")realDialog.showModal();
+});
+document.querySelectorAll("[data-real-close]").forEach(function(button){
+ button.addEventListener("click",function(){if(realDialog?.open)realDialog.close();});
+});
+if(realDialog)realDialog.addEventListener("click",function(event){
+ if(event.target===realDialog)realDialog.close();
+});
+
+// The figures below reproduce the visible GA metric comparison from a ceramic
+// demo run. In particular, equipment idle time INCREASED. Never hide that
+// trade-off or imply a guaranteed performance uplift.
+const RESULTS={
+ before:{
+  duration:["4,377","Starting point","neutral","96%"],
+  cycles:["118","Starting point","neutral","86%"],
+  operator:["413,438","Starting point","neutral","81%"],
+  idle:["18,450","Starting point","neutral","65%"]
+ },
+ after:{
+  duration:["4,338","−39 min (−0.9%)","good","91%"],
+  cycles:["118","No change","neutral","86%"],
+  operator:["412,569","−869 min (−0.2%)","good","79%"],
+  idle:["18,706","+256 min (+1.4%)","caution","66%"]
+ }
+};
+let currentResultsMode="after";
+const resultsButtons=document.querySelectorAll("[data-results-mode]");
+function renderResults(mode){
+ if(!Object.hasOwn(RESULTS,mode))return;
+ currentResultsMode=mode;
+ for(const key of ["duration","cycles","operator","idle"]){
+  const set=RESULTS[mode][key];
+  const value=document.querySelector('[data-result-value="'+key+'"]');
+  const delta=document.querySelector('[data-result-delta="'+key+'"]');
+  const meter=document.querySelector('[data-result-meter="'+key+'"]');
+  if(value)value.textContent=set[0];
+  if(delta){delta.textContent=set[1];delta.className="result-delta "+set[2];}
+  if(meter)meter.style.width=set[3];
+ }
+ resultsButtons.forEach(function(button){
+  const isActive=button.getAttribute("data-results-mode")===mode;
+  button.classList.toggle("active",isActive);
+  button.setAttribute("aria-pressed",String(isActive));
+ });
+}
+resultsButtons.forEach(function(button){button.addEventListener("click",function(){
+ renderResults(button.getAttribute("data-results-mode"));
+});});
+renderResults("after");
+
 const modeNote=document.querySelector(".mock-footer-end");
 if(modeNote)modeNote.title="This is an illustration, not a measured optimization benchmark.";
 renderChart();
