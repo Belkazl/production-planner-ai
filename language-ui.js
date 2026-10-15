@@ -460,6 +460,7 @@ function dynamic(text){
   const translated=trMap.get(m[1].trim());
   return translated?"Setup: "+translated:null;
  }
+ if((m=/^([\d\s.,]+)\s+минут$/.exec(text)))return m[1].trim()+" minutes";
  if((m=/^Заказ\s+(\d+)$/.exec(text)))return "Order "+m[1];
  if((m=/^Партия\s+(\d+)$/.exec(text)))return "Batch "+m[1];
  if((m=/^Оборудование\s+(\d+)$/.exec(text)))return "Equipment "+m[1];
