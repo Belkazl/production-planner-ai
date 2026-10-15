@@ -1,0 +1,69 @@
+name: Audit all EN UI dynamic strings on protected planner
+on:
+  push:
+    branches: [feature/2026-10-15-i18n-complete-ui]
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assemble authentic etalon gateway and translation overlay
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-i18n-sweep-build
+          node --check language-ui.js
+      - name: Fetch original production UI and ceramics fixture READ ONLY
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          origin='https://production-planner-gateway-production.up.railway.app'
+          for path,out in [('/', '/tmp/pp-gateway-fixture.html'),('/api/model','/tmp/pp-ceramics-live-model.json')]:
+              req=urllib.request.Request(origin+path,headers={'User-Agent':'ProdPlanLocaleVisualAudit/1.0'})
+              with urllib.request.urlopen(req,timeout=40) as response: data=response.read(4000000)
+              open(out,'wb').write(data)
+          PY
+      - name: Install chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Audit protected browser with no data writes
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/i18n-auth-mock.log 2>&1 &
+          authpid=$!
+          bun tests/planner-html-mock.ts >/tmp/i18n-ui-mock.log 2>&1 &
+          uipid=$!
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/i18n-bridge.log 2>&1 &
+          bridgepid=$!
+          trap 'kill "$authpid" "$uipid" "$bridgepid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/i18n-sweep-browser.cjs
+      - name: Keep screenshots for direct visual comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-comprehensive-screen-audit
+          path: |
+            i18n-sweep-equipment.png
+            i18n-sweep-setup-modal.png
+          retention-days: 3
+          if-no-files-found: ignore
