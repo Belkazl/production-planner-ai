@@ -50,7 +50,12 @@ const fs=require("node:fs");
   await page.evaluate(()=>{
    const valid=document.getElementById("valid");if(valid)valid.textContent="4338 минут · −39 мин (−0.9%)";
    const temp=document.createElement("div");temp.id="i18n-sweep-dynamic";temp.innerHTML=
-    '<span>−39 мин (−0,9%)</span><span>0 цикла (0%)</span><span>−869 мин (−0,2%)</span><span>+256 мин (+1,4%)</span><span>882 операций · 56 переналадок · масштаб 100%</span><span>Переналадка — отдельная операция</span><span>Переналадка: Формат пресса</span><span>Всего проверено 240 поколений.</span>';
+    '<span>−39 мин (−0,9%)</span><span>0 цикла (0%)</span><span>−869 мин (−0,2%)</span><span>+256 мин (+1,4%)</span><span>882 операций · 56 переналадок · масштаб 100%</span><span>Переналадка — отдельная операция</span><span>Переналадка: Формат пресса</span><span>Всего проверено 240 поколений.</span>'+
+    '<span>GA: запуск 3 завершён</span><span>Остаток: 185000 кг</span><span>Ед.: шт.</span>'+
+    '<span>Заказ 2612</span><span>Партия 1</span><span>+12 ч</span>'+
+    '<span>Переналадка · Переналадка: Формат пресса · Заказ 2612 · Партия 1 · 60 мин</span>'+
+    '<span>Тестируемый вариант: 4338 мин · Принятый план: 4438 мин · Временный просмотр, не сохранён</span>'+
+    '<span>✓ 0 нарушений ограничений Всего проверено 240 поколений. Лучший план 4338 мин сохранён; следующая итерация продолжит поиск.</span>';
    document.body.appendChild(temp);
   });
   assert.deepEqual(await log("METRIC_DYNAMIC"),[],"Dynamic statistics or Gantt footer not localized");
