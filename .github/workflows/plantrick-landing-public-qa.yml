@@ -1,7 +1,7 @@
-name: Verify published PlanTrick landing
+name: Verify published LiftOrbit landing
 on:
   push:
-    branches: [brand/plantrick-landing-2026-10-15]
+    branches: [brand/liftorbit-landing-2026-10-15]
     paths:
       - .github/workflows/plantrick-landing-public-qa.yml
   workflow_dispatch:
@@ -21,14 +21,14 @@ jobs:
       - name: Wait for published site to use new brand
         run: |
           for i in $(seq 1 80); do
-            html="$(curl -fsS --max-time 8 'https://prodplan-landing-v1-production.up.railway.app/?brand=plantrick' || true)"
-            if printf '%s' "$html" | grep -q 'PlanTrick — Production planning made simple' && ! printf '%s' "$html" | grep -q 'ProdPlan AI'; then
-              echo "PlanTrick landing is public"
+            html="$(curl -fsS --max-time 8 'https://prodplan-landing-v1-production.up.railway.app/?brand=liftorbit' || true)"
+            if printf '%s' "$html" | grep -q 'LiftOrbit — Production planning made simple' && ! printf '%s' "$html" | grep -q 'ProdPlan AI'; then
+              echo "LiftOrbit landing is public"
               exit 0
             fi
             sleep 2
           done
-          echo "New PlanTrick landing not visible"
+          echo "New LiftOrbit landing not visible"
           exit 1
       - name: Run responsive production-browser regression
         env:
@@ -42,7 +42,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: plantrick-public-landing-views
-          path: plantrick-landing-*.png
+          name: liftorbit-public-landing-views
+          path: liftorbit-landing-*.png
           retention-days: 7
           if-no-files-found: ignore

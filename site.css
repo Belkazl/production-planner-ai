@@ -21,7 +21,7 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 
-/* v2: why PlanTrick matters — explicit outcomes, not another feature list */
+/* v2: why LiftOrbit matters — explicit outcomes, not another feature list */
 .benefits-section{background:linear-gradient(180deg,#fafcf9 0%,#f7faf7 100%);border-top:1px solid #e4ede6;border-bottom:1px solid #e8efeb}
 .benefits-intro{display:grid;grid-template-columns:1.13fr .75fr;align-items:end;gap:75px;margin-bottom:43px}
 .benefits-intro h2{font-size:clamp(35px,3.65vw,53px);letter-spacing:-.062em;line-height:1.12;margin:23px 0 0;font-weight:820}

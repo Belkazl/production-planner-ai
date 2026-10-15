@@ -9,7 +9,7 @@ async function test(){
   const resp=await desktop.goto(BASE,{waitUntil:"domcontentloaded",timeout:50000});
   assert.equal(resp.status(),200,"landing homepage must be available");
   await desktop.locator(".full-row").first().waitFor({state:"visible",timeout:9000});
-  assert.equal(await desktop.title(),"PlanTrick — Production planning made simple");
+  assert.equal(await desktop.title(),"LiftOrbit — Production planning made simple");
   assert((await desktop.locator("#hero-title").innerText()).includes("Under control."));
   assert.equal(await desktop.locator(".full-row").count(),6);
   const before=await desktop.locator(".full-row").first().locator(".full-bar").first().evaluate(el=>el.style.left);

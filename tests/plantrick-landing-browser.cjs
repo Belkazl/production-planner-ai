@@ -12,11 +12,11 @@ const BASE=process.env.LANDING_URL||"http://127.0.0.1:3000/";
    const response=await page.goto(BASE,{waitUntil:"domcontentloaded",timeout:45000});
    assert.equal(response.status(),200);
    await page.locator("#hero-title").waitFor({state:"visible",timeout:12000});
-   assert.equal(await page.title(),"PlanTrick — Production planning made simple");
-   assert((await page.locator('meta[property="og:title"]').getAttribute("content")).startsWith("PlanTrick "));
-   assert.deepEqual((await page.locator(".logo-type").allInnerTexts()).map(x=>x.trim()),["PlanTrick","PlanTrick"]);
-   assert.equal(await page.locator('header a.logo').getAttribute("aria-label"),"PlanTrick home");
-   assert((await page.locator(".footer-bottom").innerText()).includes("PlanTrick. Early access."));
+   assert.equal(await page.title(),"LiftOrbit — Production planning made simple");
+   assert((await page.locator('meta[property="og:title"]').getAttribute("content")).startsWith("LiftOrbit "));
+   assert.deepEqual((await page.locator(".logo-type").allInnerTexts()).map(x=>x.trim()),["LiftOrbit","LiftOrbit"]);
+   assert.equal(await page.locator('header a.logo').getAttribute("aria-label"),"LiftOrbit home");
+   assert((await page.locator(".footer-bottom").innerText()).includes("LiftOrbit. Early access."));
    assert(!(await page.locator("body").innerText()).includes("ProdPlan"),"No legacy visible brand");
    assert.equal(await page.locator(".actual-product").count(),0,"Keep screenshot gallery hidden");
    assert.equal(await page.locator('a.nav-login').getAttribute("href"),"https://production-planner-gateway-v2-production.up.railway.app/","Keep working application link");
@@ -33,13 +33,13 @@ const BASE=process.env.LANDING_URL||"http://127.0.0.1:3000/";
    if(width===1440||width===390){
     await page.evaluate(()=>{document.documentElement.style.scrollBehavior="auto";document.body.style.scrollBehavior="auto";window.scrollTo({top:0,behavior:"instant"});});
     await page.waitForFunction(()=>scrollY===0,{timeout:6000});
-    await page.screenshot({path:"plantrick-landing-"+(width===1440?"desktop":"mobile")+".png",fullPage:true,animations:"disabled"});
+    await page.screenshot({path:"liftorbit-landing-"+(width===1440?"desktop":"mobile")+".png",fullPage:true,animations:"disabled"});
    }
    await page.close();
   }
   assert.deepEqual(errors,[],"No JS runtime errors");
-  console.log("PLANTRICK_LANDING_BRAND_PASS",JSON.stringify({widths:views,
-   title:"PlanTrick",wordmarks:2,originalGantt:true,realGalleryRemoved:true,
+  console.log("LIFTORBIT_LANDING_BRAND_PASS",JSON.stringify({widths:views,
+   title:"LiftOrbit",wordmarks:2,originalGantt:true,realGalleryRemoved:true,
    resultsInteractive:true,pricingUnchanged:true,appLinkIntact:true,overflow:false,errors:0
   }));
  }finally{await browser.close()}

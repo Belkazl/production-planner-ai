@@ -1,7 +1,7 @@
-name: QA PlanTrick landing rebrand
+name: QA LiftOrbit landing rebrand
 on:
   push:
-    branches: [brand/plantrick-landing-2026-10-15]
+    branches: [brand/liftorbit-landing-2026-10-15]
   workflow_dispatch:
 jobs:
   brand:
@@ -19,7 +19,7 @@ jobs:
         run: |
           test -f index.html
           test ! -f auth-bridge.ts
-          bun build ./server.ts --target=bun --outdir=/tmp/plantrick-landing
+          bun build ./server.ts --target=bun --outdir=/tmp/liftorbit-landing
           node --check site.js
       - name: Install Chromium
         run: |
@@ -27,7 +27,7 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Browser-check original components and rebranding
         run: |
-          PORT=3000 bun server.ts >/tmp/plantrick-landing.log 2>&1 &
+          PORT=3000 bun server.ts >/tmp/liftorbit-landing.log 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do
@@ -42,8 +42,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: plantrick-landing-desktop-mobile
+          name: liftorbit-landing-desktop-mobile
           path: |
-            plantrick-landing-*.png
+            liftorbit-landing-*.png
           if-no-files-found: ignore
           retention-days: 7

@@ -1,4 +1,4 @@
-# PlanTrick — Production planning landing
+# LiftOrbit — Production planning landing
 
 First working landing concept for small and medium manufacturers.
 
