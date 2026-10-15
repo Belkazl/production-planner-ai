@@ -11,7 +11,7 @@ const ROUTES=new Map([
  ["/assets/demo/real-material-gantt.png",{file:"assets/demo/real-material-gantt.png",type:"image/png"}],
  ["/assets/demo/real-material-editor.png",{file:"assets/demo/real-material-editor.png",type:"image/png"}]
 ]);
-const structuredDataScriptHashes=[...(await Bun.file(new URL("./index.html",import.meta.url)).text()).matchAll(/<script type="application\\/ld\\+json">([\\s\\S]*?)<\\/script>/g)].map(m=>"'sha256-"+createHash("sha256").update(m[1],"utf8").digest("base64")+"'").join(" ");
+const structuredDataScriptHashes=[...(await Bun.file(new URL("./index.html",import.meta.url)).text()).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(m=>"'sha256-"+createHash("sha256").update(m[1],"utf8").digest("base64")+"'").join(" ");
 const HEADERS={
  "x-content-type-options":"nosniff",
  "referrer-policy":"strict-origin-when-cross-origin",
