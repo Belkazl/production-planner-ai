@@ -1,0 +1,57 @@
+name: QA ProdPlan v3 responsive product story
+on:
+  push:
+    branches: [landing/v3-product-story-2026-10-15]
+    paths:
+      - index.html
+      - site.css
+      - site.js
+      - server.ts
+      - Dockerfile
+      - tests/landing-v3-browser.cjs
+      - .github/workflows/landing-v3-qa.yml
+  workflow_dispatch:
+jobs:
+  responsive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm standalone build and real product screenshot assets
+        run: |
+          test -s assets/demo/real-material-gantt.png
+          test -s assets/demo/real-material-editor.png
+          test ! -f auth-bridge.ts
+          bun build ./server.ts --target=bun --outdir=/tmp/landing-build-v3
+          node --check site.js
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Test old interactions and nine sizes of v3
+        run: |
+          PORT=3000 bun server.ts > /tmp/prodplan-landing-v3.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          node tests/landing-smoke.cjs
+          node tests/landing-benefits.cjs
+          node tests/landing-v3-browser.cjs || (tail -n 60 /tmp/prodplan-landing-v3.log; exit 1)
+      - name: Save responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prodplan-v3-responsive-actual-gantt-and-comparison
+          path: |
+            landing-v3-*.png
+          retention-days: 7
+          if-no-files-found: ignore
