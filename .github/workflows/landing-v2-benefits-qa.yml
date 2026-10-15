@@ -1,0 +1,54 @@
+name: QA value-proposition benefits on landing v2
+on:
+  push:
+    branches:
+      - landing/v2-benefits-2026-10-15
+  workflow_dispatch:
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate app build and editorial structure
+        run: |
+          bun build ./server.ts --target=bun --outdir=/tmp/landing-benefits-build
+          test -f index.html
+          test -f site.css
+          test -f site.js
+          test ! -e auth-bridge.ts
+          test ! -e language-ui.js
+      - name: Install browser dependencies
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Run old landing UI regression and new benefits responsive checks
+        run: |
+          PORT=3000 bun server.ts > /tmp/prodplan-landing-v2.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          node tests/landing-smoke.cjs
+          node tests/landing-benefits.cjs
+      - name: Archive full page and benefits screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: landing-benefits-v2-desktop-tablet-mobile
+          path: |
+            landing-v2-desktop.png
+            landing-v2-mobile.png
+            landing-v2-benefits-desktop.png
+            landing-v2-benefits-mobile.png
+            landing-v2-benefits-tablet.png
+          retention-days: 7
+          if-no-files-found: ignore
