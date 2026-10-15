@@ -34,7 +34,7 @@ async function test(){
   assert(await dialog.evaluate(el=>el.open),"Trial button must open honest preview dialog");
   assert((await dialog.innerText()).includes("not enabled yet"));
   const trialTarget=await dialog.locator("a.modal-continue").getAttribute("href");
-  assert(trialTarget.startsWith("https://production-planner-gateway-v2-production.up.railway.app/"));
+  assert(trialTarget.startsWith("https://app.liftorbit.app/"));
   await dialog.locator(".modal-close").click();
   assert(!(await dialog.evaluate(el=>el.open)));
   const importantLinks=await desktop.locator(".main-nav a").evaluateAll(all=>all.map(a=>a.getAttribute("href")));
