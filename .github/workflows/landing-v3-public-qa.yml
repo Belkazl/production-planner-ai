@@ -1,0 +1,47 @@
+name: Verify published ProdPlan landing v3
+on:
+  push:
+    branches: [landing/v3-product-story-2026-10-15]
+    paths:
+      - .github/workflows/landing-v3-public-qa.yml
+  workflow_dispatch:
+jobs:
+  public-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Wait until actual product screenshot is available on public website
+        run: |
+          for i in $(seq 1 50); do
+            if curl -fsS --max-time 7 https://prodplan-landing-v1-production.up.railway.app/assets/demo/real-material-gantt.png -o /tmp/gantt-live.png && test "$(wc -c </tmp/gantt-live.png)" -gt 5000; then
+              echo "Product screenshots published"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Actual Gantt screenshot still unavailable on live domain"
+          exit 1
+      - name: Test real Railway URL in Chrome desktop, tablet, phone
+        env:
+          LANDING_URL: https://prodplan-landing-v1-production.up.railway.app/
+        run: |
+          node tests/landing-smoke.cjs
+          node tests/landing-benefits.cjs
+          node tests/landing-v3-browser.cjs
+      - name: Preserve real production screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-prodplan-v3-real-product-web
+          path: |
+            landing-v3-*.png
+          retention-days: 7
+          if-no-files-found: ignore
