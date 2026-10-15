@@ -1,40 +1,52 @@
-name: Capture original read-only ceramic demo Gantt
+name: Bundle verified original ceramic Gantt screenshots
 on:
   push:
     branches: [landing/v3-product-story-2026-10-15]
     paths:
       - .github/workflows/landing-v3-capture-demo.yml
-      - tests/capture-ceramics-demo.cjs
   workflow_dispatch:
 jobs:
-  capture:
+  archive-original-demo:
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 12
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Chromium installation
+      - name: Restore images from prior successful browser capture
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          npm install --no-save --no-package-lock playwright@1.57.0
-          npx playwright install --with-deps chromium
-      - name: Capture browser screenshots and minimal read-only demo data
-        run: node tests/capture-ceramics-demo.cjs
-      - name: Preserve inspection artifact
+          mkdir -p /tmp/gantt-archive assets/demo
+          gh run download 38609419591 --repo "${{ github.repository }}" -n published-test-etalon-material-gantt -D /tmp/gantt-archive
+          test -s /tmp/gantt-archive/test-etalon-materials-gantt.png
+          test -s /tmp/gantt-archive/test-etalon-materials-editor.png
+      - name: Crop actual interface views without altering screenshot content
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          a=Image.open('/tmp/gantt-archive/test-etalon-materials-gantt.png').convert('RGB')
+          b=Image.open('/tmp/gantt-archive/test-etalon-materials-editor.png').convert('RGB')
+          assert a.width>=1400 and a.height>=1100
+          assert b.width>=1400 and b.height>=650
+          a.crop((408,274,1340,701)).save('assets/demo/real-material-gantt.png',optimize=True)
+          b.crop((425,184,1400,602)).save('assets/demo/real-material-editor.png',optimize=True)
+          print('VERIFIED_TEST_ETALON_GANTT_ASSETS',[(x,Image.open('assets/demo/'+x).size) for x in ['real-material-gantt.png','real-material-editor.png']])
+          PY
+      - name: Save originals for QA
         uses: actions/upload-artifact@v4
         with:
-          name: read-only-ceramic-real-gantt-sources
-          path: assets/demo
+          name: production-planner-original-gantt-cropped
+          path: assets/demo/*.png
           retention-days: 7
-      - name: Store approved synthetic demo screenshots in landing branch
+      - name: Commit reference assets to isolated landing branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/demo/ceramic-demo.json assets/demo/gantt-*.png
+          git add assets/demo/*.png
           if ! git diff --cached --quiet; then
-            git commit -m "assets(landing): bundle read-only original ceramic test Gantt captures [skip ci]"
+            git commit -m "assets(landing): store read-only actual test-etalon product screen captures [skip ci]"
             git push origin HEAD:landing/v3-product-story-2026-10-15
           fi
