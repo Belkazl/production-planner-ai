@@ -47,6 +47,39 @@ const fs=require("node:fs");
     if(name==="Оборудование")await page.screenshot({path:"i18n-sweep-equipment.png"});
    }catch(e){console.log("PP_I18N_SWEEP_SECTION_ERROR",name,String(e).slice(0,400))}
   }
+  // Render the real materials Gantt component and inspect its generated
+  // captions, stock/delivery lines, axis and tooltip (no GA calls or data writes).
+  await page.evaluate(()=>{
+   const originalMaterials=model.materials;
+   model.materials=[{id:"M_BODY",name:"M_BODY",unit:"kg",initial_stock:1000,
+    deliveries:[{at:"2026-10-06T08:00:00",quantity:250}],consumption_per_unit:0.55,order_ids:[2601]}];
+   const p={start:model.start,duration_minutes:2000,operations:[{
+    order:2601,batch:1,operation_name:"Прессование",
+    start_min:60,end_min:160,
+    resources:[{resource_type:"material",id:"M_BODY",quantity:25}],
+    equipment_ids:[],employee_ids:[]}],
+    batches:[{order:2601,batch:1,start_min:60,quantity:400,area:400}]};
+   const chart=window.__PP_SECONDARY_GANTTS_V3__.renderMode(2,p);
+   const mount=document.createElement("div");mount.id="i18n-real-material-chart";
+   document.body.appendChild(mount);mount.appendChild(chart);
+   model.materials=originalMaterials;
+  });
+  await page.waitForTimeout(200);
+  const ganttTexts=await page.locator("#i18n-real-material-chart").innerText();
+  assert(ganttTexts.includes("Material Gantt")&&ganttTexts.includes("deliveries and consumption"),
+   "Actual material Gantt needs translated headings and summary");
+  const ganttLeft=(await collect()).filter(x=>document.getElementById("i18n-real-material-chart")?.contains(
+   document.getElementById(x.id)||document.querySelector("#i18n-real-material-chart ."+x.cls?.split(" ")[0])));
+  // The stronger global check immediately below also catches hidden title attributes.
+  assert.deepEqual(await log("ACTUAL_MATERIAL_GANTT"),[],
+   "Material Gantt and its tooltips still contain untranslated interface labels");
+  await page.screenshot({path:"i18n-sweep-material-gantt.png",fullPage:false);
+  const materialBar=page.locator("#i18n-real-material-chart .pp3-bar.pp3-consumption").first();
+  await materialBar.waitFor({state:"attached",timeout:5000});
+  await materialBar.click();
+  assert.deepEqual(await log("MATERIAL_EVENT_POPUP"),[],"Material event dialog not fully English");
+  await page.locator("#ppGanttOperationDetails .pgd-close").click();
+
   await page.evaluate(()=>{
    const valid=document.getElementById("valid");if(valid)valid.textContent="4338 минут · −39 мин (−0.9%)";
    const temp=document.createElement("div");temp.id="i18n-sweep-dynamic";temp.innerHTML=
