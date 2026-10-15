@@ -1,6 +1,6 @@
 "use strict";
 (function(){
-const APP_URL="https://production-planner-gateway-v2-production.up.railway.app/";
+const APP_URL="https://app.liftorbit.app/";
 const menuButton=document.querySelector(".menu-toggle");
 const navigation=document.querySelector(".main-nav");
 if(menuButton&&navigation){
