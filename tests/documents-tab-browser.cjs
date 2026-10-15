@@ -119,7 +119,7 @@ const {chromium}=require("playwright");
   await page.locator("#ppTemplateBtn").click();
   await page.waitForFunction(()=>window.__ppTemplateTest!==null,null,{timeout:12000});
   const exported=await page.evaluate(()=>window.__ppTemplateTest);
-  assert.equal(exported.name,"PlanTrick_import_template.xlsx");
+  assert.equal(exported.name,"LiftOrbit_import_template.xlsx");
   assert(exported.sheets.includes("Заказы")&&exported.sheets.includes("Техпроцессы"),
     "must retain original XLSX workbook generation");
   const fileChooserPromise=page.waitForEvent("filechooser",{timeout:10000});

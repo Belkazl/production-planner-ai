@@ -80,7 +80,7 @@ jobs:
         with:
           name: liftorbit-planner-qa-login-app-en-ru
           path: |
-            plantrick-*.png
+            liftorbit-*.png
           if-no-files-found: ignore
           retention-days: 7
       - name: Inspect bridge logs on failure

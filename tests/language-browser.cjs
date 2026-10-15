@@ -18,14 +18,14 @@ const {chromium}=require("playwright");
   assert.equal(await page.locator("#loginTab").innerText(),"Sign in");
   assert.equal(await page.locator('label[for="password"]').innerText(),"Password");
   assert.equal(await page.evaluate(()=>document.documentElement.lang),"en");
-  assert.equal(await page.title(),"Sign in — PlanTrick");
+  assert.equal(await page.title(),"Sign in — LiftOrbit");
   await page.screenshot({path:"language-login-english.png"});
 
   // Both languages must be available without page reload.
   await page.locator("#ppLanguageSelect").selectOption("ru");
   assert.equal(await page.locator("#loginTab").innerText(),"Войти");
   assert.equal(await page.locator('label[for="password"]').innerText(),"Пароль");
-  assert.equal(await page.title(),"Вход — PlanTrick");
+  assert.equal(await page.title(),"Вход — LiftOrbit");
   await page.reload({waitUntil:"domcontentloaded"});
   assert.equal(await page.locator("#ppLanguageSelect").inputValue(),"ru");
   assert.equal(await page.locator("#loginTab").innerText(),"Войти");
