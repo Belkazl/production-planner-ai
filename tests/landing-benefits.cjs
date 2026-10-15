@@ -39,7 +39,7 @@ const URL=process.env.LANDING_URL||"http://127.0.0.1:3000/";
     await nav.click();
     assert.equal(await toggle.getAttribute("aria-expanded"),"false","Menu should close on navigation");
    }else{
-    assert(await nav.isVisible(),"Benefits nav link should show on wide screens");
+    assert(await nav.isVisible(),"Benefits nav link should show on wide screens: "+JSON.stringify(await nav.evaluate(el=>({width:innerWidth,display:getComputedStyle(el).display,parent:getComputedStyle(el.parentElement).display,header:getComputedStyle(document.querySelector(".site-header")).display,rect:el.getBoundingClientRect().toJSON()}))));
     const header=await page.evaluate(()=>{
       const n=document.querySelector(".main-nav").getBoundingClientRect(),
             a=document.querySelector(".nav-actions").getBoundingClientRect();
