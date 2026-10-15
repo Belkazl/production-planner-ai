@@ -1,0 +1,30 @@
+name: Verify current production UI English/Russian localization
+on:
+  push:
+    branches: [qa/2026-10-15-i18n-production-proof]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Exercise deployed production translator without signing in or writing data
+        run: node tests/i18n-production-smoke.cjs
+      - name: Save public login screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-i18n-qa-en-ru
+          path: |
+            i18n-verified-production-en.png
+            i18n-verified-production-ru.png
+          retention-days: 3
+          if-no-files-found: ignore
