@@ -1,94 +1,38 @@
 import postgres from "postgres";
 import {createHash} from "node:crypto";
-
 const DB=postgres(Bun.env.DATABASE_URL,{max:1,connect_timeout:14,idle_timeout:3});
-const SNAPSHOT="production-2026-10-15-ceramic-materials-v1";
-const CODE_SHA="1a6d4ae9ffb6978e064830c0aafd3ec92bb3422c";
-const TARGET_PROJECT="prj_mugww6lr_kanzz5";
-const SPEC=[
- ["M_BODY","OP_PRESS",18.5,"кг"],
- ["M_ENGOBE","OP_GLAZE",0.55,"кг"],
- ["M_GLAZE","OP_GLAZE",0.65,"кг"],
- ["M_INK","OP_DECOR",0.04,"кг"],
- ["M_CARTONS","OP_PACK",0.7,"шт."],
- ["M_PALLETS","OP_PACK",0.02,"шт."]
-];
-const hash=t=>createHash("sha256").update(t).digest("hex");
-function unwrap(value){for(let i=0;i<5&&typeof value==="string";i++){try{value=JSON.parse(value)}catch{break}}return value}
-function check(cond,label){if(!cond)throw Error("ETALON_GUARD:"+label)}
-
+const N="production-2026-10-15-ceramic-materials-v1";
+const SHA="27b200c93c39eb2f7830c82171e2d9dbb1d169ea70dfcb7307eb95aacef79d99";
+const CODE="1a6d4ae9ffb6978e064830c0aafd3ec92bb3422c";
+const hash=s=>createHash("sha256").update(s).digest("hex");
+const unpack=s=>{for(let i=0;i<5&&typeof s==="string";i++){try{s=JSON.parse(s)}catch{break}}return s};
+const check=(v,msg)=>{if(!v)throw Error("BACKUP_VERIFY_FAILED:"+msg)};
 try{
- const output=await DB.begin(async tx=>{
-  const tenants=await tx`SELECT tenant_id, storage FROM pp_tenant_storage FOR SHARE`;
-  check(tenants.length===1,"single_tenant");
-  const {tenant_id,storage}=tenants[0];
-  const raw=storage["prodplan.projects.v2"];
-  const projects=unwrap(raw);
-  const active=unwrap(storage["prodplan.project.active.v2"]);
-  check(typeof raw==="string"&&Array.isArray(projects)&&projects.length===2,"project_storage");
-  const p=projects.find(x=>x.id===TARGET_PROJECT);
-  check(p?.name==="Керамика"&&projects.some(x=>x.name==="Покраска"),"target_projects");
-  check(String(active)===TARGET_PROJECT,"active_project");
-  check(Number(p.revision)>=52,"has_materials_revision");
-  const model=p.model||{},orders=model.orders||[],materials=model.materials||[];
-  check(orders.length===12&&orders.reduce((s,x)=>s+Number(x.area||x.quantity||0),0)===23100,"ceramic_orders_area");
-  check(orders.map(x=>Number(x.id)).sort((a,b)=>a-b).every((id,i)=>id===2601+i),"order_ids");
-  check(materials.length===6,"six_materials");
-  check((model.setup_rules||[]).length===8,"setup_rules");
-  check(Array.isArray(p.savedPlans)&&p.savedPlans.length>=5,"saved_plans_preserved");
-  const ops=model.technical_processes?.[0]?.operations||[];
-  check(model.technical_processes?.length===1&&model.technical_processes[0].id==="TP_TILE","ceramic_process");
-  const matReqs=ops.flatMap(op=>(op.resource_requirements||[]).filter(r=>r.resource_type==="material").map(r=>({operation:op.id,...r})));
-  check(matReqs.length===6,"six_material_requirements");
-  for(const [id,operation,rate,unit] of SPEC){
-   const m=materials.find(x=>x.id===id),req=matReqs.find(x=>x.resource_ref===id);
-   check(!!m&&!!req&&req.operation===operation,"mapping_"+id);
-   check(Number(req.quantity)===rate&&req.consumption_rule==="per_m2"&&req.unit===unit,"rate_"+id);
-   check(m.deliveries?.length===1&&Number(m.initial_stock)>0&&Number(m.deliveries[0].quantity)>0,"stock_"+id);
-  }
-  const contentHash=hash(raw);
-  const notes={
-   projectName:p.name,projectsCount:projects.length,ordersCount:orders.length,areaM2:23100,
-   materialsCount:materials.length,materialRequirements:matReqs.length,setupRules:model.setup_rules.length,
-   savedPlans:p.savedPlans.length,activePlanPresent:!!p.lastPlan,
-   equipmentCount:(model.equipment||[]).length,employeesCount:(model.employees||[]).length,
-   distinctOtherProject:projects.find(x=>x.id!==TARGET_PROJECT)?.name||null,
-   modelStart:model.start,expectedCodeSha:CODE_SHA
-  };
-  // Immutable recovery copy in Postgres; never update tenant project data here.
-  await tx`CREATE TABLE IF NOT EXISTS pp_production_etalon_snapshots (
-   snapshot_name TEXT PRIMARY KEY,
-   tenant_id TEXT NOT NULL,
-   code_commit TEXT NOT NULL,
-   project_id TEXT NOT NULL,
-   project_revision INTEGER NOT NULL,
-   projects_storage TEXT NOT NULL,
-   active_project_id TEXT NOT NULL,
-   storage_sha256 TEXT NOT NULL,
-   metadata JSONB NOT NULL,
-   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`;
-  const inserted=await tx`INSERT INTO pp_production_etalon_snapshots
-   (snapshot_name,tenant_id,code_commit,project_id,project_revision,projects_storage,active_project_id,storage_sha256,metadata)
-   VALUES (${SNAPSHOT},${tenant_id},${CODE_SHA},${TARGET_PROJECT},${p.revision},${raw},${String(active)},${contentHash},${JSON.stringify(notes)}::jsonb)
-   ON CONFLICT (snapshot_name) DO NOTHING
-   RETURNING snapshot_name`;
-  const backup=await tx`SELECT snapshot_name,code_commit,project_id,project_revision,projects_storage,active_project_id,storage_sha256,metadata,created_at
-                       FROM pp_production_etalon_snapshots WHERE snapshot_name=${SNAPSHOT}`;
-  check(backup.length===1&&backup[0].code_commit===CODE_SHA,"pinned_code");
-  check(backup[0].project_id===TARGET_PROJECT&&backup[0].active_project_id===String(active),"pinned_project");
-  check(hash(backup[0].projects_storage)===backup[0].storage_sha256,"backup_hash");
-  check(backup[0].storage_sha256===contentHash,"snapshot_matches_live");
-  check(backup[0].project_revision===p.revision,"revision_matches_live");
-  const saved=unwrap(backup[0].projects_storage);
-  check(saved.length===2&&saved.find(x=>x.id===TARGET_PROJECT)?.model.materials.length===6,"snapshot_readback");
-  return {saved:inserted.length===1,verified:true,name:SNAPSHOT,codeCommit:CODE_SHA,
-   projectRevision:p.revision,storageSHA256:contentHash,orders:orders.length,materials:materials.length,
-   materialRequirements:matReqs.length,setupRules:model.setup_rules.length,savedPlans:p.savedPlans.length,
-   backupCreatedAt:backup[0].created_at,activePlanPresent:!!p.lastPlan,
-   otherProjectPreserved:true,dbTable:"pp_production_etalon_snapshots",
-   scope:"backup_only_no_project_mutations"};
- });
- console.log("PP_CERAMIC_20261015_ETALON_SNAPSHOT_SAVED",JSON.stringify(output));
-}catch(error){console.error("PP_CERAMIC_20261015_ETALON_SNAPSHOT_FAILED",String(error?.message||error).slice(0,550));process.exitCode=1}
+ const rows=await DB`SELECT snapshot_name,project_id,project_revision,code_commit,projects_storage,active_project_id,
+                         storage_sha256,metadata,created_at
+                  FROM pp_production_etalon_snapshots WHERE snapshot_name=${N}`;
+ check(rows.length===1,"found_snapshot");
+ const s=rows[0];
+ check(s.code_commit===CODE&&s.storage_sha256===SHA&&hash(s.projects_storage)===SHA,"code_sha_and_checksum");
+ check(s.active_project_id===s.project_id&&s.project_id==="prj_mugww6lr_kanzz5","active_project_pointer");
+ const projects=unpack(s.projects_storage);
+ check(Array.isArray(projects)&&projects.length===2,"full_project_array");
+ const p=projects.find(x=>x.id===s.project_id),other=projects.find(x=>x.name==="Покраска");
+ check(p?.name==="Керамика"&&other&&p.revision===s.project_revision&&p.revision===52,"revision_and_both_projects");
+ check(p.model.orders.length===12&&p.model.orders.reduce((sum,x)=>sum+Number(x.area||0),0)===23100,"twelve_orders");
+ check(p.model.materials.length===6&&p.model.setup_rules.length===8,"materials_and_setups");
+ check(p.model.technical_processes[0].operations.flatMap(o=>(o.resource_requirements||[]).filter(x=>x.resource_type==="material")).length===6,"six_consumption_rules");
+ check(p.savedPlans.length===6&&!!p.lastPlan,"saved_and_current_plans");
+ const older=await DB`SELECT source_sha256 FROM pp_ceramic_materials_backup_20261014 LIMIT 3`;
+ check(older.length===1&&older[0].source_sha256==="3774a5f2fec826e8a5d720defb8de9ca5d12df3e318585ff97f4eecabb3c8dde","previous_backup_retained");
+ const live=await DB`SELECT storage FROM pp_tenant_storage LIMIT 3`;
+ check(live.length===1,"single_tenant_remains");
+ const current=live[0].storage["prodplan.projects.v2"];
+ const output={readOnly:true,verified:true,name:N,codeSha:CODE,dataSha:SHA,
+  projectRevision:p.revision,orders:p.model.orders.length,materials:p.model.materials.length,
+  rules:6,setupRules:p.model.setup_rules.length,savedPlans:p.savedPlans.length,activePlan:true,
+  previousBackupRetained:true,otherProjectPreserved:true,createdAt:s.created_at,
+  matchesCurrentLiveStorage:hash(current)===SHA,scope:"immutable_snapshot_and_integrity"};
+ console.log("PP_CERAMIC_20261015_ETALON_INDEPENDENTLY_VERIFIED",JSON.stringify(output));
+}catch(e){console.error("PP_CERAMIC_20261015_ETALON_VERIFY_ERROR",String(e?.message||e).slice(0,500));process.exitCode=1}
 finally{await DB.end({timeout:3})}
