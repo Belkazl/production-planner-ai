@@ -6,6 +6,8 @@ on:
       - .github/workflows/liftorbit-blank-diagnostics.yml
       - tests/liftorbit-blank-browser-qa.cjs
       - tests/inspect-upstream-boot.cjs
+      - language-build.ts
+      - nonblocking-db-shim.js
   workflow_dispatch:
 permissions:
   contents: read
