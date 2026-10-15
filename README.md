@@ -1,4 +1,4 @@
-# ProdPlan AI — Landing v1
+# PlanTrick — Production planning landing
 
 First working landing concept for small and medium manufacturers.
 
