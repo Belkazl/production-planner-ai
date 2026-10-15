@@ -1,5 +1,10 @@
 name: Capture original read-only ceramic demo Gantt
 on:
+  push:
+    branches: [landing/v3-product-story-2026-10-15]
+    paths:
+      - .github/workflows/landing-v3-capture-demo.yml
+      - tests/capture-ceramics-demo.cjs
   workflow_dispatch:
 jobs:
   capture:
