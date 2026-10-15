@@ -31,8 +31,8 @@ const BASE=process.env.LANDING_URL||"http://127.0.0.1:3000/";
    const doc=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
    assert(doc.scroll<=doc.width+3,"Horizontal overflow at "+width+": "+JSON.stringify(doc));
    if(width===1440||width===390){
-    await page.evaluate(()=>window.scrollTo(0,0));
-    await page.waitForTimeout(100);
+    await page.evaluate(()=>{document.documentElement.style.scrollBehavior="auto";document.body.style.scrollBehavior="auto";window.scrollTo({top:0,behavior:"instant"});});
+    await page.waitForFunction(()=>scrollY===0,{timeout:6000});
     await page.screenshot({path:"plantrick-landing-"+(width===1440?"desktop":"mobile")+".png",fullPage:true,animations:"disabled"});
    }
    await page.close();
