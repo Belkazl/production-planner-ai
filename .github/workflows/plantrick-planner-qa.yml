@@ -1,7 +1,7 @@
 name: QA LiftOrbit protected planner rebrand
 on:
   push:
-    branches: [brand/liftorbit-planner-2026-10-15]
+    branches: [domain/liftorbit-app-2026-10-15]
   workflow_dispatch:
 jobs:
   protected:
@@ -29,6 +29,7 @@ jobs:
           bun run language-build.ts
           bun build ./index.ts --target=bun --outdir=/tmp/liftorbit-app-build
           node --check auth-runtime.js
+          node tests/liftorbit-domain-origin.cjs
           node --check language-ui.js
           test -f index.ts
       - name: Fetch read-only original UI and ceramic demo fixture
