@@ -435,7 +435,15 @@ const texts={
  "событий расхода":"consumption events",
  "План рассчитан":"Plan calculated",
  "План построен":"Plan generated",
- "Время окончания плана":"Plan completion time"
+ "Время окончания плана":"Plan completion time",
+ "Новый вариант отклонён: лучший сохранённый план не ухудшен.":"Candidate rejected: the best saved plan has been preserved.",
+ "Временный просмотр, не сохранён":"Temporary preview, not saved",
+ "Проверено поколений":"Generations checked",
+ "Принятый план":"Accepted plan",
+ "Остаток":"Stock",
+ "Ед.":"Unit",
+ "кг":"kg",
+ "шт.":"pcs"
 };
 
 const trMap=new Map(Object.entries(texts));
@@ -451,6 +459,22 @@ function dynamic(text){
  if((m=/^Переналадка:\s*(.+)$/.exec(text))){
   const translated=trMap.get(m[1].trim());
   return translated?"Setup: "+translated:null;
+ }
+ if((m=/^Заказ\s+(\d+)$/.exec(text)))return "Order "+m[1];
+ if((m=/^Партия\s+(\d+)$/.exec(text)))return "Batch "+m[1];
+ if((m=/^Оборудование\s+(\d+)$/.exec(text)))return "Equipment "+m[1];
+ if((m=/^Объём\s+([\d.,]+)$/.exec(text)))return "Volume "+m[1];
+ if((m=/^\+(\d+)\s+ч$/.exec(text)))return "+"+m[1]+" h";
+ if((m=/^Остаток:\s*([\d.,]+)\s+(.+)$/.exec(text)))
+  return "Stock: "+m[1]+" "+translate(m[2]);
+ if((m=/^Ед\.:\s*(.+)$/.exec(text)))return "Unit: "+translate(m[1]);
+ if((m=/^GA: запуск\s+(\d+)\s+завершён$/.exec(text)))return "GA: run "+m[1]+" completed";
+ if((m=/^((?:Тестируемый вариант|Лучший найденный)):\s*([\d.,]+\s+мин|—)(?:\s+·\s+Принятый план:\s*([\d.,]+)\s+мин)?\s+·\s+Временный просмотр, не сохранён$/.exec(text)))
+  return translate(m[1])+": "+m[2].replace(/мин$/,"min")+
+   (m[3]?" · Accepted plan: "+m[3]+" min":"")+" · Temporary preview, not saved";
+ if((m=/^(.*?)\s*Всего проверено\s+(\d+)\s+поколений\.\s+Лучший план\s+([\d.,]+)\s+мин\s+сохранён;\s+следующая итерация продолжит поиск\.$/.exec(text))){
+  const prefix=m[1].trim();
+  return (prefix?translate(prefix)+" ":"")+"Checked "+m[2]+" generations. Best plan of "+m[3]+" min saved; the next iteration will continue searching.";
  }
  if((m=/^([+−-]?[\d\s.,]+)\s+мин\s*\(([^)]+)\)$/.exec(text)))
   return m[1].trim()+" min ("+m[2]+")";
@@ -520,6 +544,14 @@ function dynamic(text){
     .replace(/длительность/g,"duration").replace(/ожидание/g,"waiting")
     .replace(/простой/g,"idle time").replace(/число циклов/g,"cycle count");
   return "Candidate not applied: "+why;
+ }
+ // Gantt tooltips contain multiple generated labels separated by a dot.
+ // Translate only known UI fragments, preserving arbitrary machine, product,
+ // order-parameter and material names from the user's production model.
+ if(text.includes(" · ")){
+  const parts=text.split(" · ");
+  const translated=parts.map(part=>trMap.get(part)??dynamic(part)??part);
+  if(translated.some((part,i)=>part!==parts[i]))return translated.join(" · ");
  }
  if((m=/^Не удалось начать заново:\s*(.+)$/.exec(text)))
   return "Could not restart optimization: "+m[1];
