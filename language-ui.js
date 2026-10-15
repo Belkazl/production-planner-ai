@@ -46,7 +46,7 @@ function readStoredLanguage(){
 }
 const texts={
  // Authentication and top-level navigation
- "Вход — ProdPlan AI":"Sign in — ProdPlan AI",
+ "Вход — PlanTrick":"Sign in — PlanTrick",
  "Производственное планирование":"Production planning",
  "Войти":"Sign in",
  "Регистрация":"Register",
@@ -648,14 +648,31 @@ function translateBranch(root){
   else if(n.nodeType===1)transformAttrs(n);
  }
 }
+function brandFixedUi(){
+ // Old project-storage identifiers are intentionally not renamed. This only
+ // updates the product wordmark in permanent UI chrome, never user content.
+ document.title=document.title.replaceAll("ProdPlan AI","PlanTrick").replaceAll("ProdPlan","PlanTrick");
+ for(const el of document.querySelectorAll(
+  "body > .box > .logo, .top .brand, .top .logo, .top .app-title, .side .brand, .side .logo, header .brand, header .logo"
+ )){
+  const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
+  while(walker.nextNode()){
+   const node=walker.currentNode, value=node.nodeValue||"";
+   if(value.includes("ProdPlan")){
+    node.nodeValue=value.replaceAll("ProdPlan AI","PlanTrick").replaceAll("ProdPlan","PlanTrick");
+   }
+  }
+ }
+}
 function refresh(){
  resettingUi=true;
  try{
   document.documentElement.lang=lang;
   translateBranch(document.body);
+  brandFixedUi();
   // Browser/tab title is outside the body.
-  if(document.title==="Вход — ProdPlan AI"&&lang==="en")document.title="Sign in — ProdPlan AI";
-  else if(document.title==="Sign in — ProdPlan AI"&&lang==="ru")document.title="Вход — ProdPlan AI";
+  if(document.title==="Вход — PlanTrick"&&lang==="en")document.title="Sign in — PlanTrick";
+  else if(document.title==="Sign in — PlanTrick"&&lang==="ru")document.title="Вход — PlanTrick";
   for(const el of document.querySelectorAll("[data-pp-en-label]")){
    el.setAttribute("aria-label",lang==="en"?el.dataset.ppEnLabel:el.textContent.trim());
   }
@@ -712,6 +729,7 @@ function processQueue(){
  for(const root of roots){if(root?.isConnected||root===document.body)translateBranch(root)}
  // An account header can be injected by the auth bridge after our own script.
  if(!document.getElementById("ppLanguageControl"))control();
+ brandFixedUi();
 }
 function observe(){
  const observer=new MutationObserver(mutations=>{
