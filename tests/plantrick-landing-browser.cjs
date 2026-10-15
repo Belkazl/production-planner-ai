@@ -19,7 +19,7 @@ const BASE=process.env.LANDING_URL||"http://127.0.0.1:3000/";
    assert((await page.locator(".footer-bottom").innerText()).includes("LiftOrbit. Early access."));
    assert(!(await page.locator("body").innerText()).includes("ProdPlan"),"No legacy visible brand");
    assert.equal(await page.locator(".actual-product").count(),0,"Keep screenshot gallery hidden");
-   assert.equal(await page.locator('a.nav-login').getAttribute("href"),"https://production-planner-gateway-v2-production.up.railway.app/","Keep working application link");
+   assert.equal(await page.locator('a.nav-login').getAttribute("href"),"https://app.liftorbit.app/","Keep working application link");
    assert.equal(await page.locator("#results").count(),1);
    await page.locator('[data-results-mode="before"]').click();
    assert.equal((await page.locator('[data-result-value="duration"]').innerText()).trim(),"4,377");
