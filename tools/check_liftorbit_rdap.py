@@ -71,7 +71,7 @@ def inspect(item):
         if "/domain/domain/" in target:target=target.replace("/domain/domain/","/domain/")
         status,body,actual=query(target)
         if status==200 and isinstance(body,dict) and (body.get("ldhName") or body.get("unicodeName")):
-            return {"domain":domain,"result":"REGISTERED","http":status,"rdap":actual,"registrar":next((x.get("vcardArray",[])[-1][0][-1] if False else "") for x in []), "events":body.get("events",[])[:4]}
+            return {"domain":domain,"result":"REGISTERED","http":status,"rdap":actual, "events":body.get("events",[])[:4]}
         if status in (404,410):
             control_url=base.rstrip("/")+"/" + control if base.endswith("/domain/") else base.rstrip("/")+"/domain/"+control
             control_url=control_url.replace("/domain/domain/","/domain/")
