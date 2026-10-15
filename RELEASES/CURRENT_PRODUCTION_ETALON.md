@@ -1,5 +1,20 @@
 # Current production etalon
 
+## Current user-approved live code: LiftOrbit, 15 October 2026
+
+**Production reference confirmed by user after the post-login blank-screen correction.** This supersedes the *code* pointer below; historical snapshots remain preserved.
+
+- **Pinned code commit:** `31f017538dddaff9b61d5a866a6b651de5921eb7`.
+- **Exact frozen source:** [`etalon/production-2026-10-15-liftorbit-postlogin-fixed`](https://github.com/Belkazl/production-planner-ai/tree/etalon/production-2026-10-15-liftorbit-postlogin-fixed).
+- **Successful Railway deployment:** `a93ad7a6-c150-44cb-836b-d292eeb0979e` (service `prodplan-auth-integration-qa` in Railway, actual LiftOrbit production planner).
+- **Live planner:** https://production-planner-gateway-v2-production.up.railway.app/
+- **Landing etalon (separate service, unchanged):** [`release/liftorbit-etalon-2026-10-15-landing`](https://github.com/Belkazl/production-planner-ai/tree/release/liftorbit-etalon-2026-10-15-landing) at commit `81234b134d6b4e927ea53217062d3fcbb952ab11`.
+- **Full acceptance, source, test and recovery record:** [PRODUCTION_ETALON_2026-10-15_LIFTORBIT_POSTLOGIN.md](./PRODUCTION_ETALON_2026-10-15_LIFTORBIT_POSTLOGIN.md).
+
+**Important data note:** This newly approved LiftOrbit *code* snapshot did **not** make a new PostgreSQL or browser-data snapshot. The last recorded separate database snapshot is still `production-2026-10-15-ceramic-materials-v1`; it is historical and must not overwrite newer live projects. Preserve live data when deploying/recovering the pinned source. The earlier `release/liftorbit-etalon-2026-10-15-planner` (commit `6370d817...`) predates the authenticated white-screen fix and is **not** the current accepted etalon.
+
+## Earlier production etalons (historical records, not the active source pointer)
+
 ## Live working update after the approved snapshot
 
 **15 October 2026:** English UI completion has now been deployed to the live site at commit `ca03b6129d704f155e4007839c6af17eb9123f57` (Railway deployment `eb661751-8cf9-4c08-8f5c-4a7a9f5f644b`, **SUCCESS**). It passed independent protected and production-anonymous browser checks.
