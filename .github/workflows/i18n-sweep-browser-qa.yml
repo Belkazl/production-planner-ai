@@ -70,6 +70,7 @@ jobs:
           path: |
             i18n-sweep-equipment.png
             i18n-sweep-setup-modal.png
+            i18n-sweep-material-gantt.png
             language-login-english.png
             language-planner-english.png
             gantt-click-dialog.png
