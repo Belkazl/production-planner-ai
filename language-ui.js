@@ -404,7 +404,38 @@ const texts={
  "Назад":"Back",
  "Далее":"Next",
  "Ок":"OK",
- "ОК":"OK"
+ "ОК":"OK",
+
+ // Complete the untranslated static copy on the actual production Gantt,
+ // order/material/equipment editors, and the setup details dialog.
+ "Сотрудник":"Employee",
+ "Оператор":"Operator",
+ "Материал":"Material",
+ "Гант материалов":"Material Gantt",
+ "Гант заказов":"Order Gantt",
+ "Ресурс / время":"Resource / time",
+ "Объём":"Volume",
+ "Переналадка — отдельная операция":"Setup — separate operation",
+ "Нет операций для масштабирования":"No operations to zoom",
+ "Уменьшить масштаб":"Zoom out",
+ "Увеличить масштаб":"Zoom in",
+ "Для этого производства материалы не заданы. Добавьте материалы в разделе производства.":"No materials have been added for this production. Add materials in the Production section.",
+ "Для этого раздела ещё нет данных.":"No data is available for this section yet.",
+ "Поставка и расход":"Delivery and consumption",
+ "поставки и расход":"deliveries and consumption",
+ "Ресурс / время":"Resource / time",
+ "Нет дополнительных данных":"No additional details",
+ "Закрыть: Esc или нажатие за пределами карточки.":"Close: press Esc or click outside the dialog.",
+ "Сначала опишите производство в AI-помощнике.":"First, describe your production in the AI assistant.",
+ "Правила универсальны для любого производства. Операция использует выбранный параметр заказа; при смене его значения планировщик применяет подходящее правило из этой таблицы. Если правила для перехода нет — дополнительное время не добавляется.":"Setup rules apply to all production. The operation uses the selected order parameter; when its value changes, the planner applies the matching rule from this table. If no rule matches a transition, no additional time is added.",
+ "Строк":"Rows",
+ "строк":"rows",
+ "Переналадка:":"Setup:",
+ "Событий расхода":"Consumption events",
+ "событий расхода":"consumption events",
+ "План рассчитан":"Plan calculated",
+ "План построен":"Plan generated",
+ "Время окончания плана":"Plan completion time"
 };
 
 const trMap=new Map(Object.entries(texts));
@@ -415,6 +446,31 @@ const changed=new Set();
 
 function dynamic(text){
  let m;
+ // Statistics, setup operations and Gantt captions are generated with live
+ // values, so a fixed-text dictionary cannot translate their whole text nodes.
+ if((m=/^Переналадка:\s*(.+)$/.exec(text))){
+  const translated=trMap.get(m[1].trim());
+  return translated?"Setup: "+translated:null;
+ }
+ if((m=/^([+−-]?[\d\s.,]+)\s+мин\s*\(([^)]+)\)$/.exec(text)))
+  return m[1].trim()+" min ("+m[2]+")";
+ if((m=/^([+−-]?[\d\s.,]+)\s+(цикл|цикла|циклов)\s*\(([^)]+)\)$/.exec(text)))
+  return m[1].trim()+" "+(Math.abs(Number(m[1].trim()))===1?"cycle":"cycles")+" ("+m[3]+")";
+ if((m=/^(\d+)\s+операци(?:я|и|й)\s*·\s*(\d+)\s+переналад(?:ка|ки|ок)\s*·\s*масштаб\s*(\d+)%$/.exec(text)))
+  return m[1]+" operations · "+m[2]+" setups · zoom "+m[3]+"%";
+ if((m=/^(\d+)\s+операци(?:я|и|й)\s*·\s*(\d+)\s+переналад(?:ка|ки|ок)$/.exec(text)))
+  return m[1]+" operations · "+m[2]+" setups";
+ if((m=/^(\d+)\s+строк\s*·\s*(\d+)\s+операци(?:я|и|й)$/.exec(text)))
+  return m[1]+" rows · "+m[2]+" operations";
+ if((m=/^(\d+)\s+строк\s*·\s*поставки и расход$/.exec(text)))
+  return m[1]+" rows · deliveries and consumption";
+ if((m=/^(\d+)\s+поставок\s*·\s*(\d+)\s+событий расхода$/.exec(text)))
+  return m[1]+" deliveries · "+m[2]+" consumption events";
+ if((m=/^Всего проверено\s*(\d+)\s+поколений\.?$/.exec(text)))
+  return "Total generations checked: "+m[1]+".";
+ if(text.startsWith("Правила универсальны для любого производства. Операция использует выбранный параметр заказа;")){
+  return "Setup rules apply to all production. The operation uses the selected order parameter; when its value changes, the planner applies the matching rule from this table. If no rule matches a transition, no additional time is added.";
+ }
  if((m=/^Сохранённые планы \((\d+)\)$/.exec(text)))return "Saved plans ("+m[1]+")";
  if((m=/^(\d+) из (\d+)$/.exec(text)))return m[1]+" of "+m[2];
  if((m=/^(\d+) параметр(?:ов|а)?$/.exec(text)))return m[1]+" parameters";
@@ -574,6 +630,9 @@ function refresh(){
   if(select&&select.value!==lang)select.value=lang;
   const switchLabel=document.querySelector(".pp-language-label");
   if(switchLabel)switchLabel.textContent=lang==="ru"?"Язык":"Language";
+  for(const target of [document.getElementById("ppLanguageControl"),select]){
+   if(target)target.setAttribute("aria-label",lang==="ru"?"Язык":"Language");
+  }
  }finally{resettingUi=false}
 }
 function selectLanguage(value){
@@ -596,11 +655,11 @@ function control(){
  container.className="pp-language-control";
  container.id="ppLanguageControl";
  container.setAttribute("for","ppLanguageSelect");
- container.setAttribute("aria-label","Language / Язык");
+ container.setAttribute("aria-label",lang==="ru"?"Язык":"Language");
  const label=document.createElement("span");
  label.className="pp-language-label";label.textContent="Language";
  const select=document.createElement("select");
- select.id="ppLanguageSelect";select.setAttribute("aria-label","Language / Язык");
+ select.id="ppLanguageSelect";select.setAttribute("aria-label",lang==="ru"?"Язык":"Language");
  for(const [value,name] of [["en","English"],["ru","Русский"]]){
   const option=document.createElement("option");
   option.value=value;option.textContent=name;select.appendChild(option);
