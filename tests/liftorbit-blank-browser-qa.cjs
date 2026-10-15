@@ -19,7 +19,7 @@ function snapshotScript(){
 (async()=>{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
-  for(const mode of ["clean","persisted","reloaded"]){
+  for(const mode of ["clean","persisted","reloaded","slowwrite"]){
    const ctx=await browser.newContext({viewport:{width:1498,height:994},locale:"en-US",
       userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"});
    const page=await ctx.newPage();
@@ -29,7 +29,14 @@ function snapshotScript(){
    page.on("console",m=>{if(m.type()==="error")mark("console",m.text())});
    page.on("requestfailed",r=>mark("network",r.url()+" "+r.failure()?.errorText));
    page.on("response",r=>{if(r.status()>=500)mark("http",r.status()+" "+r.url())});
-   if(mode!=="clean"){
+   if(mode==="slowwrite"){
+     await page.route("**/api/db-storage*",async route=>{
+       if(route.request().method()!=="POST")return route.continue();
+       await new Promise(resolve=>setTimeout(resolve,12000));
+       try{await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({ok:true})})}catch(e){}
+     });
+   }
+   if(mode==="persisted"||mode==="reloaded"){
      const p={id:"prj_mugww6lr_kanzz5",name:"Керамика",revision:50,model,savedPlans:[]};
      const storage={"prodplan.projects.v2":JSON.stringify([p]),"prodplan.project.active.v2":p.id,"prodplan.ui.language.v1":"en"};
      await page.route("**/api/db-storage*",async route=>{
@@ -59,6 +66,15 @@ function snapshotScript(){
      await page.waitForTimeout(5500);
      const snap=await page.evaluate(snapshotScript);
      console.log("BLANK_DIAGNOSTIC_APP",mode,JSON.stringify({snap,problems}));
+     if(!await page.evaluate(()=>window.__PP_ASYNC_DB_SYNC__===true))throw Error("Async DB persistence shim not installed: "+mode);
+     if(mode==="slowwrite"){
+       const start=Date.now();
+       await page.evaluate(()=>localStorage.setItem("liftorbit-qa-write-only","non-sensitive-synthetic-qa"));
+       const elapsed=Date.now()-start;
+       console.log("BLANK_DIAGNOSTIC_ASYNC_WRITE",JSON.stringify({elapsedMs:elapsed,bodyStillVisible:await page.locator(".top").isVisible()}));
+       if(elapsed>3000)throw Error("localStorage write blocked UI for "+elapsed+" ms");
+       await page.waitForTimeout(500);
+     }
      await page.screenshot({path:"diag-"+mode+".png",timeout:15000,animations:"disabled"});
      if(snap.loginPresent || !snap.logoutPresent || !snap.top || snap.top.rect.w<100 || snap.top.rect.h<20)
        throw Error("App not visible after login in "+mode+" "+JSON.stringify(snap));
@@ -69,6 +85,6 @@ function snapshotScript(){
      throw e;
    }finally{await ctx.close()}
   }
-  console.log("LIFTORBIT_BLANK_SCREEN_3_MODES_PASS");
+  console.log("LIFTORBIT_BLANK_SCREEN_4_MODES_AND_ASYNC_STORAGE_PASS");
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
