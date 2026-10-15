@@ -1,7 +1,7 @@
-name: QA PlanTrick protected planner rebrand
+name: QA LiftOrbit protected planner rebrand
 on:
   push:
-    branches: [brand/plantrick-planner-2026-10-15]
+    branches: [brand/liftorbit-planner-2026-10-15]
   workflow_dispatch:
 jobs:
   protected:
@@ -27,7 +27,7 @@ jobs:
           bun run documents-tab.ts
           bun run ga-execution-budget.ts
           bun run language-build.ts
-          bun build ./index.ts --target=bun --outdir=/tmp/plantrick-app-build
+          bun build ./index.ts --target=bun --outdir=/tmp/liftorbit-app-build
           node --check auth-runtime.js
           node --check language-ui.js
           test -f index.ts
@@ -40,7 +40,7 @@ jobs:
               data=None
               for n in range(4):
                   try:
-                      with urllib.request.urlopen(urllib.request.Request(origin+path,headers={'User-Agent':'PlanTrickBrandQACheck/1.0'}),timeout=40) as r:
+                      with urllib.request.urlopen(urllib.request.Request(origin+path,headers={'User-Agent':'LiftOrbitBrandQACheck/1.0'}),timeout=40) as r:
                           data=r.read(4000000)
                       break
                   except Exception as e:
@@ -56,11 +56,11 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Verify branding, protected login, localization, Gantt, optimization controls
         run: |
-          bun tests/auth-gateway-mock.ts >/tmp/plantrick-auth-mock.log 2>&1 &
+          bun tests/auth-gateway-mock.ts >/tmp/liftorbit-auth-mock.log 2>&1 &
           authpid=$!
-          bun tests/planner-html-mock.ts >/tmp/plantrick-ui-mock.log 2>&1 &
+          bun tests/planner-html-mock.ts >/tmp/liftorbit-ui-mock.log 2>&1 &
           uipid=$!
-          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/plantrick-app.log 2>&1 &
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/liftorbit-app.log 2>&1 &
           apid=$!
           trap 'kill "$authpid" "$uipid" "$apid" 2>/dev/null || true' EXIT
           for i in $(seq 1 40); do
@@ -78,7 +78,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: plantrick-planner-qa-login-app-en-ru
+          name: liftorbit-planner-qa-login-app-en-ru
           path: |
             plantrick-*.png
           if-no-files-found: ignore
@@ -86,4 +86,4 @@ jobs:
       - name: Inspect bridge logs on failure
         if: failure()
         run: |
-          test ! -f /tmp/plantrick-app.log || tail -n 80 /tmp/plantrick-app.log
+          test ! -f /tmp/liftorbit-app.log || tail -n 80 /tmp/liftorbit-app.log

@@ -1,7 +1,7 @@
-name: Verify published PlanTrick protected planner
+name: Verify published LiftOrbit protected planner
 on:
   push:
-    branches: [brand/plantrick-planner-2026-10-15]
+    branches: [brand/liftorbit-planner-2026-10-15]
     paths:
       - .github/workflows/plantrick-planner-public-qa.yml
   workflow_dispatch:
@@ -18,27 +18,27 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.57.0
           npx playwright install --with-deps chromium
-      - name: Wait for production PlanTrick brand
+      - name: Wait for production LiftOrbit brand
         run: |
           for i in $(seq 1 80); do
             html="$(curl -fsS --max-time 8 'https://production-planner-gateway-v2-production.up.railway.app/' || true)"
-            if printf '%s' "$html" | grep -q 'Вход — PlanTrick' && ! printf '%s' "$html" | grep -q '<title>Вход — ProdPlan AI</title>'; then
-              echo "PlanTrick authentication UI is live"
+            if printf '%s' "$html" | grep -q 'Вход — LiftOrbit' && ! printf '%s' "$html" | grep -q '<title>Вход — ProdPlan AI</title>'; then
+              echo "LiftOrbit authentication UI is live"
               exit 0
             fi
             sleep 2
           done
-          echo "PlanTrick production login not visible"
+          echo "LiftOrbit production login not visible"
           exit 1
       - name: Check live login EN and RU and anonymous account security
         env:
-          PLANTRICK_PLANNER_PUBLIC_URL: https://production-planner-gateway-v2-production.up.railway.app/
+          LIFTORBIT_PLANNER_PUBLIC_URL: https://production-planner-gateway-v2-production.up.railway.app/
         run: node tests/plantrick-planner-public.cjs
-      - name: Archive published PlanTrick login screens
+      - name: Archive published LiftOrbit login screens
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: plantrick-live-login-en-ru
-          path: plantrick-live-login-*.png
+          name: liftorbit-live-login-en-ru
+          path: liftorbit-live-login-*.png
           retention-days: 7
           if-no-files-found: ignore
