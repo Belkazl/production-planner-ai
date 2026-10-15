@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/liftorbit-blank-diagnostics.yml
       - tests/liftorbit-blank-browser-qa.cjs
+      - tests/inspect-upstream-boot.cjs
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,6 +53,8 @@ jobs:
                       if n==3:raise
                       time.sleep(3)
           PY
+      - name: Examine public planner account initialization code
+        run: node tests/inspect-upstream-boot.cjs
       - name: Install headless Chrome
         run: |
           npm install --no-save --no-package-lock playwright@1.57.0
