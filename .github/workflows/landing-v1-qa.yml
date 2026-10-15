@@ -1,0 +1,53 @@
+name: QA standalone ProdPlan landing
+on:
+  push:
+    branches:
+      - landing/v1-self-service-2026-10-15
+  workflow_dispatch:
+jobs:
+  visual-and-interaction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify standalone site and no planner artifacts in landing root
+        run: |
+          test -e Dockerfile
+          test -e server.ts
+          test -e index.html
+          test -e site.css
+          test -e site.js
+          test ! -e auth-bridge.ts
+          test ! -e language-ui.js
+          bun build ./server.ts --target=bun --outdir=/tmp/landing-check
+      - name: Install browser
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Start standalone site and exercise 3 responsive breakpoints
+        run: |
+          PORT=3000 bun server.ts > /tmp/landing.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          node tests/landing-smoke.cjs || (tail -n 60 /tmp/landing.log; exit 1)
+      - name: Preserve real browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prodplan-landing-v1-responsive
+          path: |
+            landing-v1-desktop.png
+            landing-v1-tablet.png
+            landing-v1-mobile.png
+          retention-days: 7
+          if-no-files-found: ignore
