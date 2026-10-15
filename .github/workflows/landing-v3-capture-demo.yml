@@ -1,0 +1,35 @@
+name: Capture original read-only ceramic demo Gantt
+on:
+  workflow_dispatch:
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Chromium installation
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Capture browser screenshots and minimal read-only demo data
+        run: node tests/capture-ceramics-demo.cjs
+      - name: Preserve inspection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: read-only-ceramic-real-gantt-sources
+          path: assets/demo
+          retention-days: 7
+      - name: Store approved synthetic demo screenshots in landing branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/demo/ceramic-demo.json assets/demo/gantt-*.png
+          if ! git diff --cached --quiet; then
+            git commit -m "assets(landing): bundle read-only original ceramic test Gantt captures [skip ci]"
+            git push origin HEAD:landing/v3-product-story-2026-10-15
+          fi
