@@ -1,0 +1,49 @@
+name: Verify published landing advantages v2
+on:
+  push:
+    branches:
+      - landing/v2-benefits-2026-10-15
+  workflow_dispatch:
+jobs:
+  public-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Wait for published benefits v2
+        run: |
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 6 https://prodplan-landing-v1-production.up.railway.app/ | grep -q 'id="benefits"'; then
+              echo "New benefits section published"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "New benefits section did not appear"
+          exit 1
+      - name: Verify public site and all previous interactions
+        env:
+          LANDING_URL: https://prodplan-landing-v1-production.up.railway.app/
+        run: |
+          node tests/landing-smoke.cjs
+          node tests/landing-benefits.cjs
+      - name: Preserve production web screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prodplan-live-benefits-v2-desktop-mobile
+          path: |
+            landing-v2-desktop.png
+            landing-v2-mobile.png
+            landing-v2-benefits-desktop.png
+            landing-v2-benefits-mobile.png
+            landing-v2-benefits-tablet.png
+          retention-days: 7
+          if-no-files-found: ignore
