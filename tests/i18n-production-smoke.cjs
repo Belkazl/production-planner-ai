@@ -1,13 +1,13 @@
 const assert=require("node:assert/strict");
 const {chromium}=require("playwright");
-const URL="https://production-planner-gateway-v2-production.up.railway.app/";
+const PRODUCTION_URL="https://production-planner-gateway-v2-production.up.railway.app/";
 (async()=>{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
   const context=await browser.newContext({viewport:{width:1510,height:950}});
   const page=await context.newPage();
   const exceptions=[];page.on("pageerror",e=>exceptions.push(String(e)));
-  const response=await page.goto(URL,{waitUntil:"domcontentloaded",timeout:80000});
+  const response=await page.goto(PRODUCTION_URL,{waitUntil:"domcontentloaded",timeout:80000});
   assert.equal(response.status(),200);
   await page.locator("#ppLanguageSelect").waitFor({state:"visible",timeout:18000});
   await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed,{timeout:18000});
@@ -46,11 +46,11 @@ const URL="https://production-planner-gateway-v2-production.up.railway.app/";
   await page.reload({waitUntil:"domcontentloaded"});
   assert.equal(await page.locator("#ppLanguageSelect").inputValue(),"ru");
   await page.locator("#ppLanguageSelect").selectOption("en");
-  const denied=await context.request.get(new URL("/api/auth/me",URL).href,{timeout:25000});
+  const denied=await context.request.get(new URL("/api/auth/me",PRODUCTION_URL).href,{timeout:25000});
   assert.equal(denied.status(),401,"Production auth must protect tenant data");
   assert.deepEqual(exceptions,[],"No browser errors after live production i18n");
   console.log("PP_I18N_PRODUCTION_DEPLOYED_PASS",JSON.stringify({
-   origin:URL,defaultLanguage:"en",switch:"ru",persisted:true,
+   origin:PRODUCTION_URL,defaultLanguage:"en",switch:"ru",persisted:true,
    dynamicMessagesVerified:source.length,modelUntouched:true,anonymousDenied:true,browserErrors:0}));
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
