@@ -13,7 +13,7 @@ const HEADERS={
  "referrer-policy":"strict-origin-when-cross-origin",
  "x-frame-options":"DENY",
  "permissions-policy":"camera=(), microphone=(), geolocation=()",
- "content-security-policy":"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://production-planner-gateway-v2-production.up.railway.app"
+ "content-security-policy":"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://app.liftorbit.app https://production-planner-gateway-v2-production.up.railway.app"
 };
 const app=Bun.serve({
  port:PORT,
