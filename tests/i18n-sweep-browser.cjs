@@ -68,12 +68,10 @@ const fs=require("node:fs");
   const ganttTexts=await page.locator("#i18n-real-material-chart").innerText();
   assert(ganttTexts.includes("Material Gantt")&&ganttTexts.includes("deliveries and consumption"),
    "Actual material Gantt needs translated headings and summary");
-  const ganttLeft=(await collect()).filter(x=>document.getElementById("i18n-real-material-chart")?.contains(
-   document.getElementById(x.id)||document.querySelector("#i18n-real-material-chart ."+x.cls?.split(" ")[0])));
-  // The stronger global check immediately below also catches hidden title attributes.
+  // Include generated aria-label/title attributes in the global audit.
   assert.deepEqual(await log("ACTUAL_MATERIAL_GANTT"),[],
    "Material Gantt and its tooltips still contain untranslated interface labels");
-  await page.screenshot({path:"i18n-sweep-material-gantt.png",fullPage:false);
+  await page.screenshot({path:"i18n-sweep-material-gantt.png",fullPage:false});
   const materialBar=page.locator("#i18n-real-material-chart .pp3-bar.pp3-consumption").first();
   await materialBar.waitFor({state:"attached",timeout:5000});
   await materialBar.click();
