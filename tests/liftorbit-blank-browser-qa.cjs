@@ -30,9 +30,16 @@ function snapshotScript(){
    page.on("requestfailed",r=>mark("network",r.url()+" "+r.failure()?.errorText));
    page.on("response",r=>{if(r.status()>=500)mark("http",r.status()+" "+r.url())});
    if(mode==="slowwrite"){
+     let storageMirror=null;
      await page.route("**/api/db-storage*",async route=>{
+       if(route.request().method()==="GET"){
+         if(storageMirror!==null)return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({ok:true,storage:storageMirror})});
+         return route.continue();
+       }
        if(route.request().method()!=="POST")return route.continue();
+       const body=route.request().postDataJSON();
        await new Promise(resolve=>setTimeout(resolve,12000));
+       storageMirror=body.storage;
        try{await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({ok:true})})}catch(e){}
      });
    }
@@ -73,7 +80,20 @@ function snapshotScript(){
        const elapsed=Date.now()-start;
        console.log("BLANK_DIAGNOSTIC_ASYNC_WRITE",JSON.stringify({elapsedMs:elapsed,bodyStillVisible:await page.locator(".top").isVisible()}));
        if(elapsed>3000)throw Error("localStorage write blocked UI for "+elapsed+" ms");
+       const startedRead=Date.now();
+       const readAfterWrite=page.evaluate(async()=>{
+         const r=await fetch("/api/db-storage",{cache:"no-store"});
+         if(!r.ok)throw Error("read_failed_"+r.status);
+         const d=await r.json();
+         return d.storage?.["liftorbit-qa-write-only"]||null;
+       });
        await page.waitForTimeout(500);
+       if(!await page.locator(".top").isVisible())throw Error("User interface vanished during slow save");
+       const confirmed=await readAfterWrite;
+       const confirmedMs=Date.now()-startedRead;
+       console.log("BLANK_DIAGNOSTIC_READ_AFTER_WRITE",JSON.stringify({confirmed,confirmedMs}));
+       if(confirmed!=="non-sensitive-synthetic-qa"||confirmedMs<10000)
+         throw Error("Storage read did not wait for committed save");
      }
      await page.screenshot({path:"diag-"+mode+".png",timeout:15000,animations:"disabled"});
      if(snap.loginPresent || !snap.logoutPresent || !snap.top || snap.top.rect.w<100 || snap.top.rect.h<20)
