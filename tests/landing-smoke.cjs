@@ -56,6 +56,9 @@ async function test(){
   await mobile.locator(".pricing-button").click();
   assert(await mobile.locator("#trial-dialog").evaluate(el=>el.open));
   await mobile.locator(".modal-close").click();
+  await mobile.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));
+  await mobile.waitForTimeout(150);
+  assert(await mobile.locator(".site-header").isVisible(),"Mobile header must be visible at top");
   await mobile.screenshot({path:"landing-v1-mobile.png",fullPage:true,animations:"disabled"});
   const tablet=await browser.newPage({viewport:{width:768,height:1024}});
   tablet.on("pageerror",e=>errors.push(String(e)));
