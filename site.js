@@ -115,49 +115,6 @@ switches.forEach(function(btn){btn.addEventListener("click",function(){
  switches.forEach(function(b){const active=b===btn;b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));});
  renderChart();
 });});
-// Read-only screenshot gallery: these are archived browser captures from the
-// ceramic test etalon, NOT generated marketing illustrations or live tenant data.
-const REAL_SCREENS={
- gantt:{src:"/assets/demo/real-material-gantt.png",width:932,height:427,
-  alt:"Actual ProdPlan AI ceramic materials Gantt from the read-only test etalon"},
- editor:{src:"/assets/demo/real-material-editor.png",width:975,height:418,
-  alt:"Actual ProdPlan AI six-material editor from the read-only test etalon"}
-};
-let currentRealScreen="gantt";
-const actualButtons=document.querySelectorAll("[data-real-preview]");
-const previewImage=document.getElementById("real-preview-img");
-const enlargedImage=document.getElementById("real-image-enlarged");
-const realDialog=document.getElementById("real-image-dialog");
-function showRealScreen(name){
- if(!Object.hasOwn(REAL_SCREENS,name))return;
- currentRealScreen=name;
- const item=REAL_SCREENS[name];
- if(previewImage){
-  previewImage.src=item.src;previewImage.alt=item.alt;
-  previewImage.width=item.width;previewImage.height=item.height;
- }
- actualButtons.forEach(function(button){
-  const active=button.getAttribute("data-real-preview")===name;
-  button.classList.toggle("active",active);
-  button.setAttribute("aria-pressed",String(active));
- });
-}
-actualButtons.forEach(function(button){button.addEventListener("click",function(){
- showRealScreen(button.getAttribute("data-real-preview"));
-});});
-const openReal=document.querySelector("[data-real-open]");
-if(openReal&&realDialog)openReal.addEventListener("click",function(){
- const source=REAL_SCREENS[currentRealScreen];
- if(enlargedImage){enlargedImage.src=source.src;enlargedImage.alt=source.alt;}
- if(typeof realDialog.showModal==="function")realDialog.showModal();
-});
-document.querySelectorAll("[data-real-close]").forEach(function(button){
- button.addEventListener("click",function(){if(realDialog?.open)realDialog.close();});
-});
-if(realDialog)realDialog.addEventListener("click",function(event){
- if(event.target===realDialog)realDialog.close();
-});
-
 // The figures below reproduce the visible GA metric comparison from a ceramic
 // demo run. In particular, equipment idle time INCREASED. Never hide that
 // trade-off or imply a guaranteed performance uplift.
