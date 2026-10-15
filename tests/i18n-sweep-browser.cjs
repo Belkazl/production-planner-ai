@@ -61,7 +61,12 @@ const fs=require("node:fs");
     batches:[{order:2601,batch:1,start_min:60,quantity:400,area:400}]};
    const chart=window.__PP_SECONDARY_GANTTS_V3__.renderMode(2,p);
    const mount=document.createElement("div");mount.id="i18n-real-material-chart";
-   document.body.appendChild(mount);mount.appendChild(chart);
+   // The real Gantt styles are scoped under #ppTabsView, so attach inside
+   // that original component container rather than an unstyled body fragment.
+   const tabs=document.getElementById("ppTabsView");
+   document.getElementById("planView").style.display="block";
+   document.getElementById("sectionView").style.display="none";
+   tabs.style.display="block";tabs.appendChild(mount);mount.appendChild(chart);
    model.materials=originalMaterials;
   });
   await page.waitForTimeout(200);
