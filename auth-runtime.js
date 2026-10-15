@@ -25,18 +25,32 @@ function ppLoginResponse(){
 }
 function ppRequireSameOrigin(req){
  const h=req.headers;
- if(h.get("sec-fetch-site")==="cross-site")return false;
+ // Browser credentialed writes must originate from the same exact host,
+ // never a sibling subdomain or a third-party website.
+ const fetchSite=h.get("sec-fetch-site");
+ if(fetchSite&&fetchSite!=="same-origin"&&fetchSite!=="none")return false;
  const origin=h.get("origin");
  if(!origin)return false;
  let parsed;
  try{parsed=new URL(origin)}catch{return false}
  const railwayHost=(typeof Bun!=="undefined"&&(Bun.env?.PP_AUTH_PUBLIC_ORIGIN||Bun.env?.RAILWAY_PUBLIC_DOMAIN)||"").trim().replace(/^https?:\/\//,"").replace(/\/$/,"").toLowerCase();
- if(railwayHost){
-  return parsed.protocol==="https:"&&parsed.host.toLowerCase()===railwayHost&&parsed.pathname==="/"&&parsed.search===""&&parsed.hash==="";
+ const allowedHosts=new Set([
+  "production-planner-gateway-v2-production.up.railway.app",
+  "app.liftorbit.app"
+ ]);
+ if(railwayHost)allowedHosts.add(railwayHost);
+ const originHost=parsed.host.toLowerCase();
+ if(allowedHosts.has(originHost)){
+  if(parsed.protocol!=="https:"||parsed.pathname!=="/"||parsed.search!==""||parsed.hash!=="")return false;
+  // When Bun receives the public Host (as in normal Railway ingress), reject
+  // requests with an Origin from the *other* allowed domain too.
+  const requestHost=new URL(req.url).host.toLowerCase();
+  if(allowedHosts.has(requestHost)&&requestHost!==originHost)return false;
+  return true;
  }
+ if(railwayHost)return false;
  // Local-only fallback for isolated tests; no permissive forwarded-host trust.
- const expected=new URL(req.url).origin;
- return parsed.origin===expected;
+ return parsed.origin===new URL(req.url).origin;
 }
 async function ppAuthFetch(req,path){
  const h=new Headers();
