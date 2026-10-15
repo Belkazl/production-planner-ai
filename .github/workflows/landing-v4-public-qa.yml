@@ -1,0 +1,48 @@
+name: Verify live landing without Russian screenshot gallery
+on:
+  push:
+    branches: [landing/v4-hide-russian-screenshot-block-2026-10-15]
+    paths:
+      - .github/workflows/landing-v4-public-qa.yml
+  workflow_dispatch:
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Wait until public landing hides the screenshot section
+        run: |
+          for i in $(seq 1 60); do
+            page="$(curl --fail --silent --show-error --max-time 5 'https://prodplan-landing-v1-production.up.railway.app/?qa=v4' || true)"
+            if printf '%s' "$page" | grep -q 'id="results"' && ! printf '%s' "$page" | grep -q 'class="actual-product"'; then
+              echo "New website release visible"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Screenshot gallery still present at live domain"
+          exit 1
+      - name: Exercise public desktop and mobile site
+        env:
+          LANDING_URL: https://prodplan-landing-v1-production.up.railway.app/
+        run: |
+          node tests/landing-smoke.cjs
+          node tests/landing-benefits.cjs
+          node tests/landing-v4-no-russian-gallery.cjs
+      - name: Archive public website screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prodplan-landing-v4-live-desktop-mobile
+          path: |
+            landing-v4-*.png
+          if-no-files-found: ignore
+          retention-days: 7
