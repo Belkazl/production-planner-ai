@@ -12,12 +12,12 @@ DOMAINS = {
     "app": ("liftorbit.app", "google.app"),
     "dev": ("liftorbit.dev", "google.dev"),
     "eu": ("liftorbit.eu", "google.eu"),
-    "si": ("liftorbit.si", "google.si"),
+    "si": ("liftorbit.si", "arnes.si"),
     "co": ("liftorbit.co", "google.co"),
     "xyz": ("liftorbit.xyz", "abc.xyz"),
     "tech": ("liftorbit.tech", "nic.tech"),
     "cloud": ("liftorbit.cloud", "nic.cloud"),
-    "software": ("liftorbit.software", "nic.software"),
+    "software": ("liftorbit.software", "google.software"),
     "de": ("liftorbit.de", "google.de"),
     "uk": ("liftorbit.co.uk", "google.co.uk"),
 }
@@ -46,17 +46,22 @@ def bootstrap():
     return out
 
 FALLBACK={
-"com":["https://rdap.verisign.com/com/v1/domain/"],
-"net":["https://rdap.verisign.com/net/v1/domain/"],
-"org":["https://rdap.publicinterestregistry.org/rdap/domain/"],
-"si":["https://rdap.register.si/rdap/domain/"],
-"eu":["https://rdap.eurid.eu/rdap/domain/"],
-"app":["https://rdap.nic.google/domain/"],
-"dev":["https://rdap.nic.google/domain/"],
-"io":["https://rdap.identitydigital.services/rdap/domain/"],
-"ai":["https://rdap.identitydigital.services/rdap/domain/"],
-"co":["https://rdap.identitydigital.services/rdap/domain/"],
+"com":["https://rdap.verisign.com/com/v1/"],
+"net":["https://rdap.verisign.com/net/v1/"],
+"org":["https://rdap.publicinterestregistry.org/rdap/"],
+"si":["https://rdap.register.si/"],
+"app":["https://pubapi.registry.google/rdap/"],
+"dev":["https://pubapi.registry.google/rdap/"],
+"eu":[],
+"io":["https://rdap.identitydigital.services/rdap/"],
+"ai":["https://rdap.identitydigital.services/rdap/"],
+"co":[],
+"xyz":["https://rdap.centralnic.com/xyz/"],
+"tech":["https://rdap.radix.host/rdap/"],
+"cloud":["https://rdap.registry.cloud/rdap/"],
+"software":["https://rdap.identitydigital.services/rdap/"],
 "de":["https://rdap.denic.de/"],
+"uk":["https://rdap.nominet.uk/uk/"],
 }
 routes=bootstrap()
 def inspect(item):
