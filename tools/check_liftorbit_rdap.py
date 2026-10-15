@@ -92,3 +92,34 @@ print("RDAP_CHECKED_AT "+datetime.now(timezone.utc).isoformat(),flush=True)
 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
     for record in pool.map(inspect,DOMAINS.items()):
         print("RDAP_RESULT "+json.dumps(record,ensure_ascii=False,default=str),flush=True)
+
+# Additional WHOIS checks where no authoritative public RDAP service is available.
+import socket, re
+def whois(host,domain):
+    try:
+        with socket.create_connection((host,43),timeout=8) as s:
+            s.settimeout(8)
+            s.sendall((domain+"\r\n").encode())
+            chunks=[]
+            total=0
+            while total<16000:
+                try: data=s.recv(4096)
+                except socket.timeout: break
+                if not data:break
+                chunks.append(data)
+                total+=len(data)
+        raw=b"".join(chunks).decode("utf-8","replace")
+        if not raw:return {"status":"UNKNOWN","reason":"empty WHOIS response"}
+        low=raw.lower()
+        if "exceeded" in low or "blocked" in low or "denied" in low:return {"status":"UNKNOWN","reason":"rate limited"}
+        lines=[line.strip() for line in raw.splitlines()]
+        status=[line for line in lines if re.search(r"^(status|domain name|domain):|no match|no data found|not found|is free|is available|available for registration",line,re.I)][:6]
+        return {"status":"RESPONSE","signals":status}
+    except Exception as e:
+        return {"status":"UNKNOWN","reason":type(e).__name__+": "+str(e)[:110]}
+for host,domain,control in [
+ ("whois.eu","liftorbit.eu","google.eu"),
+ ("whois.registry.co","liftorbit.co","google.co"),
+]:
+    data=whois(host,domain); known=whois(host,control)
+    print("WHOIS_RESULT "+json.dumps({"domain":domain,"host":host,"target":data,"knownRegisteredControl":known},ensure_ascii=False),flush=True)
