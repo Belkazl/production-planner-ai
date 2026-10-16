@@ -1,0 +1,61 @@
+name: Tenant model and parallel scheduling regression
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [tenant-model-build.ts, .github/workflows/tenant-model-qa.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build tested account boundary
+        run: |
+          node tests/starter-unit.mjs
+          for f in build-bridge feature-stop gantt-details order-accordion auth-bridge ceramics-resource-repair restart-optimizer documents-tab ga-execution-budget starter-build tenant-model-build language-build; do bun run "$f.ts"; done
+          bun build index.ts --target=bun --outdir=/tmp/tenant-build
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Add real parallel-account assertions
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          let s=readFileSync('tests/starter-browser.mjs','utf8');
+          const anchor="report.checks.push('edit quantity in UI; rebuild real plan; other account unchanged');";
+          if(s.split(anchor).length!==2)throw Error('Test anchor changed');
+          s=s.replace(anchor,anchor+`
+          const storedB=await hit(b.page,'/api/db-storage');assert.deepEqual(JSON.parse(storedB.data.storage['prodplan.projects.v2']),beforeB);
+          const modelB=await hit(b.page,'/api/model');assert.equal(Number(modelB.data.model.orders[0].quantity),100);
+          const [planA2,planB2]=await Promise.all([build(a.page),build(b.page)]);
+          const press=p=>(p.generic_operations||p.operations||[]).find(o=>String(o.order)==='1001'&&(o.equipment_ids||[]).includes('PRESS')&&!o.is_setup);
+          const oa=press(planA2),ob=press(planB2);assert(oa&&ob);
+          report.parallel={a:oa,b:ob};
+          assert.equal(oa.end_min-oa.start_min,30,'Account A must process its 150 units');
+          assert.equal(ob.end_min-ob.start_min,20,'Account B must process its 100 units');
+          report.checks.push('server-side model isolation and simultaneous real calculations passed');
+          `);
+          writeFileSync('tests/tenant-browser.mjs',s);
+          JS
+      - name: Real authenticated backend integration
+        env:
+          PP_AUTH_GATEWAY_ORIGIN: https://prodplan-auth-backend-production.up.railway.app
+        run: |
+          PORT=8080 bun index.ts >/tmp/tenant-server.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/__tenant_model_health >/dev/null && break; sleep 1; done
+          node tests/tenant-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tenant-qa-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7
