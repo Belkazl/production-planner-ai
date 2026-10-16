@@ -1,0 +1,104 @@
+name: LiftOrbit resources - validate and verify publication
+on:
+  push:
+    branches: [marketing/liftorbit-resources-2026-10-16]
+    paths:
+      - growth.mjs
+      - server.ts
+      - Dockerfile
+      - tests/growth-*.mjs
+      - .github/workflows/liftorbit-growth-qa.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-growth-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Unit tests and build
+        run: |
+          node tests/growth-unit.mjs
+          bun build ./server.ts --target=bun --outdir=/tmp/liftorbit-build
+      - name: Install browser test dependency
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Verify server and browser locally
+        run: |
+          PORT=3000 bun server.ts > /tmp/liftorbit-growth.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/health >/dev/null && break; sleep 1; done
+          node tests/growth-http.mjs
+          node tests/growth-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liftorbit-growth-local-${{ github.sha }}
+          path: artifacts/
+          retention-days: 14
+  verify-publication:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for separately approved landing deployment
+        run: |
+          node --input-type=module <<'JS'
+          import {RELEASE} from './growth.mjs';
+          let ready=false;
+          for(let i=0;i<60;i++){
+            try{
+              const r=await fetch('https://liftorbit.app/health',{signal:AbortSignal.timeout(10000),cache:'no-store'});
+              const h=await r.json();
+              if(r.ok&&h.release===RELEASE){ready=true;break;}
+            }catch{}
+            await new Promise(r=>setTimeout(r,10000));
+          }
+          if(!ready)throw new Error('Expected release is not public; no publication or indexing claimed.');
+          JS
+      - name: Install browser test dependency
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Verify real public pages and mobile rendering
+        env:
+          LANDING_URL: https://liftorbit.app
+        run: |
+          node tests/growth-http.mjs
+          node tests/growth-browser.mjs
+      - name: Notify IndexNow only after public checks pass
+        run: |
+          node --input-type=module <<'JS'
+          import {pages,ORIGIN} from './growth.mjs';
+          import {writeFileSync} from 'node:fs';
+          const key='65dead239d02c66083c4a583bb7b69c432fb9582';
+          const keyLocation=ORIGIN+'/'+key+'.txt';
+          const verification=await fetch(keyLocation,{signal:AbortSignal.timeout(15000)});
+          if(!verification.ok||(await verification.text()).trim()!==key)throw new Error('IndexNow key not verified');
+          const urlList=[ORIGIN+'/',...pages.map(p=>ORIGIN+p.path)];
+          const response=await fetch('https://api.indexnow.org/indexnow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:'liftorbit.app',key,keyLocation,urlList}),signal:AbortSignal.timeout(20000)});
+          const report={status:response.status,accepted:[200,202].includes(response.status),urls:urlList,note:'Accepted submission is not proof of indexing.'};
+          writeFileSync('artifacts/indexnow-submission.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+          if(!report.accepted)throw new Error('IndexNow did not accept this submission');
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liftorbit-growth-public-${{ github.sha }}
+          path: artifacts/
+          retention-days: 14
