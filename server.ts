@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {ORIGIN,pages,growthRoutes,enhanceHome,enhanceSitemap,enhanceLlms} from './growth.mjs';
-import {CONVERSION_RELEASE,conversionPages,conversionRoutes,enhanceResource,enhanceConversionHome,usageAllowed} from './conversion.mjs';
+import {CONVERSION_RELEASE,conversionPages,conversionRoutes,enhanceResource,enhanceConversionHome,usageAllowed} from './public-preview.mjs';
 const PORT=Number(process.env.PORT||3000);
 const ROUTES=new Map([
  ['/site.css',{file:'site.css',type:'text/css; charset=utf-8'}],['/site.js',{file:'site.js',type:'application/javascript; charset=utf-8'}],
@@ -45,8 +45,8 @@ const app=Bun.serve({port:PORT,hostname:'0.0.0.0',maxRequestBodySize:1024,
   if(!path.endsWith('/')&&publicPaths.has(path+'/'))return new Response(null,{status:308,headers:{...base,location:ORIGIN+path+'/'+u.search,'cache-control':'public, max-age=3600'}});
   if(path==='/go/planner'||path==='/go/register'){
    const raw=u.searchParams.get('from')||'',source=publicPaths.has(raw)?raw:'unknown';
-   if(req.method==='GET')console.log(JSON.stringify({event:path==='/go/register'?'register_outbound':'planner_outbound',source,release:CONVERSION_RELEASE}));
-   return new Response(null,{status:302,headers:{...base,location:'https://app.liftorbit.app/'+(path==='/go/register'?'?register=1':''),'cache-control':'no-store','x-robots-tag':'noindex, nofollow'}});
+   if(req.method==='GET')console.log(JSON.stringify({event:path==='/go/register'?'demo_outbound':'planner_outbound',source,release:CONVERSION_RELEASE}));
+   return new Response(null,{status:302,headers:{...base,location:path==='/go/register'?'https://liftorbit.app/demo/':'https://app.liftorbit.app/','cache-control':'no-store','x-robots-tag':'noindex, nofollow'}});
   }
   const dynamic=memory.get(path),route=dynamic||ROUTES.get(path);
   if(!route)return new Response(req.method==='HEAD'?null:'Not Found',{status:404,headers:{...base,'x-robots-tag':'noindex'}});
