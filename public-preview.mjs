@@ -1,0 +1,56 @@
+import * as draft from './conversion.mjs';
+export const CONVERSION_RELEASE='2026-10-16-public-preview-1';
+const calc='/tools/production-capacity-calculator/';
+const allowed=new Set(['/demo/','/partners/','/product-status/']);
+const qa=[
+ ['Can I explore LiftOrbit without an account?','Yes. The public tour shows actual English screens from a synthetic workshop. The capacity calculator and practical guides are also available without registration.'],
+ ['Will every new account receive an editable example?','That onboarding feature is being tested and is not released yet. The public tour is read-only and does not create a project or run a calculation in an account.'],
+ ['Is a 30-day subscription trial active?','No. Automated trial timing and paid billing are not enabled. No payment card is needed to view the public tour or use the calculator.'],
+ ['Should I enter confidential production data now?','Use synthetic or non-sensitive evaluation data while account-isolation validation and the full data policies are being completed. The public calculator keeps entered values in the browser.'],
+ ['Does LiftOrbit replace an ERP system?','LiftOrbit focuses on production scheduling and resource planning. The resources here explain that workflow, not a complete ERP implementation.']
+];
+const tourSteps=[
+ ['starter-overview','A small example workshop','Three orders, five machines, three operators and two materials. These are actual screens from a synthetic internal test project, with English data and labels.'],
+ ['starter-orders','Review the prepared orders','The orders have different quantities, product formats and glaze colours. The screenshot shows the data used in the example, not customer information.'],
+ ['starter-equipment','Inspect resource assumptions','Pressing, drying, glazing, firing and packing use different machines. Each machine has its own capacity and processing-time model.'],
+ ['starter-schedule','Inspect a calculated schedule','This Gantt chart was produced in an internal test run. It includes operations and changeovers. The example timings are illustrative, not a validated ceramic process or a customer performance claim.']
+];
+const tour='<p class="lo-note"><strong>Read-only product tour.</strong> These are real English screenshots, not a simulated live session. Automatic private examples for new accounts are still under validation and are not publicly released.</p><div class="lo-tour" id="lo-tour"><div class="lo-tour-tabs" role="group" aria-label="Demo steps">'+tourSteps.map((s,i)=>`<button type="button" data-tour-step="${i}" aria-pressed="${i===0}">${i+1}. ${['Workspace','Orders','Machines','Plan'][i]}</button>`).join('')+'</div>'+tourSteps.map(([file,title,text],i)=>`<section class="lo-tour-step" data-tour-panel="${i}" ${i?'hidden':''}><h2>${title}</h2><p>${text}</p><a href="/assets/tour/${file}.png" target="_blank" rel="noopener"><img src="/assets/tour/${file}.png" width="1440" height="1000" alt="${title}: real LiftOrbit interface with English synthetic data" ${i?'loading="lazy"':''}></a><p class="lo-small">Open the image to inspect the full-size screen.</p></section>`).join('')+'<div class="lo-actions"><button class="lo-button lo-secondary" type="button" id="lo-tour-prev">Previous</button><button class="lo-button" type="button" id="lo-tour-next">Next step</button></div><p id="lo-tour-position" aria-live="polite">Step 1 of 4</p></div><h2>Try a calculation without registration</h2><p>The <a href="'+calc+'">free capacity calculator</a> lets you change workload and available hours in your browser. It is a rough capacity estimate, not the full scheduling engine shown in this tour.</p><p>Read the <a href="/product-status/">current product status</a> before evaluating the application. New-account onboarding is not yet released.</p>';
+const status='<h2>Publicly available</h2><p>The read-only English product tour, production planning guides and capacity calculator can be used without an account. The tour contains actual screenshots of a synthetic internal project. It does not create accounts, modify projects or run live production schedules.</p><h2>New-account onboarding is under validation</h2><p>A small editable example for each new account has been implemented for testing but has not passed the full release checks. It is not publicly released. This website does not currently direct new visitors into that workflow.</p><h2>Billing and access</h2><p>Automated 30-day trial timing and paid subscription billing are not enabled. Viewing the tour and using the calculator do not require a payment card. This is not a finalized subscription offer or a promise of permanent free application access.</p><h2>Existing application and data</h2><p>Existing account holders can continue to access the application through the Log in link. Existing projects have not been removed by these website changes. Use synthetic or non-sensitive evaluation data while multi-account calculation validation and the complete data policies are being finalized.</p><p>The application has JSON project export controls. Download a backup before substantial changes. Detailed retention periods, deletion procedures, support commitments and legal terms still require confirmation. This status page is not a Privacy Policy or Terms of Service.</p><h2>Limited interaction counts</h2><p>The public site records aggregate interactions such as using the calculator or opening a tour step. Custom event payloads contain an event name and page path, not email addresses, project contents, calculator values or visitor identifiers. Ordinary hosting request logs may contain additional operational information.</p><p>These are event counts, not unique users or a verified signup conversion funnel. Browser events are skipped when the browser signals Do Not Track or Global Privacy Control. No browser events are sent from the embedded calculator.</p><h2>Contact</h2><p>LiftOrbit is a project by Ruslan Fadeev, founder of RADIAN Studio. Use the contact route on <a href="https://radian.si/" rel="noopener">RADIAN\'s website</a> and mention LiftOrbit. No support response-time commitment is implied.</p>';
+const cta='<section class="lo-cta"><h2>Explore the workflow. Check the assumptions.</h2><p>View the real English screens or try a capacity estimate in your browser. No registration is needed for either.</p><a class="lo-button" href="/demo/">View the product tour</a><p class="lo-small"><a href="/product-status/">Current access and product information</a>. New-account onboarding is still under validation.</p></section>';
+function safeHtml(html,path){
+ html=html.replace(/<section class="lo-cta">[\s\S]*?<\/section>/,cta);
+ html=html.replace(/<a ([^>]*?)href="\/go\/register[^\"]*"([^>]*?)>[\s\S]*?<\/a>/g,'<a class="lo-button" href="/demo/">View demo</a>');
+ html=html.replace(/<a ([^>]*?)href="\/go\/planner[^\"]*"([^>]*?)>[\s\S]*?<\/a>/g,'<a href="https://app.liftorbit.app/" rel="nofollow">Log in</a>');
+ if(path==='/demo/'){
+  html=html.replace(/<article[^>]*>[\s\S]*?<\/article>/,'<article class="lo-prose lo-wide">'+tour+'</article>');
+  html=html.replaceAll('See real English screens from a small example workshop, then create your own private editable demo and build a production schedule.','See real English screens from a synthetic workshop in a read-only product tour. Free to view without an account.');
+  html=html.replace('See the workflow before creating an account. Then try the prepared data in your own planner.','See the workflow in actual English screenshots. This tour is free to view and does not require an account.');
+ }
+ if(path==='/product-status/'){
+  html=html.replace(/<article[^>]*>[\s\S]*?<\/article>/,'<article class="lo-prose">'+status+'</article>');
+  html=html.replaceAll('What works in LiftOrbit today: registration, private starter examples, production planning and project export. Clear limits on billing and data-policy readiness.','Public tools, read-only demo, current access conditions and features still under validation. Clear information about billing and data-policy readiness.');
+ }
+ return html;
+}
+export const conversionPages=draft.conversionPages.filter(p=>allowed.has(p.path)).map(p=>({...p,...(p.path==='/demo/'?{description:'Real English screenshots in a read-only tour. View a synthetic workshop without creating an account.'}:p.path==='/product-status/'?{description:'Public tools, current access conditions and onboarding features still under validation.'}:{})}));
+export const conversionRoutes=new Map([...draft.conversionRoutes].filter(([path])=>allowed.has(path)||path.startsWith('/embed/')).map(([path,r])=>[path,{...r,body:safeHtml(r.body,path)}]));
+export const usageAllowed=draft.usageAllowed;
+export function enhanceResource(html,path){
+ let result=safeHtml(draft.enhanceResource(html,path),path);
+ result=result.replace(/<a class="lo-card" href="\/(?:small-manufacturing-scheduling|production-scheduling-with-changeovers)\/">[\s\S]*?<\/a>/g,'');
+ return result;
+}
+export function enhanceConversionHome(html){
+ let out=draft.enhanceConversionHome(html);
+ out=out.replace(/href="\/go\/register[^\"]*"/g,'href="/demo/"').replaceAll('Try LiftOrbit','View demo');
+ const pricing='<section class="section pricing-section" id="pricing"><div class="container"><div class="pricing-layout"><div class="pricing-message"><span class="section-kicker">EXPLORE BEFORE YOU SIGN UP</span><h2>See how the workflow fits together.</h2><p>Explore real English screens from a synthetic workshop, or try the free capacity calculator. Neither requires registration.</p></div><div class="pricing-card"><div class="pricing-card-top"><span>PUBLIC PRODUCT PREVIEW</span></div><h3>Start with the tour.</h3><p>Automatic private demo projects for new accounts are still under validation. The public tour is read-only. Automated trial timing and paid billing are not active.</p><a class="btn btn-primary pricing-button" href="/demo/">View the product tour</a><small><a href="/product-status/">Read the current product and access information.</a></small></div></div></div></section>';
+ if(!/<section[^>]*id="pricing"/.test(out))throw Error('PREVIEW_PRICING_ANCHOR_CHANGED');
+ out=out.replace(/<section[^>]*id="pricing"[^>]*>[\s\S]*?<\/section>/,pricing);
+ const faq='<section class="section faq-section" id="faq"><div class="container faq-layout"><div><span class="section-kicker">QUESTIONS, ANSWERED</span><h2>Good to know before you begin.</h2></div><div class="faq-list">'+qa.map(([q,a])=>'<details><summary>'+q+'<span class="faq-plus"></span></summary><p>'+a+'</p></details>').join('')+'</div></div></section>';
+ if(!/<section[^>]*id="faq"/.test(out))throw Error('PREVIEW_FAQ_ANCHOR_CHANGED');
+ out=out.replace(/<section[^>]*id="faq"[^>]*>[\s\S]*?<\/section>/,faq);
+ out=out.replace(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g,(_,text)=>{const data=JSON.parse(text);for(const entity of data['@graph']||[])if(entity['@type']==='FAQPage')entity.mainEntity=qa.map(([name,text])=>({'@type':'Question',name,acceptedAnswer:{'@type':'Answer',text}}));return '<script type="application/ld+json">'+JSON.stringify(data).replace(/</g,'\\u003c')+'</script>'});
+ if(out.includes('/go/register')||out.includes('New accounts include a private English sample'))throw Error('UNVERIFIED_SIGNUP_COPY');
+ return out;
+}
