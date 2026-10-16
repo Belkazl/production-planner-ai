@@ -1,0 +1,38 @@
+name: Starter demo source inspection
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [.github/workflows/starter-demo-source-check.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - name: Capture repository source and compiled bridge without production data
+        run: |
+          mkdir -p /tmp/starter-source/app /tmp/starter-source/landing
+          git archive HEAD | tar -x -C /tmp/starter-source/app
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          cp index.ts /tmp/starter-source/built-index.ts
+          git fetch --depth=1 origin marketing/liftorbit-resources-2026-10-16
+          git archive FETCH_HEAD | tar -x -C /tmp/starter-source/landing
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starter-source
+          path: /tmp/starter-source/
+          retention-days: 3
