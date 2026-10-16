@@ -19,13 +19,13 @@ async function register(label){
  const pending=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/auth/register',{timeout:60000});await page.locator('#go').click();const registration=await pending;
  assert.equal(registration.status(),200,'registration HTTP status');report.checks.push('registration '+label+': '+registration.headers()['x-liftorbit-starter']);
  await page.locator('#ppProtectedLogout').waitFor({timeout:60000});
- await page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]');return p.length===1&&p[0].demoTemplate==='starter-en-2026-10-16-v1'},{timeout:30000});
- await page.waitForFunction(()=>document.getElementById('opt')&&!document.getElementById('opt').disabled,{timeout:30000});
+ await page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]');return p.length===1&&p[0].demoTemplate==='starter-en-2026-10-16-v1'},null,{timeout:30000});
+ await page.waitForFunction(()=>document.getElementById('opt')&&!document.getElementById('opt').disabled,null,{timeout:30000});
  const rows=await project(page);assert.equal(rows.length,1);assert.equal(rows[0].model.orders.length,3);assert.equal(rows[0].model.equipment.length,5);assert.equal(/[\u0400-\u04ff]/.test(JSON.stringify(rows[0].model)),false);
  const model=await hit(page,'/api/model');assert.equal(model.status,200);assert.equal(model.data.model.orders.length,3);assert.notEqual(model.data.model_ready,false);
  report.checks.push('private English demo hydrated and imported '+label);return account;
 }
-async function build(page){await page.locator('.nav span[data-pp-en-label="Planning"]').click();await page.locator('#opt').click();await page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]')[0];return p&&p.lastPlan&&p.lastPlan.valid!==false&&!p.lastPlan.partial},{timeout:180000});await page.waitForFunction(()=>!document.getElementById('opt').disabled,{timeout:180000});return (await project(page))[0].lastPlan;}
+async function build(page){await page.locator('.nav span[data-pp-en-label="Planning"]').click();await page.locator('#opt').click();await page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]')[0];return p&&p.lastPlan&&p.lastPlan.valid!==false&&!p.lastPlan.partial},null,{timeout:180000});await page.waitForFunction(()=>!document.getElementById('opt').disabled,null,{timeout:180000});return (await project(page))[0].lastPlan;}
 try{
  const a=await register('A'),b=await register('B');const beforeB=await project(b.page),beforeA=await project(a.page);assert.notEqual(beforeA[0].id,beforeB[0].id);report.checks.push('independent project IDs');
  await capture(a.page,'starter-overview');await a.page.locator('#loStarterGuide [data-orders]').click();await capture(a.page,'starter-orders');
@@ -34,10 +34,10 @@ try{
  report.plan={operationCount:ops.length,setupCount:ops.filter(o=>o.is_setup||o.phase==='setup').length,durationMinutes:plan.duration_minutes,valid:plan.valid!==false};await capture(a.page,'starter-schedule');
  const planned=await project(a.page),retry=await hit(a.page,'/api/onboarding/starter',{});assert.equal(retry.status,200);assert.equal(retry.data.created,false);assert.deepEqual(await project(a.page),planned);assert.deepEqual(await project(b.page),beforeB);
  await a.page.locator('.side .item[data-pp-en-label="Orders"]').click();await a.page.locator('[data-oarea]').first().fill('150');
- const saved=a.page.waitForResponse(r=>new URL(r.url()).pathname==='/api/project/model/import'&&r.request().method()==='POST',{timeout:45000});await a.page.locator('[data-pp-save]').click();assert.equal((await saved).status(),200);
- await a.page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]')[0];return p&&Number(p.model.orders[0].area)===150},{timeout:15000});
+ const saved=a.page.waitForResponse(r=>new URL(r.url()).pathname==='/api/project/model/import'&&r.request().method()==='POST',{timeout:45000});await a.page.locator('[data-order-save]').click();assert.equal((await saved).status(),200);
+ await a.page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]')[0];return p&&Number(p.model.orders[0].area)===150},null,{timeout:15000});
  const changed=await build(a.page);assert(changed.valid!==false);assert.deepEqual(await project(b.page),beforeB);report.checks.push('edit quantity in UI; rebuild real plan; other account unchanged');
- await a.page.reload({waitUntil:'domcontentloaded',timeout:60000});await a.page.locator('#ppProtectedLogout').waitFor({timeout:60000});await a.page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]');return p.length===1&&p[0].lastPlan},{timeout:30000});assert.equal((await project(a.page))[0].id,planned[0].id);report.checks.push('saved plan persists; no duplicate on reload');
+ await a.page.reload({waitUntil:'domcontentloaded',timeout:60000});await a.page.locator('#ppProtectedLogout').waitFor({timeout:60000});await a.page.waitForFunction(()=>{const p=JSON.parse(localStorage.getItem('prodplan.projects.v2')||'[]');return p.length===1&&p[0].lastPlan},null,{timeout:30000});assert.equal((await project(a.page))[0].id,planned[0].id);report.checks.push('saved plan persists; no duplicate on reload');
  await a.page.setViewportSize({width:375,height:812});await capture(a.page,'starter-mobile');
  await a.page.locator('#ppProtectedLogout').click();await a.page.locator('#loginTab').waitFor({timeout:30000});assert.equal((await hit(a.page,'/api/db-storage')).status,401);
  await a.page.locator('#email').fill(a.email);await a.page.locator('#password').fill(a.password);await a.page.locator('#go').click();await a.page.locator('#ppProtectedLogout').waitFor({timeout:60000});assert.equal((await project(a.page))[0].id,planned[0].id);report.checks.push('logout revokes access; sign-in preserves data');
