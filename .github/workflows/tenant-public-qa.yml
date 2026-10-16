@@ -1,0 +1,61 @@
+name: Account isolation - public release verification
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [.github/workflows/tenant-public-qa.yml]
+permissions:
+  contents: read
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for account-specific model boundary
+        run: |
+          node --input-type=module <<'JS'
+          let ok=false;
+          for(let i=0;i<60;i++){
+            try{const r=await fetch('https://app.liftorbit.app/__tenant_model_health',{signal:AbortSignal.timeout(10000)});if(r.ok&&(await r.json()).release==='account-model-v2'){ok=true;break}}catch{}
+            await new Promise(r=>setTimeout(r,10000));
+          }
+          if(!ok)throw Error('Account-specific release not public');
+          JS
+      - name: Install browser
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Prepare parallel-account assertions
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          let s=readFileSync('tests/starter-browser.mjs','utf8');
+          const click="await page.locator('#opt').click();";
+          s=s.replace(click,"const responseWait=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/plan'&&r.request().method()==='POST',{timeout:120000});"+click+"const response=await responseWait;const result=await response.json();assert.equal(response.status(),200,JSON.stringify({error:result.error,detail:result.detail}));assert.equal(result.ok,true,JSON.stringify({error:result.error,detail:result.detail}));");
+          const anchor="report.checks.push('edit quantity in UI; rebuild real plan; other account unchanged');";
+          if(s.split(anchor).length!==2)throw Error('Test anchor changed');
+          s=s.replace(anchor,anchor+`
+          const storedB=await hit(b.page,'/api/db-storage');assert.deepEqual(JSON.parse(storedB.data.storage['prodplan.projects.v2']),beforeB);
+          const modelB=await hit(b.page,'/api/model');assert.equal(Number(modelB.data.model.orders[0].quantity),100);
+          const [planA2,planB2]=await Promise.all([build(a.page),build(b.page)]);
+          const press=p=>(p.generic_operations||p.operations||[]).find(o=>String(o.order)==='1001'&&(o.resources||[]).some(r=>r.resource_type==='equipment'&&r.name==='Press 01')&&!o.is_setup);
+          const oa=press(planA2),ob=press(planB2);assert(oa&&ob);
+          report.parallel={a:{quantity:150,duration:oa.end_min-oa.start_min},b:{quantity:100,duration:ob.end_min-ob.start_min}};
+          assert.equal(oa.end_min-oa.start_min,30,'Account A must process its 150 units');assert.equal(ob.end_min-ob.start_min,20,'Account B must process its 100 units');
+          report.checks.push('server-side model isolation and simultaneous real calculations passed');
+          `);
+          writeFileSync('tests/tenant-browser-public.mjs',s);
+          JS
+      - name: Verify real public app
+        env:
+          APP_URL: https://app.liftorbit.app
+        run: node tests/tenant-browser-public.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: account-isolation-public-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7
