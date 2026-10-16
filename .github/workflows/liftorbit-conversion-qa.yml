@@ -1,0 +1,114 @@
+name: LiftOrbit onboarding and conversion release
+on:
+  push:
+    branches: [marketing/liftorbit-onboarding-2026-10-16]
+    paths: [conversion.mjs, conversion.js, conversion.css, server.ts, Dockerfile, tests/conversion-browser.mjs, tests/import-tour.py, .github/workflows/liftorbit-conversion-qa.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: liftorbit-conversion-release
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: marketing/liftorbit-onboarding-2026-10-16
+      - name: Import only approved synthetic screenshots and preserve their source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tests/import-tour.py
+          git config user.name 'LiftOrbit release automation'
+          git config user.email '48830074+Belkazl@users.noreply.github.com'
+          git add assets/tour/
+          if ! git diff --cached --quiet; then
+            git commit -m 'assets: publish verified English starter demo screenshots'
+            git push origin HEAD:marketing/liftorbit-onboarding-2026-10-16
+          fi
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check calculations and build
+        run: |
+          node tests/growth-unit.mjs
+          node --check conversion.mjs
+          bun build server.ts --target=bun --outdir=/tmp/conversion-build
+      - name: Install browser
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Verify full website locally
+        run: |
+          PORT=3000 bun server.ts >/tmp/conversion-server.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/health >/dev/null && break; sleep 1; done
+          node tests/conversion-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conversion-local-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7
+  public:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: marketing/liftorbit-onboarding-2026-10-16
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for separately approved deployment
+        run: |
+          node --input-type=module <<'JS'
+          import {CONVERSION_RELEASE} from './conversion.mjs';
+          let ok=false;
+          for(let i=0;i<72;i++){
+            try{const r=await fetch('https://liftorbit.app/health',{signal:AbortSignal.timeout(10000)});if(r.ok&&(await r.json()).release===CONVERSION_RELEASE){ok=true;break}}catch{}
+            await new Promise(r=>setTimeout(r,10000));
+          }
+          if(!ok)throw Error('Expected landing release is not public');
+          JS
+      - name: Install browser
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Verify actual domain and interactive features
+        env:
+          LANDING_URL: https://liftorbit.app
+        run: node tests/conversion-browser.mjs
+      - name: Notify IndexNow after public checks succeed
+        run: |
+          node --input-type=module <<'JS'
+          import {pages,ORIGIN} from './growth.mjs';
+          import {conversionPages} from './conversion.mjs';
+          import {writeFileSync} from 'node:fs';
+          const key='65dead239d02c66083c4a583bb7b69c432fb9582',keyLocation=ORIGIN+'/'+key+'.txt';
+          const v=await fetch(keyLocation,{signal:AbortSignal.timeout(15000)});
+          if(!v.ok||(await v.text()).trim()!==key)throw Error('IndexNow key could not be verified');
+          const urlList=[ORIGIN+'/',...pages.map(p=>ORIGIN+p.path),...conversionPages.map(p=>ORIGIN+p.path)];
+          const r=await fetch('https://api.indexnow.org/indexnow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:'liftorbit.app',key,keyLocation,urlList}),signal:AbortSignal.timeout(20000)});
+          const report={status:r.status,accepted:[200,202].includes(r.status),urls:urlList,note:'Submission accepted is not proof of indexing.'};
+          writeFileSync('artifacts/indexnow-submission.json',JSON.stringify(report,null,2));
+          if(!report.accepted)throw Error('IndexNow submission not accepted');
+          console.log(JSON.stringify(report));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conversion-public-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7
