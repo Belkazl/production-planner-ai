@@ -29,6 +29,8 @@ jobs:
           node --input-type=module <<'JS'
           import {readFileSync,writeFileSync} from 'node:fs';
           let s=readFileSync('tests/starter-browser.mjs','utf8');
+          const click="await page.locator('#opt').click();";
+          s=s.replace(click,"const responseWait=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/plan'&&r.request().method()==='POST',{timeout:120000});"+click+"const response=await responseWait;const result=await response.json();assert.equal(response.status(),200,JSON.stringify({error:result.error,detail:result.detail}));assert.equal(result.ok,true,JSON.stringify({error:result.error,detail:result.detail}));");
           const anchor="report.checks.push('edit quantity in UI; rebuild real plan; other account unchanged');";
           if(s.split(anchor).length!==2)throw Error('Test anchor changed');
           s=s.replace(anchor,anchor+`
@@ -52,7 +54,7 @@ jobs:
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/__tenant_model_health >/dev/null && break; sleep 1; done
-          node tests/tenant-browser.mjs
+          node tests/tenant-browser.mjs || { grep 'APS_BRIDGE_PLAN_FAILED\|APS_BRIDGE_ERROR' /tmp/tenant-server.log | tail -n 4; exit 1; }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
