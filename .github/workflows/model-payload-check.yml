@@ -1,0 +1,41 @@
+name: Explicit model isolation probe
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [.github/workflows/model-payload-check.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Use only newly created synthetic accounts
+        run: |
+          node --input-type=module <<'JS'
+          import {createStarterModel} from './starter-demo.mjs';
+          import {randomUUID} from 'node:crypto';
+          import {mkdirSync,writeFileSync} from 'node:fs';
+          import assert from 'node:assert/strict';
+          const origin='https://prodplan-auth-backend-production.up.railway.app';
+          async function call(cookie,path,body){const r=await fetch(origin+path,{method:'POST',headers:{'content-type':'application/json',origin,...(cookie?{cookie}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});const data=await r.json();assert(r.ok&&data.ok!==false,'probe request rejected: '+r.status+' '+String(data.error||''));return {data,cookie:r.headers.getSetCookie().map(v=>v.split(';')[0]).join('; ')}}
+          async function account(){return (await call('', '/api/auth/register',{email:'qa-explicit-'+randomUUID()+'@example.invalid',password:randomUUID()+'Aa9!',company:'LiftOrbit internal isolated model probe'})).cookie}
+          const a=await account(),b=await account();assert(a&&b&&a!==b);
+          const mb=createStarterModel(),ma=createStarterModel();ma.orders[0].quantity=150;ma.orders[0].area=150;
+          await call(b,'/api/project/model/import',{model:mb});await call(a,'/api/project/model/import',{model:ma});
+          const data=(await call(b,'/api/plan',{generations:1,population:8,continue:false,seed:71,model:mb,objective:'duration',locked_operations:[]})).data;
+          const rows=data.generic_operations||data.operations||[];const press=rows.find(o=>String(o.order)==='1001'&&(o.resources||[]).some(r=>r.resource_type==='equipment'&&r.name==='Press 01')&&!o.is_setup);
+          const duration=press?press.end_min-press.start_min:null;
+          const report={explicitModelHonoured:duration===20,expectedMinutes:20,actualMinutes:duration,syntheticAccountsOnly:true,backendPlanValid:data.valid!==false};
+          mkdirSync('artifacts',{recursive:true});writeFileSync('artifacts/model-payload-result.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-payload-check
+          path: artifacts/
+          retention-days: 3
