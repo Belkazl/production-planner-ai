@@ -1,4 +1,12 @@
-import os,json,hashlib,urllib.request,zipfile,io,struct,pathlib
+import os,json,hashlib,urllib.request,urllib.parse,zipfile,io,struct,pathlib
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,req,fp,code,msg,headers,newurl):
+  nxt=super().redirect_request(req,fp,code,msg,headers,newurl)
+  if nxt and urllib.parse.urlparse(req.full_url).netloc!=urllib.parse.urlparse(newurl).netloc:
+   nxt.remove_header('Authorization')
+   nxt.remove_header('Accept')
+  return nxt
+opener=urllib.request.build_opener(SafeRedirect())
 root=pathlib.Path('assets/tour');root.mkdir(parents=True,exist_ok=True)
 sha='f4bbf9e41206ba879281e38aa474ec7797798954'
 artifact=12062736182
@@ -12,7 +20,7 @@ if manifest.exists():
  print('Verified previously committed real screenshots')
 else:
  req=urllib.request.Request('https://api.github.com/repos/Belkazl/production-planner-ai/actions/artifacts/'+str(artifact)+'/zip',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
- with urllib.request.urlopen(req,timeout=45) as r:raw=r.read()
+ with opener.open(req,timeout=45) as r:raw=r.read()
  assert hashlib.sha256(raw).hexdigest()==expected_digest,'Artifact digest mismatch'
  z=zipfile.ZipFile(io.BytesIO(raw));report=json.loads(z.read('starter-report.json'))
  assert report['ok'] and report['release']=='starter-en-2026-10-16-v1'
