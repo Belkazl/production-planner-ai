@@ -1,0 +1,36 @@
+name: Starter demo fixture inspection
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [.github/workflows/starter-fixture-check.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read only the known public demo fixture
+        run: |
+          mkdir -p /tmp/starter-fixtures
+          python3 - <<'PY'
+          import urllib.request,json,pathlib
+          root=pathlib.Path('/tmp/starter-fixtures')
+          base='https://production-planner-gateway-production.up.railway.app'
+          def read(path):
+            with urllib.request.urlopen(urllib.request.Request(base+path,headers={'User-Agent':'LiftOrbitStarterDemoReadOnlyQA'}),timeout=45) as r:
+              assert r.status==200
+              return r.read()
+          data=json.loads(read('/api/model'))
+          m=data['model']
+          assert sorted(str(o['id']) for o in m['orders'])==sorted(str(x) for x in range(2601,2613)), 'Not the known demo: stop'
+          assert any(x.get('id')=='TP_TILE' for x in m['technical_processes'])
+          (root/'known-demo.json').write_text(json.dumps(m,ensure_ascii=False,indent=2))
+          (root/'planner-ui.html').write_bytes(read('/'))
+          print('READ_ONLY_DEMO_FIXTURE_VERIFIED',len(m['orders']),len(m['equipment']))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starter-fixtures
+          path: /tmp/starter-fixtures/
+          retention-days: 1
