@@ -1,0 +1,108 @@
+name: Verified public preview without onboarding rollout
+on:
+  push:
+    branches: [marketing/liftorbit-onboarding-2026-10-16]
+    paths: [public-preview.mjs, .github/workflows/public-preview-release.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: safe-public-preview
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: marketing/liftorbit-onboarding-2026-10-16
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - name: Apply explicit release boundary and preserve verified images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tests/import-tour.py
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          let s=readFileSync('server.ts','utf8');
+          s=s.replace("from './conversion.mjs'","from './public-preview.mjs'");
+          s=s.replace("location:'https://app.liftorbit.app/'+(path==='/go/register'?'?register=1':'')","location:path==='/go/register'?'https://liftorbit.app/demo/':'https://app.liftorbit.app/'");
+          s=s.replace("?'register_outbound':'planner_outbound'","?'demo_outbound':'planner_outbound'");
+          if(!s.includes("from './public-preview.mjs'")||s.includes("?'?register=1':''"))throw Error('Preview server boundary not applied');
+          writeFileSync('server.ts',s);
+          let docker=readFileSync('Dockerfile','utf8');if(!docker.includes('public-preview.mjs'))docker=docker.replace('growth.mjs conversion.mjs','growth.mjs public-preview.mjs conversion.mjs');
+          if(!docker.includes('public-preview.mjs'))throw Error('Preview module not included in image');writeFileSync('Dockerfile',docker);
+          let test=readFileSync('tests/conversion-browser.mjs','utf8');test=test.replace("from '../conversion.mjs'","from '../public-preview.mjs'");test=test.replace("'https://app.liftorbit.app/?register=1'","'https://liftorbit.app/demo/'");test=test.replace("a[href^=\"/go/register\"]","a[href=\"/demo/\"]");test=test.replace('12 pages','10 pages').replace('24 desktop/mobile','20 desktop/mobile').replace('fixed registration redirect','unreleased registration link goes to read-only tour');writeFileSync('tests/conversion-browser.mjs',test);
+          JS
+          git config user.name 'LiftOrbit release automation'
+          git config user.email '48830074+Belkazl@users.noreply.github.com'
+          git add server.ts Dockerfile tests/conversion-browser.mjs assets/tour/
+          if ! git diff --cached --quiet; then git commit -m 'release: route public visitors to verified read-only preview'; git push origin HEAD:marketing/liftorbit-onboarding-2026-10-16; fi
+      - name: Build and browser dependency
+        run: |
+          node tests/growth-unit.mjs
+          bun build server.ts --target=bun --outdir=/tmp/preview-build
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Test local release
+        run: |
+          PORT=3000 bun server.ts >/tmp/preview-server.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/health >/dev/null && break; sleep 1; done
+          node tests/conversion-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-preview-local
+          path: artifacts/
+          retention-days: 7
+  public:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: marketing/liftorbit-onboarding-2026-10-16
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify release before reporting publication
+        run: |
+          node --input-type=module <<'JS'
+          import {CONVERSION_RELEASE} from './public-preview.mjs';
+          let ok=false;for(let i=0;i<36;i++){try{const r=await fetch('https://liftorbit.app/health',{signal:AbortSignal.timeout(10000)});if(r.ok&&(await r.json()).release===CONVERSION_RELEASE){ok=true;break}}catch{}await new Promise(r=>setTimeout(r,10000))}if(!ok)throw Error('Public preview release not deployed');
+          JS
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Test public pages and interactions
+        env:
+          LANDING_URL: https://liftorbit.app
+        run: node tests/conversion-browser.mjs
+      - name: Submit only released URLs
+        run: |
+          node --input-type=module <<'JS'
+          import {pages,ORIGIN} from './growth.mjs';import {conversionPages} from './public-preview.mjs';import {writeFileSync} from 'node:fs';
+          const key='65dead239d02c66083c4a583bb7b69c432fb9582',keyLocation=ORIGIN+'/'+key+'.txt';const v=await fetch(keyLocation,{signal:AbortSignal.timeout(15000)});if(!v.ok||(await v.text()).trim()!==key)throw Error('IndexNow key not verified');
+          const urlList=[ORIGIN+'/',...pages.map(p=>ORIGIN+p.path),...conversionPages.map(p=>ORIGIN+p.path)];
+          const r=await fetch('https://api.indexnow.org/indexnow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:'liftorbit.app',key,keyLocation,urlList}),signal:AbortSignal.timeout(20000)});
+          const report={status:r.status,accepted:[200,202].includes(r.status),urls:urlList,note:'Acceptance is not proof of indexing.'};writeFileSync('artifacts/indexnow-submission.json',JSON.stringify(report,null,2));if(!report.accepted)throw Error('Submission not accepted');
+          const app=await fetch('https://app.liftorbit.app/',{signal:AbortSignal.timeout(20000)}),html=await app.text();if(!app.ok||html.includes('loStarterLogin'))throw Error('App rollback not yet confirmed');
+          writeFileSync('artifacts/app-rollback.json',JSON.stringify({ok:true,publicLoginAvailable:true,newStarterLoginAbsent:true,scope:'Login response only; no claim of full multi-account safety.'},null,2));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-preview-verified
+          path: artifacts/
+          retention-days: 7
