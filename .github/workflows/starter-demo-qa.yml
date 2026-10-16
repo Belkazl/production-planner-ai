@@ -1,0 +1,56 @@
+name: English starter demo - real isolated accounts
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [starter-demo.mjs, starter-ui.js, starter-build.ts, Dockerfile, tests/starter-*.mjs, .github/workflows/starter-demo-qa.yml]
+permissions:
+  contents: read
+concurrency:
+  group: starter-demo-qa
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.20'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate fixture and build exact production chain
+        run: |
+          node tests/starter-unit.mjs
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run starter-build.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/starter-build
+      - name: Install browser testing
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Verify two new synthetic accounts, real optimizer and persistence
+        env:
+          PP_AUTH_GATEWAY_ORIGIN: https://prodplan-auth-backend-production.up.railway.app
+        run: |
+          PORT=8080 bun index.ts > /tmp/starter-server.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/__onboarding_health >/dev/null && break; sleep 1; done
+          node tests/starter-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: starter-qa-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7

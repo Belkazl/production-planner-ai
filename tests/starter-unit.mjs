@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {createStarterModel,planStarterStorage,makeStarterHandler} from '../starter-demo.mjs';
+const m=createStarterModel(new Date('2026-10-16T12:00:00Z'));
+assert.equal(m.start,'2026-10-17T08:00:00');assert.equal(m.orders.length,3);assert.equal(m.equipment.length,5);assert.equal(m.materials.length,2);
+assert.equal(/[\u0400-\u04ff]/.test(JSON.stringify(m)),false,'English fixture only');
+for(const op of m.technical_processes[0].operations)for(const r of op.resource_requirements){const pool=r.resource_type==='equipment'?m.equipment:r.resource_type==='employee'?m.employees:m.materials;assert(pool.some(x=>r.resource_ref==='kind:'+x.kind||x.id===r.resource_ref))}
+for(const o of m.orders)assert(m.technical_processes.some(x=>x.id===o.technical_process_id));
+const a=planStarterStorage({},new Date(),'A'),b=planStarterStorage({},new Date(),'B');a.project.model.orders[0].quantity=999;assert.equal(b.project.model.orders[0].quantity,100);
+assert.deepEqual(planStarterStorage(a.storage),{created:false,reason:'existing_projects'});
+assert.throws(()=>planStarterStorage({'prodplan.projects.v2':'broken'}));
+assert.equal(planStarterStorage({'prodplan.catalogs.v1':'[{"id":"legacy"}]'}).created,false);
+assert.equal(planStarterStorage({'liftorbit.starter.seeded.v1':'1'}).created,false);
+let stores={A:{},B:{},C:{'prodplan.projects.v2':'[{"id":"real","name":"Keep my work"}]'}};let writes=0;
+const snapshots=structuredClone(stores);
+const upstream=async(url,opt)=>{let tenant=opt.headers.cookie.split('=')[1];assert(stores[tenant]);if(opt.method==='POST'){writes++;stores[tenant]=JSON.parse(opt.body).storage}return Response.json({ok:true,storage:stores[tenant]})};
+const wrap=makeStarterHandler({origin:'https://backend.test',handler:async()=>new Response('base'),verify:async r=>!!r.headers.get('cookie'),sameOrigin:r=>r.headers.get('origin')==='https://app.test',fetcher:upstream});
+const req=(tenant,origin='https://app.test',method='POST')=>new Request('https://app.test/api/onboarding/starter',{method,headers:{origin,...(tenant?{cookie:'sid='+tenant}:{})}});
+assert.equal((await wrap(req(null))).status,401);assert.equal((await wrap(req('A','https://evil.test'))).status,403);assert.equal((await wrap(req('A','https://app.test','GET'))).status,405);assert.equal(writes,0);
+const [r1,r2]=await Promise.all([wrap(req('A')),wrap(req('A'))]);assert((await r1.json()).created);assert((await r2.json()).created);assert.equal(writes,1);
+await wrap(req('B'));assert.equal(writes,2);assert.notEqual(stores.A['prodplan.project.active.v2'],stores.B['prodplan.project.active.v2']);
+await wrap(req('A'));await wrap(req('C'));assert.equal(writes,2);assert.deepEqual(stores.C,snapshots.C);
+assert.equal(stores.A['prodplan.ui.language.v1'],'en');
+console.log('STARTER_UNIT_PASS: independent copies, idempotency, preservation, English data, auth, CSRF and concurrency');

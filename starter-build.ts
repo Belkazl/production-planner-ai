@@ -1,0 +1,16 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+let language=readFileSync('language-ui.js','utf8');
+const label='return translated?"Setup: "+translated:null;';
+if(language.split(label).length!==2)throw Error('STARTER_SETUP_LABEL_ANCHOR_CHANGED');
+writeFileSync('language-ui.js',language.replace(label,'return "Setup: "+(translated||m[1].trim());'));
+let s=readFileSync('index.ts','utf8');
+const anchor='if(typeof Bun!=="undefined"&&typeof Bun.serve==="function")';
+if(s.split(anchor).length!==2)throw Error('STARTER_SERVER_ANCHOR_CHANGED');
+const ui='<script id="loStarterUi">'+readFileSync('starter-ui.js','utf8')+'</script>';
+const loginUi='<script id="loStarterLogin">document.addEventListener("DOMContentLoaded",function(){if(new URLSearchParams(location.search).get("register")==="1")document.getElementById("regTab")?.click();const f=document.getElementById("f");if(f){const p=document.createElement("p");p.style="font:12px/1.6 Arial,sans-serif;color:#65758a";p.textContent="New accounts include a private English sample workshop. No credit card or demo call required. Subscription billing is not active.";f.after(p)}});</script>';
+s='import {makeStarterHandler} from "./starter-demo.mjs";\n'+s;
+s=s.replace(anchor,'const ppStarterProtected=makeStarterHandler({handler:ppAuthenticatedHandler,verify:ppVerifyLogin,sameOrigin:ppRequireSameOrigin,origin:PP_AUTH_GATEWAY_ORIGIN,ui:'+JSON.stringify(ui)+',loginUi:'+JSON.stringify(loginUi)+'});\n'+anchor);
+const call='return await ppAuthenticatedHandler(req)';
+if(s.split(call).length!==2)throw Error('STARTER_REQUEST_ANCHOR_CHANGED');
+s=s.replace(call,'return await ppStarterProtected(req)');
+writeFileSync('index.ts',s);console.log('STARTER_BUILD_OK: auth/origin checks retained; optimizer unchanged');
