@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "f4bbf9e41206ba879281e38aa474ec7797798954",
+  "sourceRun": 38939624074,
+  "sourceArtifact": 12062736182,
+  "artifactSha256": "f7f9d8ba2ab98e56fd8adc20621eb96e6ed4f92152349de5e11f61ccda7b4d5e",
+  "note": "Real English synthetic demo account screenshots; no customer data.",
+  "images": {
+    "starter-overview": "8b69e4764c63fe6ecbaf142eddef95791594a326f464392b62d64c8527f900ca",
+    "starter-orders": "ea852058547938fcab6ab3fb2006c80d04cb889e17124afe13bdbada305a5269",
+    "starter-equipment": "6e2742fb8388d5267b2e14b8eae089de3c82092b262c653aadc0d447ba5e2aef",
+    "starter-schedule": "e25db2c7978277319a366cf34c52329a8dbfd2f01827de3cc50b880b0085f586"
+  }
+}
