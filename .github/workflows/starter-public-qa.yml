@@ -1,0 +1,50 @@
+name: Starter demo - public verification
+on:
+  push:
+    branches: [feature/english-starter-demo-2026-10-16]
+    paths: [.github/workflows/starter-public-qa.yml]
+permissions:
+  contents: read
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for tested app release
+        run: |
+          node --input-type=module <<'JS'
+          let ok=false;
+          for(let i=0;i<72;i++){
+            try{const r=await fetch('https://app.liftorbit.app/__onboarding_health',{signal:AbortSignal.timeout(10000)});if(r.ok&&(await r.json()).release==='starter-en-2026-10-16-v1'){ok=true;break}}catch{}
+            await new Promise(r=>setTimeout(r,10000));
+          }
+          if(!ok)throw Error('Tested release is not public');
+          JS
+      - name: Install browser
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Add server-side isolation assertions to the browser suite
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          let source=readFileSync('tests/starter-browser.mjs','utf8');
+          const anchor="report.checks.push('edit quantity in UI; rebuild real plan; other account unchanged');";
+          if(source.split(anchor).length!==2)throw Error('Public test extension anchor changed');
+          source=source.replace(anchor,anchor+"const storedB=await hit(b.page,'/api/db-storage');assert.equal(storedB.status,200);assert.deepEqual(JSON.parse(storedB.data.storage['prodplan.projects.v2']),beforeB);const modelB=await hit(b.page,'/api/model');assert.equal(Number(modelB.data.model.orders[0].quantity),100);report.checks.push('server-side model and project storage of account B unchanged');");
+          writeFileSync('tests/starter-browser-public.mjs',source);
+          JS
+      - name: Register synthetic accounts and exercise the real public application
+        env:
+          APP_URL: https://app.liftorbit.app
+        run: node tests/starter-browser-public.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: starter-public-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7
