@@ -5,8 +5,8 @@ function once(from:string,to:string,label:string){
  if(n!==1)throw Error("PP_AUTH_BRIDGE_"+label+"_ANCHOR_"+n);
  source=source.replace(from,to);
 }
-const runtime=readFileSync("auth-runtime.js","utf8");
-if(!runtime.includes("ppAuthenticatedHandler")||!runtime.includes("ppVerifyLogin")||!runtime.includes("PP_AUTH_GATEWAY_ORIGIN"))
+const runtime=readFileSync("tenant-execution-runtime.js","utf8")+"\n"+readFileSync("auth-runtime.js","utf8");
+if(!runtime.includes("ppTenantDispatch")||!runtime.includes("ppAuthenticatedHandler")||!runtime.includes("ppVerifyLogin")||!runtime.includes("PP_AUTH_GATEWAY_ORIGIN"))
  throw Error("AUTH_RUNTIME_MISSING");
 once(
  'const UPSTREAM=(typeof Bun!=="undefined"&&Bun.env?.APS_UPSTREAM)||"https://production-planner-gateway-production.up.railway.app";',
@@ -38,5 +38,6 @@ once('new URL(req.url).searchParams.get("ppProgressCache")!=="off"?ppCachedProgr
      'progress(req)',"disable_shared_progress_cache");
 if(source.includes("ppActiveObjectiveRun=null")||source.includes("const UPSTREAM=(typeof Bun")||source.includes("await handler(req)}catch(e)"))
  throw Error("UNPROTECTED_SERVER_INVARIANT");
+if(!source.includes("ppTenantDispatch"))throw Error("TENANT_GATE_MISSING");
 writeFileSync("index.ts",source);
 console.log("PP_SECURE_GATE_BUILD_OK",JSON.stringify({bytes:source.length,auth:"gateway-v2",serverProtected:true,plannerUiSource:"separate-planner-gateway",tenantScopedGA:true,sharedCachesDisabled:true,loginUi:true}));
