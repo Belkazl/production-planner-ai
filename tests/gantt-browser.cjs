@@ -3,12 +3,16 @@ const {chromium}=require("playwright");
 (async()=>{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
-  const page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1});
+  const url=process.env.PP_GANTT_QA_URL||"http://127.0.0.1:8080/";
+  const context=await browser.newContext({viewport:{width:1440,height:900},deviceScaleFactor:1});
+  await context.addCookies([{name:"pp_demo_auth",value:"tenantA",url,httpOnly:true}]);
+  const page=await context.newPage();
   page.on("pageerror",err=>console.log("PAGE_ERROR",String(err).slice(0,400)));
-  const url="https://pp-progress-fix-qa-20261010-production.up.railway.app/";
   const response=await page.goto(url,{waitUntil:"domcontentloaded",timeout:90000});
   assert.equal(response.status(),200);
-  await page.waitForFunction(()=>!!window.__PP_GANTT_BLOCK_DETAILS_V1__?.installed,{timeout:50000});
+  await page.waitForFunction(()=>!!window.__PP_GANTT_BLOCK_DETAILS_V1__?.installed,{timeout:15000});
+  await page.locator("#ppLanguageSelect").selectOption("ru");
+  await page.evaluate(()=>{document.body.classList.remove("projects-mode");document.getElementById("planView").style.display="block"});
   const real=page.locator(".pg2-bar:visible");
   const count=await real.count();
   console.log("REAL_EQUIPMENT_BLOCKS_VISIBLE",count);

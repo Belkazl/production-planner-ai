@@ -1,0 +1,96 @@
+name: Diagnose LiftOrbit authenticated blank page
+on:
+  push:
+    branches: [diagnostics/liftorbit-blank-screen-2026-10-15]
+    paths:
+      - .github/workflows/liftorbit-blank-diagnostics.yml
+      - tests/liftorbit-blank-browser-qa.cjs
+      - tests/inspect-upstream-boot.cjs
+      - language-build.ts
+      - nonblocking-db-shim.js
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Assemble actual planner and protected account gateway
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/liftorbit-diag-build
+      - name: Download real read-only ceramics test fixture
+        run: |
+          python3 - <<'PY'
+          import urllib.request,time
+          origin='https://production-planner-gateway-production.up.railway.app'
+          for path,out in [('/', '/tmp/pp-gateway-fixture.html'),('/api/model','/tmp/pp-ceramics-live-model.json')]:
+              for n in range(4):
+                  try:
+                      with urllib.request.urlopen(urllib.request.Request(origin+path,headers={'User-Agent':'LiftOrbitPostLoginBlankRepro/1.0'}),timeout=40) as r:
+                          data=r.read(4000000)
+                      if not data:raise RuntimeError("Empty fixture")
+                      open(out,'wb').write(data)
+                      print("Downloaded fixture",path,"bytes",len(data),flush=True)
+                      break
+                  except Exception as e:
+                      print("Read-only fixture attempt",n+1,path,str(e)[:150],flush=True)
+                      if n==3:raise
+                      time.sleep(3)
+          PY
+      - name: Examine public planner account initialization code
+        run: node tests/inspect-upstream-boot.cjs
+      - name: Install headless Chrome
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Browser test actual post-login rendering and persisted projects
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/liftorbit-auth.log 2>&1 &
+          apid=$!
+          bun tests/planner-html-mock.ts >/tmp/liftorbit-upstream-ui.log 2>&1 &
+          hpid=$!
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/liftorbit-blank-app.log 2>&1 &
+          gpid=$!
+          trap 'kill "$apid" "$hpid" "$gpid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/liftorbit-blank-browser-qa.cjs
+          node tests/plantrick-planner-browser.cjs
+          node tests/language-browser.cjs
+          node tests/gantt-browser.cjs
+          node tests/documents-tab-browser.cjs
+          node tests/start-over-browser.cjs
+          node tests/restart-after-stop-browser.cjs
+          node tests/login-session-browser.cjs
+      - name: Upload diagnostic screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: liftorbit-blank-diag-screenshots
+          path: diag-*.png
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Print gateway errors if any
+        if: failure()
+        run: |
+          test ! -f /tmp/liftorbit-blank-app.log || tail -n 100 /tmp/liftorbit-blank-app.log
