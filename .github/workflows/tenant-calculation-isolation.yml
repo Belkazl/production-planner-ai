@@ -31,7 +31,7 @@ jobs:
           mockpid=$!
           bun tests/planner-html-mock.ts >/tmp/tenant-planner.log 2>&1 &
           plannerpid=$!
-          PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/tenant-bridge.log 2>&1 &
+          APS_UPSTREAM=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/tenant-bridge.log 2>&1 &
           bridgepid=$!
           trap 'kill "$bridgepid" "$plannerpid" "$mockpid" 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do
