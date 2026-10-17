@@ -1,3 +1,41 @@
+
+const PP_COMPUTE_ORIGIN=(typeof Bun!=="undefined"&&Bun.env?.PP_COMPUTE_ORIGIN)||"";
+const PP_COMPUTE_SECRET=(typeof Bun!=="undefined"&&Bun.env?.PP_COMPUTE_SECRET)||"";
+function ppComputeHeaders(job) {
+ return {
+  "x-pp-compute-secret":PP_COMPUTE_SECRET,
+  "x-pp-tenant-key":job.key,
+  "x-pp-job-id":job.id.replace(/-/g,""),
+  "cookie":job.request.headers.get("cookie")||"",
+  "x-pp-client-origin":new URL(job.request.url).origin,
+  "content-type":"application/json"
+ };
+}
+async function ppComputeRequest(job,path,method="GET",body) {
+ if(!PP_COMPUTE_ORIGIN||!PP_COMPUTE_SECRET)
+  return ppParallelReply({ok:false,error:"isolated_compute_not_configured"},503);
+ const url=new URL(path,PP_COMPUTE_ORIGIN);
+ const response=await fetch(url,{method,headers:ppComputeHeaders(job),
+  ...(method==="POST"?{body:body??"{}"}:{}),
+  signal:AbortSignal.timeout(method==="POST"&&path==="/internal/plan"?380000:12000),
+  cache:"no-store"});
+ const data=await response.arrayBuffer();
+ const h=new Headers({"content-type":"application/json","cache-control":"no-store"});
+ return new Response(data,{status:response.status,headers:h});
+}
+async function ppComputePlan(job) {
+ const body=await job.request.arrayBuffer();
+ return ppComputeRequest(job,"/internal/plan","POST",body);
+}
+async function ppComputeProgress(job) {
+ try{return await ppComputeRequest(job,"/internal/progress")}
+ catch(e){return ppParallelReply({ok:false,error:"progress_unavailable"},502)}
+}
+async function ppComputeStop(job) {
+ try{return await ppComputeRequest(job,"/internal/stop","POST","{}")}
+ catch(e){return ppParallelReply({ok:false,error:"optimizer_stop_unavailable"},502)}
+}
+
 // LiftOrbit parallel authenticated tenant optimizer dispatcher.
 // IMPORTANT: the legacy upstream exposes a shared progress endpoint.
 // Never forward that progress to an account during overlapping runs.
@@ -45,7 +83,7 @@ function ppParallelFinished(job,status,body,headers=[]) {
 }
 async function ppParallelExecute(job) {
   try {
-    const response=await job.invoke();
+    const response=await ppComputePlan(job);
     const raw=await response.arrayBuffer();
     ppParallelFinished(job,response.status,raw,[...response.headers.entries()]);
   }catch(e) {
@@ -87,7 +125,7 @@ async function ppParallelStart(req,invoke,key) {
   const responsePromise=new Promise(resolve=>{complete=resolve});
   const job={id,key,status:"queued",created:Date.now(),started:0,finished:0,
     cancelled:false,result:null,safeProgress:null,
-    invoke:()=>invoke(copy),complete};
+    invoke:()=>invoke(copy),request:copy,complete};
   ppParallel.jobs.set(id,job);
   ppParallel.latest.set(key,job);
   ppParallel.queue.push(job);
@@ -112,6 +150,7 @@ function ppParallelProgress(req,key) {
     phase:"waiting_for_capacity",done:0,total:0,candidate_preview:null,best_preview:null,
     job_id:job.id});
   if(job.status==="running") {
+    return ppComputeProgress(job);
     const p=job.safeProgress;
     return ppParallelReply({ok:true,running:true,success:false,
       phase:p?.phase||"server_optimizing",
@@ -162,7 +201,7 @@ async function ppParallelStop(req,invoke,key) {
   }
   // Existing optimizer stop routine owns its authenticated run controller;
   // never send a global upstream stop request.
-  return invoke(req);
+  return ppComputeStop(job);
 }
 async function ppTenantDispatch(req,invoke) {
   const path=new URL(req.url).pathname;
