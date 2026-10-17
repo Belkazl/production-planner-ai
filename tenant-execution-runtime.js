@@ -105,7 +105,7 @@ async function ppTenantProgress(req,invoke,key) {
     done:0,total:0,phase:"queued",candidate_preview:null,best_preview:null});
   if(job.status==="running"&&ppTenantExecution.active===job) {
     // The shared upstream progress endpoint is safe only for its one active owner.
-    return invoke();
+    return invoke(req);
   }
   if(job.status==="stopped")return ppTenantJson({ok:true,running:false,stopped:true,
     success:false,done:0,total:0,candidate_preview:null,best_preview:null});
@@ -132,7 +132,7 @@ async function ppTenantStop(req,invoke,key) {
     return ppTenantJson({ok:true,stopped:true,queued:true});
   }
   if(ppTenantExecution.active!==job)return ppTenantJson({ok:false,error:"optimization_not_owned"},409);
-  return invoke();
+  return invoke(req);
 }
 async function ppTenantDispatch(req,invoke) {
   const path=new URL(req.url).pathname;
@@ -150,5 +150,5 @@ async function ppTenantDispatch(req,invoke) {
   }
   if(req.method==="POST"&&path==="/api/optimizer-stop")
     return ppTenantStop(req,invoke,key);
-  return invoke();
+  return invoke(req);
 }
