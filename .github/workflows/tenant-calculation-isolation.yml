@@ -1,0 +1,42 @@
+name: Tenant calculation isolation regression
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Compile secured planner
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/tenant-isolation-check
+      - name: Check independent concurrent tenant jobs
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/tenant-auth.log 2>&1 &
+          mockpid=$!
+          bun tests/planner-html-mock.ts >/tmp/tenant-planner.log 2>&1 &
+          plannerpid=$!
+          APS_UPSTREAM=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PORT=8080 bun index.ts >/tmp/tenant-bridge.log 2>&1 &
+          bridgepid=$!
+          trap 'kill "$bridgepid" "$plannerpid" "$mockpid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          python3 tests/tenant-calculation-isolation.py || { tail -100 /tmp/tenant-bridge.log; cat /tmp/tenant-auth.log; exit 1; }
+          tail -60 /tmp/tenant-bridge.log
