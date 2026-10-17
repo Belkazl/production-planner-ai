@@ -1,154 +1,191 @@
-// LiftOrbit tenant execution gate.
-// The legacy optimizer has a global /api/plan-progress and stop state.
-// Keep exactly one upstream optimizer job active, while each authenticated
-// session has its own queued job, final response and progress visibility.
-const ppTenantExecution = {
-  active: null, queue: [], byId: new Map(), latest: new Map(), sequence: 0
+// LiftOrbit parallel authenticated tenant optimizer dispatcher.
+// IMPORTANT: the legacy upstream exposes a shared progress endpoint.
+// Never forward that progress to an account during overlapping runs.
+// Each job's HTTP request, state, result and cancellation are owner-scoped.
+// Independent I/O requests are dispatched concurrently up to maxRunning.
+const ppParallelMax = Math.min(32,Math.max(1,Number.parseInt(
+  (typeof Bun!=="undefined"&&Bun.env?.PP_MAX_CONCURRENT_OPTIMIZATIONS)||"10",10)||10));
+const ppParallel = {
+  active:new Map(), queue:[], latest:new Map(), jobs:new Map(), peak:0, completed:0
 };
-const PP_TENANT_JOB_TTL = 15 * 60 * 1000;
-const PP_TENANT_MAX_QUEUE = 32;
-const PP_TENANT_MAX_BODY = 1024 * 1024;
-
-function ppTenantJson(data,status=200) {
-  return Response.json(data,{status,headers:{"cache-control":"no-store","x-pp-tenant-gate":"v1"}});
+const ppParallelTtlMs=15*60*1000;
+const ppParallelMaxQueued=64;
+const ppParallelMaxBytes=2*1024*1024;
+function ppParallelReply(data,status=200) {
+  return Response.json(data,{status,headers:{
+    "cache-control":"no-store","x-pp-optimizer-isolation":"parallel-v2"
+  }});
 }
-function ppTenantStoredResponse(job) {
-  if(!job.result)return ppTenantJson({ok:true,queued:job.status==="queued",running:job.status==="running",job_id:job.id},202);
-  const headers=new Headers(job.result.headers||{});
-  headers.delete("content-length");
-  headers.delete("content-encoding");
+function ppParallelResponse(job) {
+  if(!job.result)return ppParallelReply({ok:true,running:job.status==="running",
+    queued:job.status==="queued",job_id:job.id},202);
+  const headers=new Headers(job.result.headers||[]);
+  for(const key of ["set-cookie","content-length","content-encoding","transfer-encoding",
+    "access-control-allow-origin","access-control-allow-credentials"])headers.delete(key);
   headers.set("cache-control","no-store");
-  headers.set("x-pp-tenant-gate","v1");
+  headers.set("x-pp-optimizer-isolation","parallel-v2");
+  headers.set("x-pp-optimizer-job-id",job.id);
   return new Response(job.result.body.slice(0),{status:job.result.status,headers});
 }
-function ppTenantPrune() {
+function ppParallelPrune() {
   const now=Date.now();
-  for(const [id,job] of ppTenantExecution.byId) {
-    if((job.status==="done"||job.status==="stopped")&&now-job.finished>PP_TENANT_JOB_TTL) {
-      ppTenantExecution.byId.delete(id);
-      if(ppTenantExecution.latest.get(job.key)===job)ppTenantExecution.latest.delete(job.key);
-      job.invoke=null;
+  for(const [id,job] of ppParallel.jobs) {
+    if((job.status==="done"||job.status==="stopped")&&now-job.finished>ppParallelTtlMs) {
+      ppParallel.jobs.delete(id);
+      if(ppParallel.latest.get(job.key)===job)ppParallel.latest.delete(job.key);
     }
   }
 }
-async function ppTenantRunJob(job) {
-  let result;
+function ppParallelFinished(job,status,body,headers=[]) {
+  job.finished=Date.now();
+  job.status=status===409&&job.cancelled?"stopped":"done";
+  job.result={status,body,headers};
+  job.invoke=null;
+  job.complete(ppParallelResponse(job));
+}
+async function ppParallelExecute(job) {
   try {
     const response=await job.invoke();
-    // Materialize the response before the next user's optimizer starts.
-    const body=await response.arrayBuffer();
-    result={status:response.status,headers:[...response.headers.entries()],body};
-  } catch(err) {
-    console.error("PP_TENANT_PLAN_ERROR",String(err?.message||err).slice(0,180));
-    result={status:502,headers:[["content-type","application/json; charset=utf-8"]],
-      body:new TextEncoder().encode(JSON.stringify({ok:false,error:"tenant_plan_failed"})).buffer};
-  } finally {
-    job.invoke=null;
-  }
-  job.result=result;
-  job.status="done";
-  job.finished=Date.now();
-  job.resolve(ppTenantStoredResponse(job));
-  ppTenantExecution.active=null;
-  ppTenantPump();
-}
-function ppTenantPump() {
-  if(ppTenantExecution.active)return;
-  let next;
-  while((next=ppTenantExecution.queue.shift())) {
-    if(next.status!=="queued")continue;
-    next.status="running";
-    ppTenantExecution.active=next;
-    // Keep the job alive after a 202 response to a queued browser request.
-    void ppTenantRunJob(next);
-    return;
+    const raw=await response.arrayBuffer();
+    ppParallelFinished(job,response.status,raw,[...response.headers.entries()]);
+  }catch(e) {
+    console.warn("PP_PARALLEL_JOB_FAILED",String(e?.message||e).slice(0,160));
+    ppParallelFinished(job,502,new TextEncoder().encode(
+      JSON.stringify({ok:false,error:"optimizer_request_failed"})).buffer,
+      [["content-type","application/json; charset=utf-8"]]);
+  }finally {
+    ppParallel.active.delete(job.id);
+    ppParallel.completed++;
+    ppParallelPump();
   }
 }
-async function ppTenantStartPlan(req,invoke,key) {
-  ppTenantPrune();
-  const old=ppTenantExecution.latest.get(key);
-  if(old&&(old.status==="queued"||old.status==="running"))
-    return ppTenantJson({ok:false,error:"optimization_already_running"},409);
-  if(ppTenantExecution.queue.length>=PP_TENANT_MAX_QUEUE)
-    return ppTenantJson({ok:false,error:"optimizer_queue_full"},503);
+function ppParallelPump() {
+  while(ppParallel.active.size<ppParallelMax&&ppParallel.queue.length) {
+    const job=ppParallel.queue.shift();
+    if(job.status!=="queued")continue;
+    job.status="running";
+    job.started=Date.now();
+    ppParallel.active.set(job.id,job);
+    ppParallel.peak=Math.max(ppParallel.peak,ppParallel.active.size);
+    // One running Promise per user; no global active-job singleton.
+    void ppParallelExecute(job);
+  }
+}
+async function ppParallelStart(req,invoke,key) {
+  ppParallelPrune();
+  const old=ppParallel.latest.get(key);
+  if(old&&(old.status==="running"||old.status==="queued"))
+    return ppParallelReply({ok:false,error:"optimization_already_running"},409);
+  if(ppParallel.queue.length>=ppParallelMaxQueued)
+    return ppParallelReply({ok:false,error:"optimizer_capacity_exceeded"},503);
   const body=await req.arrayBuffer();
-  if(body.byteLength>PP_TENANT_MAX_BODY)
-    return ppTenantJson({ok:false,error:"plan_request_too_large"},413);
-  // A queued incoming Request cannot be trusted to retain its network stream.
-  // Reconstruct it now and release no tenant data to another session.
+  if(body.byteLength>ppParallelMaxBytes)
+    return ppParallelReply({ok:false,error:"optimizer_request_too_large"},413);
   const copy=new Request(req.url,{method:"POST",headers:new Headers(req.headers),body});
-  const id="tjob-"+(++ppTenantExecution.sequence)+"-"+Date.now().toString(36);
-  let resolve;
-  const completion=new Promise(r=>{resolve=r});
-  const job={id,key,created:Date.now(),finished:0,status:"queued",
-    invoke:()=>invoke(copy),resolve,completion,result:null};
-  ppTenantExecution.byId.set(id,job);
-  ppTenantExecution.latest.set(key,job);
-  ppTenantExecution.queue.push(job);
-  ppTenantPump();
-  return completion;
+  const id=crypto.randomUUID();
+  let complete;
+  const responsePromise=new Promise(resolve=>{complete=resolve});
+  const job={id,key,status:"queued",created:Date.now(),started:0,finished:0,
+    cancelled:false,result:null,safeProgress:null,
+    invoke:()=>invoke(copy),complete};
+  ppParallel.jobs.set(id,job);
+  ppParallel.latest.set(key,job);
+  ppParallel.queue.push(job);
+  ppParallelPump();
+  // Keep HTTP semantics compatible with existing Gantt: POST resolves with
+  // the original plan, not a fake "queued" or premature "success" response.
+  return responsePromise;
 }
-function ppTenantPollResult(req,key) {
-  ppTenantPrune();
+function ppParallelResult(req,key) {
+  ppParallelPrune();
   const id=new URL(req.url).searchParams.get("job_id");
-  const job=id&&ppTenantExecution.byId.get(id);
-  // A job identifier is never authorization to read another tenant's result.
-  if(!job||job.key!==key)return ppTenantJson({error:"job_not_found"},404);
-  return ppTenantStoredResponse(job);
+  const job=id&&ppParallel.jobs.get(id);
+  if(!job||job.key!==key)return ppParallelReply({error:"job_not_found"},404);
+  return ppParallelResponse(job);
 }
-async function ppTenantProgress(req,invoke,key) {
-  ppTenantPrune();
-  const job=ppTenantExecution.latest.get(key);
-  if(!job)return ppTenantJson({ok:true,running:false,success:false,done:0,total:0,
-    candidate_preview:null,best_preview:null,phase:"idle"});
-  if(job.status==="queued")return ppTenantJson({ok:true,running:false,queued:true,
-    done:0,total:0,phase:"queued",candidate_preview:null,best_preview:null});
-  if(job.status==="running"&&ppTenantExecution.active===job) {
-    // The shared upstream progress endpoint is safe only for its one active owner.
-    return invoke(req);
+function ppParallelProgress(req,key) {
+  ppParallelPrune();
+  const job=ppParallel.latest.get(key);
+  if(!job)return ppParallelReply({ok:true,running:false,success:false,
+    phase:"idle",done:0,total:0,candidate_preview:null,best_preview:null});
+  if(job.status==="queued")return ppParallelReply({ok:true,running:false,queued:true,
+    phase:"waiting_for_capacity",done:0,total:0,candidate_preview:null,best_preview:null,
+    job_id:job.id});
+  if(job.status==="running") {
+    const p=job.safeProgress;
+    return ppParallelReply({ok:true,running:true,success:false,
+      phase:p?.phase||"server_optimizing",
+      done:p?.done||0,total:p?.total||0,
+      percent:p&&p.total?Math.floor(p.done*100/p.total):0,
+      candidate_preview:p?.candidate_preview||null,best_preview:p?.best_preview||null,
+      job_id:job.id});
   }
-  if(job.status==="stopped")return ppTenantJson({ok:true,running:false,stopped:true,
-    success:false,done:0,total:0,candidate_preview:null,best_preview:null});
+  if(job.status==="stopped")return ppParallelReply({ok:true,running:false,
+    success:false,stopped:true,phase:"stopped",done:0,total:0,
+    candidate_preview:null,best_preview:null});
   let data={};
   try{data=JSON.parse(new TextDecoder().decode(job.result.body))}catch(_){}
-  const valid=job.result.status>=200&&job.result.status<300&&data?.ok===true;
-  return ppTenantJson({ok:valid,running:false,success:valid,
-    done:valid?(Number(data.generations)||Number(data.total_generations)||0):0,
-    total:valid?(Number(data.generations)||Number(data.total_generations)||0):0,
-    phase:valid?"completed":"failed",
-    candidate_preview:null,best_preview:valid?data:null,
-    ...(valid?{}:{error:data?.error||"optimization_failed"})});
+  const success=job.result.status>=200&&job.result.status<300&&data?.ok===true;
+  const total=success?(Number(data.generations)||Number(data.total_generations)||0):0;
+  const validPlan=success&&Array.isArray(data.operations)&&data.operations.length>0;
+  return ppParallelReply({ok:success,running:false,success,phase:success?"completed":"failed",
+    done:total,total,percent:success?100:0,candidate_preview:null,
+    best_preview:validPlan?data:null,job_id:job.id,
+    ...(success?{}:{error:data?.error||"optimizer_failed"})});
 }
-async function ppTenantStop(req,invoke,key) {
-  const job=ppTenantExecution.latest.get(key);
+function ppParallelRecord(req,progress) {
+  const key=ppSecureSessionKey(req);
+  const job=ppParallel.latest.get(key);
+  if(!job||job.status!=="running"||!ppParallel.active.has(job.id))return;
+  if(!progress||!Number.isFinite(Number(progress.done)))return;
+  const {done,total,phase,candidate_preview,best_preview}=progress;
+  job.safeProgress={
+    done:Math.max(0,Math.trunc(Number(done))),
+    total:Math.max(0,Math.trunc(Number(total)||0)),
+    phase:String(phase||"setup_aware_schedule"),
+    // These plans come ONLY from this request's in-process local search.
+    candidate_preview:candidate_preview||null,
+    best_preview:best_preview||null
+  };
+}
+async function ppParallelStop(req,invoke,key) {
+  const job=ppParallel.latest.get(key);
   if(!job||job.status==="done"||job.status==="stopped")
-    return ppTenantJson({ok:false,error:"optimization_not_running"},409);
+    return ppParallelReply({ok:false,error:"optimization_not_running"},409);
   if(job.status==="queued") {
-    job.status="stopped";job.finished=Date.now();job.invoke=null;
-    job.result={status:409,headers:[["content-type","application/json; charset=utf-8"]],
-      body:new TextEncoder().encode(JSON.stringify({ok:false,stopped:true,error:"optimization_stopped_before_start"})).buffer};
-    ppTenantExecution.queue=ppTenantExecution.queue.filter(q=>q!==job);
-    job.resolve(ppTenantStoredResponse(job));
-    return ppTenantJson({ok:true,stopped:true,queued:true});
+    job.cancelled=true;
+    ppParallel.queue=ppParallel.queue.filter(j=>j!==job);
+    const body=new TextEncoder().encode(JSON.stringify({
+      ok:false,stopped:true,error:"optimization_cancelled_before_start"})).buffer;
+    ppParallelFinished(job,409,body,[["content-type","application/json; charset=utf-8"]]);
+    return ppParallelReply({ok:true,stopped:true,queued:true});
   }
-  if(ppTenantExecution.active!==job)return ppTenantJson({ok:false,error:"optimization_not_owned"},409);
+  // Existing optimizer stop routine owns its authenticated run controller;
+  // never send a global upstream stop request.
   return invoke(req);
 }
 async function ppTenantDispatch(req,invoke) {
   const path=new URL(req.url).pathname;
   const key=ppSecureSessionKey(req);
   if(req.method==="POST"&&path==="/api/plan")
-    return ppTenantStartPlan(req,invoke,key);
-  if(req.method==="GET"&&path==="/api/tenant-plan-result")
-    return ppTenantPollResult(req,key);
+    return ppParallelStart(req,invoke,key);
   if(req.method==="GET"&&path==="/api/plan-progress")
-    return ppTenantProgress(req,invoke,key);
-  if(req.method==="POST"&&path==="/api/optimizer-reset"){
-    const job=ppTenantExecution.latest.get(key);
+    return ppParallelProgress(req,key);
+  if(req.method==="GET"&&path==="/api/tenant-plan-result")
+    return ppParallelResult(req,key);
+  if(req.method==="GET"&&path==="/api/optimizer-capacity")
+    return ppParallelReply({ok:true,active:ppParallel.active.size,
+      queued:ppParallel.queue.length,capacity:ppParallelMax,
+      peak:ppParallel.peak,completed:ppParallel.completed});
+  if(req.method==="POST"&&path==="/api/optimizer-reset") {
+    const job=ppParallel.latest.get(key);
     if(job&&(job.status==="queued"||job.status==="running"))
-      return ppTenantJson({ok:false,error:"optimization_running_stop_first"},409);
+      return ppParallelReply({ok:false,error:"optimization_running_stop_first"},409);
+    const response=await invoke(req);
+    if(response.ok)ppParallel.latest.delete(key);
+    return response;
   }
   if(req.method==="POST"&&path==="/api/optimizer-stop")
-    return ppTenantStop(req,invoke,key);
+    return ppParallelStop(req,invoke,key);
   return invoke(req);
 }
