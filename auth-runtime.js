@@ -129,7 +129,7 @@ async function ppAuthenticatedHandler(req){
   const h=new Headers(res.headers);h.delete("content-length");h.set("cache-control","no-store");
   return new Response(output,{status:res.status,headers:h});
  }
- const res=await ppTenantDispatch(req,()=>handler(req));
+ const res=await ppTenantDispatch(req,r=>handler(r));
  const h=new Headers(res.headers);h.set("cache-control","no-store");
  return new Response(res.body,{status:res.status,headers:h});
 }
