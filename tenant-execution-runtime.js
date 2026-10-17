@@ -84,11 +84,9 @@ async function ppTenantStartPlan(req,invoke,key) {
     invoke:()=>invoke(copy),resolve,completion,result:null};
   ppTenantExecution.byId.set(id,job);
   ppTenantExecution.latest.set(key,job);
-  const immediately=!ppTenantExecution.active&&ppTenantExecution.queue.length===0;
   ppTenantExecution.queue.push(job);
   ppTenantPump();
-  if(immediately)return completion;
-  return ppTenantJson({ok:true,queued:true,job_id:id,phase:"queued"},202);
+  return completion;
 }
 function ppTenantPollResult(req,key) {
   ppTenantPrune();
@@ -145,6 +143,11 @@ async function ppTenantDispatch(req,invoke) {
     return ppTenantPollResult(req,key);
   if(req.method==="GET"&&path==="/api/plan-progress")
     return ppTenantProgress(req,invoke,key);
+  if(req.method==="POST"&&path==="/api/optimizer-reset"){
+    const job=ppTenantExecution.latest.get(key);
+    if(job&&(job.status==="queued"||job.status==="running"))
+      return ppTenantJson({ok:false,error:"optimization_running_stop_first"},409);
+  }
   if(req.method==="POST"&&path==="/api/optimizer-stop")
     return ppTenantStop(req,invoke,key);
   return invoke();
