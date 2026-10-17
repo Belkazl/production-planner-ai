@@ -38,5 +38,5 @@ jobs:
             if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
             sleep 1
           done
-          python3 tests/tenant-calculation-isolation.py
+          python3 tests/tenant-calculation-isolation.py || { tail -100 /tmp/tenant-bridge.log; cat /tmp/tenant-auth.log; exit 1; }
           tail -60 /tmp/tenant-bridge.log
