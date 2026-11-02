@@ -102,11 +102,12 @@ async function ppTenantAuthenticated(req){
  }
  // The API must not expose another session's global optimizer progress.
  if(path==="/api/plan-progress"&&req.method==="GET"){
-  const key=ppSecureSessionKey(req);
-  if(!ppActiveObjectiveRuns.has(key)){
+  const state=ppActiveObjectiveRuns.get(ppSecureSessionKey(req));
+  if(!state||state.completed){
    const authenticated=await ppVerifyLogin(req).catch(()=>false);
    if(!authenticated)return Response.json({error:"authentication_required"},{status:401});
-   return jsonifyBridge({ok:true,running:false,success:false,done:0,total:0,percent:0,phase:"idle",candidate_preview:null,best_preview:null});
+   const ownBest=state?.best?.operations?.length?structuredClone(state.best):null;
+   return jsonifyBridge({ok:true,running:false,success:!!ownBest,done:0,total:0,percent:ownBest?100:0,phase:ownBest?"complete":"idle",candidate_preview:null,best_preview:ownBest});
   }
  }
  let imported=null;
