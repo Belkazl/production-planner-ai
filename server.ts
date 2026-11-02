@@ -1,105 +1,36 @@
 import {createHash} from 'node:crypto';
 import {ORIGIN,pages,growthRoutes,enhanceHome,enhanceSitemap,enhanceLlms} from './growth.mjs';
 import {CONVERSION_RELEASE,conversionPages,conversionRoutes,enhanceResource,enhanceConversionHome,usageAllowed} from './public-preview.mjs';
-const ppLandingGuard=(function ppLandingAuthGate(){
-  const AUTH_ORIGIN="https://app.liftorbit.app";
-  const LOGIN_ROUTE="/_preview/login",COOKIE_NAME="__Host-liftorbit-preview";
-  const SESSION_CACHE=new Map();
-  const NO_STORE={"cache-control":"private, no-store","x-robots-tag":"noindex, nofollow, noarchive","x-content-type-options":"nosniff","x-frame-options":"DENY","referrer-policy":"no-referrer"};
-  const CSP="default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
-  function originOkay(req,url){
-    const raw=req.headers.get("origin")||"",site=req.headers.get("sec-fetch-site");
-    if(site&&site!=="same-origin"&&site!=="none")return false;
-    try{const o=new URL(raw);return o.host===url.host&&(o.protocol==="https:"||o.hostname==="localhost")&&o.pathname==="/"&&!o.search&&!o.hash}catch{return false}
-  }
-  const cookieFrom=req=>{
-    const v=(req.headers.get("cookie")||"").split(";").map(s=>s.trim()).find(s=>s.startsWith(COOKIE_NAME+"="));
-    if(!v)return "";
-    try{
-      const encoded=v.slice(COOKIE_NAME.length+1);
-      if(!/^[A-Za-z0-9_-]{1,8192}$/.test(encoded))return "";
-      const decoded=Buffer.from(encoded,"base64url").toString("utf8");
-      if(decoded.length>4096||!decoded)return "";
-      if(!decoded.split("; ").every(p=>/^[a-zA-Z0-9!#$%&'*+.^_`|~-]+=[^\s;,]+$/.test(p)))return "";
-      return decoded;
-    }catch{return ""}
-  };
-  const destination=raw=>{
-    const s=typeof raw==="string"?raw:"/";
-    return s.startsWith("/")&&!s.startsWith("//")&&!s.includes("\\")&&s.length<=1024&&!s.startsWith(LOGIN_ROUTE)?s:"/";
-  };
-  const redirect=(location,status=302,clear=false)=>new Response(null,{status,headers:{...NO_STORE,location,...(clear?{"set-cookie":COOKIE_NAME+"=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0"}:{})}});
-  function loginForm(next,error){
-    const message=error==="invalid"?"Incorrect email or password.":error==="unavailable"?"Sign-in is temporarily unavailable. Please try again.":"";
-    const action=LOGIN_ROUTE+"?next="+encodeURIComponent(next);
-    const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Sign in — LiftOrbit</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f7f8f5;color:#1b303e;font:15px/1.5 Inter,system-ui,Arial,sans-serif}.panel{width:100%;max-width:410px;background:#fff;padding:36px;border:1px solid #e3e9e5;border-radius:16px;box-shadow:0 14px 55px #14302410}.brand{font-size:25px;font-weight:750;letter-spacing:-.7px}.hint{color:#6d7e80;margin:8px 0 28px}.field{display:block;font-size:13px;font-weight:650;margin:14px 0 7px}input{display:block;width:100%;border:1px solid #cbd6d4;border-radius:8px;padding:12px 13px;font:inherit;background:white;color:#1b303e}input:focus{outline:2px solid #348e96;outline-offset:1px}.submit{margin-top:24px;width:100%;border:0;border-radius:9px;padding:13px;background:#1e6776;color:white;font:650 15px Inter,system-ui,Arial,sans-serif;cursor:pointer}.error{color:#b93636;margin:14px 0 0;font-size:13px;min-height:19px}.fine{color:#718084;font-size:12px;margin-top:20px}</style></head><body><main class="panel"><div class="brand">LiftOrbit</div><p class="hint">This site is temporarily private. Sign in using your existing LiftOrbit account.</p><form method="post" action="${action}" autocomplete="on"><label class="field" for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" maxlength="254" required autofocus><label class="field" for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button class="submit" type="submit">Sign in</button><p class="error" role="alert">${message}</p></form><p class="fine">The same email and password you use in the planning application.</p></main></body></html>`;
-    return new Response(html,{status:error==="unavailable"?503:error?401:200,headers:{...NO_STORE,"content-type":"text/html; charset=utf-8","content-security-policy":CSP}});
-  }
-  async function validSession(raw){
-    if(!raw)return false;
-    const key=createHash("sha256").update(raw).digest("hex"),cached=SESSION_CACHE.get(key);
-    if(cached&&Date.now()-cached<15000)return true;
-    const r=await fetch(AUTH_ORIGIN+"/api/auth/me",{method:"GET",headers:{"cookie":raw,"accept":"application/json"},redirect:"manual",cache:"no-store",signal:AbortSignal.timeout(20000)});
-    if(r.body)try{await r.body.cancel()}catch{}
-    if(r.status===401){SESSION_CACHE.delete(key);return false}
-    if(r.status!==200)throw Error("auth_unavailable");
-    if(SESSION_CACHE.size>400)SESSION_CACHE.clear();
-    SESSION_CACHE.set(key,Date.now());
-    return true;
-  }
-  async function login(req,url){
-    const next=destination(url.searchParams.get("next"));
-    if(!originOkay(req,url))return new Response("Forbidden",{status:403,headers:NO_STORE});
-    if(!/^application\/x-www-form-urlencoded(?:;|$)/i.test(req.headers.get("content-type")||""))return new Response("Unsupported Media Type",{status:415,headers:NO_STORE});
-    let params;
-    try{const body=await req.text();if(body.length>4096)return new Response("Request Too Large",{status:413,headers:NO_STORE});params=new URLSearchParams(body)}catch{return loginForm(next,"invalid")}
-    const email=(params.get("email")||"").trim(),password=params.get("password")||"";
-    if(!email||!email.includes("@")||email.length>254||!password||password.length>1024)return loginForm(next,"invalid");
-    try{
-      const r=await fetch(AUTH_ORIGIN+"/api/auth/login",{method:"POST",headers:{"content-type":"application/json","accept":"application/json","origin":AUTH_ORIGIN},body:JSON.stringify({email,password,company:""}),redirect:"manual",signal:AbortSignal.timeout(20000),cache:"no-store"});
-      if([400,401,403].includes(r.status))return loginForm(next,"invalid");
-      if(!r.ok)return loginForm(next,"unavailable");
-      const raw=typeof r.headers.getSetCookie==="function"?r.headers.getSetCookie():[];
-      if(!raw.length&&r.headers.get("set-cookie"))raw.push(r.headers.get("set-cookie"));
-      const pairs=raw.map(s=>s.split(";")[0].trim()).filter(p=>/^[a-zA-Z0-9!#$%&'*+.^_`|~-]+=[^\s;,]+$/.test(p));
-      const upstreamCookies=pairs.join("; ");
-      if(!upstreamCookies||upstreamCookies.length>4096)return loginForm(next,"unavailable");
-      if(!await validSession(upstreamCookies))return loginForm(next,"invalid");
-      const ticket=Buffer.from(upstreamCookies,"utf8").toString("base64url");
-      return new Response(null,{status:303,headers:{...NO_STORE,location:next,"set-cookie":COOKIE_NAME+"="+ticket+"; Path=/; Secure; HttpOnly; SameSite=Lax"}});
-    }catch{return loginForm(next,"unavailable")}
-  }
-  return async function ppLandingGuard(req,url){
-    const path=url.pathname;
-    if(path==="/robots.txt"&&(req.method==="GET"||req.method==="HEAD"))
-      return new Response(req.method==="HEAD"?null:"User-agent: *\nDisallow: /\n",{headers:{...NO_STORE,"content-type":"text/plain; charset=utf-8"}});
-    if(path===LOGIN_ROUTE){
-      if(req.method==="GET"||req.method==="HEAD"){
-        const response=loginForm(destination(url.searchParams.get("next")));
-        return req.method==="HEAD"?new Response(null,{status:response.status,headers:response.headers}):response;
-      }
-      if(req.method==="POST")return login(req,url);
-      return new Response("Method Not Allowed",{status:405,headers:{...NO_STORE,allow:"GET, HEAD, POST"}});
-    }
-    if(path==="/_preview/logout"){
-      if(req.method!=="POST")return new Response("Method Not Allowed",{status:405,headers:{...NO_STORE,allow:"POST"}});
-      if(!originOkay(req,url))return new Response("Forbidden",{status:403,headers:NO_STORE});
-      return redirect(LOGIN_ROUTE,303,true);
-    }
-    const session=cookieFrom(req);
-    if(!session){
-      if(req.method==="GET"||req.method==="HEAD")return redirect(LOGIN_ROUTE+"?next="+encodeURIComponent(destination(path+url.search)));
-      return new Response(JSON.stringify({error:"authentication_required"}),{status:401,headers:{...NO_STORE,"content-type":"application/json"}});
-    }
-    try{
-      if(await validSession(session))return null;
-      if(req.method==="GET"||req.method==="HEAD")return redirect(LOGIN_ROUTE+"?next="+encodeURIComponent(destination(path+url.search)),302,true);
-      return new Response(JSON.stringify({error:"authentication_required"}),{status:401,headers:{...NO_STORE,"content-type":"application/json"}});
-    }catch{
-      return new Response("Authentication temporarily unavailable",{status:503,headers:NO_STORE});
-    }
-  }
-})();
+
+const PREVIEW_ACCESS_CODE="576005";
+const PREVIEW_TOKEN=require("node:crypto").randomBytes(24).toString("hex");
+const PREVIEW_COOKIE="__Host-lo-preview";
+const PREVIEW_NO_STORE={"cache-control":"private, no-store","x-robots-tag":"noindex, nofollow, noarchive"};
+const PREVIEW_LIMIT=new Map();
+const previewForm=(invalid=false)=>new Response(\`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>LiftOrbit — Private preview</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#f7f8f5;color:#153042;font:16px system-ui,Arial}main{background:#fff;padding:34px;max-width:420px;width:100%;border:1px solid #e1e9e5;border-radius:16px;box-shadow:0 18px 55px #143a4710}h1{margin:0 0 10px;font-size:30px}p{color:#647a83;margin:0 0 25px}input{display:block;width:100%;padding:14px;font-size:19px;letter-spacing:2px;border:1px solid #cad9d5;border-radius:9px}button{background:#2468d6;border:0;color:white;border-radius:9px;width:100%;padding:14px;font:600 16px system-ui;margin-top:15px;cursor:pointer}.error{color:#c22b35;font-size:13px;margin-top:10px}</style></head><body><main><h1>LiftOrbit</h1><p>This is a private preview. Enter the access code to continue.</p><form method="POST" action="/_preview/unlock"><input name="code" placeholder="Access code" aria-label="Access code" autocomplete="off" inputmode="numeric" maxlength="6" required><button type="submit">Continue</button>\${invalid?'<div class="error">Incorrect code</div>':''}</form></main></body></html>\`,{status:200,headers:{...PREVIEW_NO_STORE,"content-type":"text/html; charset=utf-8","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"}});
+async function previewGate(req,u){
+ const path=u.pathname;
+ if(path==="/health")return null;
+ if(path==="/robots.txt")return new Response("User-agent: *\nDisallow: /\n",{headers:{...PREVIEW_NO_STORE,"content-type":"text/plain"}});
+ if(path==="/sitemap.xml"||path==="/llms.txt")return new Response(null,{status:404,headers:PREVIEW_NO_STORE});
+ if(path==="/_preview/unlock"){
+  if(req.method!=="POST")return new Response("Method Not Allowed",{status:405,headers:PREVIEW_NO_STORE});
+  const origin=req.headers.get("origin");
+  if(origin!==u.origin)return new Response("Forbidden",{status:403,headers:PREVIEW_NO_STORE});
+  const ip=(req.headers.get("x-forwarded-for")||"unknown").split(",")[0],now=Date.now(),entry=PREVIEW_LIMIT.get(ip)||{at:now,tries:0};
+  if(now-entry.at>600000){entry.at=now;entry.tries=0}entry.tries++;PREVIEW_LIMIT.set(ip,entry);if(PREVIEW_LIMIT.size>1000)PREVIEW_LIMIT.clear();
+  if(entry.tries>30)return new Response("Too many attempts",{status:429,headers:PREVIEW_NO_STORE});
+  if(Number(req.headers.get("content-length")||0)>256)return new Response("Request too large",{status:413,headers:PREVIEW_NO_STORE});
+  const body=await req.text();
+  if(body.length>256)return new Response("Request too large",{status:413,headers:PREVIEW_NO_STORE});
+  if(new URLSearchParams(body).get("code")!==PREVIEW_ACCESS_CODE)return previewForm(true);
+  return new Response(null,{status:303,headers:{...PREVIEW_NO_STORE,location:"/","set-cookie":PREVIEW_COOKIE+"="+PREVIEW_TOKEN+"; Path=/; HttpOnly; Secure; SameSite=Lax"}});
+ }
+ const allowed=(req.headers.get("cookie")||"").split(";").some(v=>v.trim()===PREVIEW_COOKIE+"="+PREVIEW_TOKEN);
+ if(!allowed)return req.method==="GET"||req.method==="HEAD"?previewForm():new Response("Access code required",{status:403,headers:PREVIEW_NO_STORE});
+ return null;
+}
+
 const PORT=Number(process.env.PORT||3000);
 const ROUTES=new Map([
  ['/site.css',{file:'site.css',type:'text/css; charset=utf-8'}],['/site.js',{file:'site.js',type:'application/javascript; charset=utf-8'}],
@@ -124,8 +55,8 @@ let usageWindow=0,usageCount=0;
 const app=Bun.serve({port:PORT,hostname:'0.0.0.0',maxRequestBodySize:8192,
  async fetch(req){
   const u=new URL(req.url),path=u.pathname;
-  const base={...HEADERS,'x-robots-tag':'noindex, nofollow, noarchive','content-security-policy':policies.get(path)||csp()};
-  if(path!=='/health'){const gated=await ppLandingGuard(req,u);if(gated)return gated;}
+  const base={...HEADERS,'content-security-policy':policies.get(path)||csp()};
+  {const locked=await previewGate(req,u);if(locked)return locked;}
   if(path==='/embed/production-capacity/'){delete base['x-frame-options'];base['content-security-policy']=base['content-security-policy'].replace("frame-ancestors 'none'",'frame-ancestors *');base['x-robots-tag']='noindex';}
   if(path==='/api/usage'){
    const h={...base,'cache-control':'no-store','x-robots-tag':'noindex'};
