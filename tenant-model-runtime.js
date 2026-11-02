@@ -59,7 +59,7 @@ function ppAccountPlanBelongsToModel(result,model) {
   for(const batch of plan.batches||[])if(batch.order!=null&&!orders.has(String(batch.order)))return false;
   return true;
  }
- return checkPlan(result)&&checkPlan(result.best_preview)&&checkPlan(result.candidate_preview);
+ return checkPlan(result)&&checkPlan(result.best_preview)&&checkPlan(result.candidate_preview)&&(result.variants||[]).every(v=>checkPlan(v?.plan||v));
 }
 function ppAlignOwnedResources(model,base){
  const own=structuredClone(model);
@@ -119,6 +119,8 @@ async function ppTenantAuthenticated(req){
    }
   }catch{}
  }
+ if(path==="/api/plan"&&req.method==="POST"&&!await ppVerifyLogin(req).catch(()=>false))
+  return Response.json({error:"authentication_required"},{status:401,headers:{"cache-control":"no-store"}});
  const beforeModel=(path==="/api/plan"&&req.method==="POST")?await ppReadAccountModel(req).catch(()=>null):null;
  if(path==="/api/plan"&&req.method==="POST"&&(!beforeModel||!beforeModel.orders.length))
   return Response.json({ok:false,error:"account_model_not_ready"},{status:409,headers:{"cache-control":"no-store"}});
