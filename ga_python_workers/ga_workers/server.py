@@ -21,6 +21,10 @@ def make_server(port=None, manager=None, token=None, bind="0.0.0.0"):
     if manager is None:
         if not adapter:
             raise RuntimeError("PP_PY_GA_ADAPTER is not configured; refusing to start")
+        if adapter == "ga_workers.recovered_adapter:run":
+            # Refuse a healthy deployment if any source chunk is missing or changed.
+            from .recovered_adapter import _engine_source
+            _engine_source()
         allow_fixture = os.getenv("PP_WORKER_TEST", "0") == "1"
         manager = ProcessJobManager(
             adapter=adapter, allow_fixture=allow_fixture,
