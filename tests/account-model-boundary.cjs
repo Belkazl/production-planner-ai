@@ -25,6 +25,7 @@ const request=(tenant,path="/api/model",method="GET")=>new Request("https://lift
  const foreign={ok:true,operations:[{order:"ORDER_T1",resources:[{resource_type:"equipment",id:"E_T1"}]}]};
  assert(api.ppAccountPlanBelongsToModel(owned,models[0]));
  assert(!api.ppAccountPlanBelongsToModel(foreign,models[0]));
+ assert(!api.ppAccountPlanBelongsToModel({...owned,variants:[{plan:foreign}]},models[0]));
  const aModel=await api.ppTenantAuthenticated(request("T0"));
  const bModel=await api.ppTenantAuthenticated(request("T1"));
  assert.equal((await aModel.json()).model.orders[0].id,"ORDER_T0");
