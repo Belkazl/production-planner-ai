@@ -16,7 +16,13 @@ async function previewGate(req,u){
  if(path==="/_preview/unlock"){
   if(req.method!=="POST")return new Response("Method Not Allowed",{status:405,headers:PREVIEW_NO_STORE});
   const origin=req.headers.get("origin");
-  if(origin!==u.origin)return new Response("Forbidden",{status:403,headers:PREVIEW_NO_STORE});
+  const fetchSite=req.headers.get("sec-fetch-site");
+  const allowedOrigins=new Set(["https://liftorbit.app","https://prodplan-landing-v1-production.up.railway.app"]);
+  let sameSite=allowedOrigins.has(origin);
+  if(!origin&&fetchSite==="same-origin"){
+   try{sameSite=allowedOrigins.has(new URL(req.headers.get("referer")||"").origin)}catch{sameSite=false}
+  }
+  if(!sameSite||(fetchSite&&fetchSite!=="same-origin"&&fetchSite!=="none"))return new Response("Forbidden",{status:403,headers:PREVIEW_NO_STORE});
   const ip=(req.headers.get("x-forwarded-for")||"unknown").split(",")[0],now=Date.now(),entry=PREVIEW_LIMIT.get(ip)||{at:now,tries:0};
   if(now-entry.at>600000){entry.at=now;entry.tries=0}entry.tries++;PREVIEW_LIMIT.set(ip,entry);if(PREVIEW_LIMIT.size>1000)PREVIEW_LIMIT.clear();
   if(entry.tries>30)return new Response("Too many attempts",{status:429,headers:PREVIEW_NO_STORE});
@@ -55,7 +61,7 @@ let usageWindow=0,usageCount=0;
 const app=Bun.serve({port:PORT,hostname:'0.0.0.0',maxRequestBodySize:8192,
  async fetch(req){
   const u=new URL(req.url),path=u.pathname;
-  const base={...HEADERS,'content-security-policy':policies.get(path)||csp()};
+  const base={...HEADERS,'x-robots-tag':'noindex, nofollow, noarchive','cache-control':'private, no-store','content-security-policy':policies.get(path)||csp()};
   {const locked=await previewGate(req,u);if(locked)return locked;}
   if(path==='/embed/production-capacity/'){delete base['x-frame-options'];base['content-security-policy']=base['content-security-policy'].replace("frame-ancestors 'none'",'frame-ancestors *');base['x-robots-tag']='noindex';}
   if(path==='/api/usage'){
