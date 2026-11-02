@@ -1,0 +1,49 @@
+const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const runtime=fs.readFileSync("tenant-model-runtime.js","utf8");
+const initial=Object.fromEntries(Array.from({length:10},(_,i)=>{
+ const name="T"+i;return [name,{"prodplan.project.active.v2":"p"+i,"prodplan.projects.v2":JSON.stringify([{id:"p"+i,model:{orders:[{id:"ORDER_"+name,quantity:i+1}],equipment:[{id:"E_"+name,name:"Machine "+name}],employees:[],materials:[],setup_rules:[]}}])}];
+}));
+const storage=structuredClone(initial);
+const fetchMock=async(url,options)=>{
+ const cookie=options?.headers?.cookie||"";
+ const tenant=cookie.replace(/^auth=/,"");
+ if(!Object.hasOwn(storage,tenant))return Response.json({error:"authentication_required"},{status:401});
+ return Response.json({ok:true,storage:structuredClone(storage[tenant])});
+};
+const context=new Function("require","fetch","PP_AUTH_GATEWAY_ORIGIN","ppSecureSessionKey","ppVerifyLogin","ppAuthenticatedHandler","ppActiveObjectiveRuns","jsonifyBridge","console",runtime+";return {ppReadAccountModel,ppAccountModelHash,ppAccountPlanBelongsToModel,ppTenantAuthenticated,ppAccountModelPending,ppAlignOwnedResources};");
+const active=new Map();
+let nextResponse=()=>Response.json({ok:true,operations:[{order:"ORDER_T0",resources:[{resource_type:"equipment",id:"E_T0"}]}]});
+const authHandler=async req=>nextResponse(req);
+const api=context(require,fetchMock,"https://private-auth.example",req=>req.headers.get("cookie"),async req=>Object.hasOwn(storage,(req.headers.get("cookie")||"").replace(/^auth=/,"")),authHandler,active,(x,s=200)=>Response.json(x,{status:s}),{warn:()=>{}});
+const request=(tenant,path="/api/model",method="GET")=>new Request("https://liftorbit.example"+path,{method,headers:{cookie:"auth="+tenant,...(method==="POST"?{origin:"https://liftorbit.example","content-type":"application/json"}:{})},...(method==="POST"?{body:"{}"}:{})});
+(async()=>{
+ const models=await Promise.all(Array.from({length:10},(_,i)=>api.ppReadAccountModel(request("T"+i))));
+ for(let i=0;i<10;i++)assert.deepEqual(models[i].orders.map(o=>o.id),["ORDER_T"+i]);
+ await assert.rejects(()=>api.ppReadAccountModel(request("UNKNOWN")),/account_session_unauthorized/);
+ const owned={ok:true,operations:[{order:"ORDER_T0",resources:[{resource_type:"equipment",id:"E_T0"}]}]};
+ const foreign={ok:true,operations:[{order:"ORDER_T1",resources:[{resource_type:"equipment",id:"E_T1"}]}]};
+ assert(api.ppAccountPlanBelongsToModel(owned,models[0]));
+ assert(!api.ppAccountPlanBelongsToModel(foreign,models[0]));
+ const aModel=await api.ppTenantAuthenticated(request("T0"));
+ const bModel=await api.ppTenantAuthenticated(request("T1"));
+ assert.equal((await aModel.json()).model.orders[0].id,"ORDER_T0");
+ assert.equal((await bModel.json()).model.orders[0].id,"ORDER_T1");
+ const deny=await api.ppTenantAuthenticated(request("UNKNOWN"));assert.equal(deny.status,401);
+ let result=await api.ppTenantAuthenticated(request("T0","/api/plan","POST"));assert.equal(result.status,200);
+ nextResponse=()=>Response.json(foreign);
+ result=await api.ppTenantAuthenticated(request("T0","/api/plan","POST"));assert.equal(result.status,409);assert.equal((await result.json()).error,"account_plan_mismatch");
+ nextResponse=()=>Response.json(owned);
+ let created=0;
+ nextResponse=async()=>{
+  created++;
+  storage.T0["prodplan.projects.v2"]=JSON.stringify([{id:"p0",model:{...models[0],orders:[{id:"ORDER_CHANGED",quantity:5}]}}]);
+  return Response.json(owned);
+ };
+ result=await api.ppTenantAuthenticated(request("T0","/api/plan","POST"));assert.equal(result.status,409);assert.equal((await result.json()).error,"account_model_changed_during_run");
+ nextResponse=()=>Response.json(owned);
+ const noProgress=await api.ppTenantAuthenticated(request("T1","/api/plan-progress"));
+ const prog=await noProgress.json();assert.equal(prog.running,false);
+ assert.equal(api.ppAccountModelPending.size,0);
+ console.log("PASS: 10 session models, no cross-account storage, account-owned plans, foreign results blocked, changed model rejected, idle progress private");
+})().catch(e=>{console.error(e);process.exitCode=1});
