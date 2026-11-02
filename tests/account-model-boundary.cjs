@@ -45,6 +45,10 @@ const request=(tenant,path="/api/model",method="GET")=>new Request("https://lift
  nextResponse=()=>Response.json(owned);
  const noProgress=await api.ppTenantAuthenticated(request("T1","/api/plan-progress"));
  const prog=await noProgress.json();assert.equal(prog.running,false);
+ active.set("auth=T0",{completed:true,best:owned});
+ nextResponse=()=>Response.json(foreign);
+ const finished=await api.ppTenantAuthenticated(request("T0","/api/plan-progress"));
+ const finishedJson=await finished.json();assert.equal(finishedJson.best_preview.operations[0].order,"ORDER_T0");assert.equal(finishedJson.running,false);
  assert.equal(api.ppAccountModelPending.size,0);
  console.log("PASS: 10 session models, no cross-account storage, account-owned plans, foreign results blocked, changed model rejected, idle progress private");
 })().catch(e=>{console.error(e);process.exitCode=1});
