@@ -38,7 +38,7 @@ async function run(){
    const reg=await call("/api/auth/register","POST",{email,password,company:"QA"});
    chk(reg.status===200&&!!reg.cookie,"register_"+i+"_"+reg.status+"_"+reg.data.error);
    const me=await call("/api/auth/me","GET",null,reg.cookie);
-   chk(me.status===200&&!!me.data.account_id,"login_"+i);
+   chk(me.status===200&&me.data.ok===true,"login_"+i);
    const model=sample("E2E"+i),project="qa-model-"+i;
    const storage={"prodplan.projects.v2":JSON.stringify([{id:project,name:"Test",model}]),"prodplan.project.active.v2":project};
    const saved=await call("/api/db-storage","POST",{storage},reg.cookie);
