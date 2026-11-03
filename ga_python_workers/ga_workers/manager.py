@@ -242,14 +242,15 @@ class ProcessJobManager:
     def _watch(self, job):
         proc, pipe = job.proc, job.pipe
         deadline = time.monotonic() + self.timeout_s
+        disposition = None
+        terminal_error = None
         try:
             while True:
                 if time.monotonic() > deadline:
                     with self.cv:
-                        if job.state == "running":
-                            job.state = "timed_out"
-                            job.error = "worker_timeout"
-                            job.ended_at = time.monotonic()
+                        if job.state == "running" and not job.stop_requested:
+                            disposition = "timed_out"
+                            terminal_error = "worker_timeout"
                     self._terminate(proc)
                     break
                 if pipe.poll(0.03):
@@ -266,23 +267,20 @@ class ProcessJobManager:
                             if isinstance(data.get("best_preview"), dict):
                                 job.best_preview = data["best_preview"]
                         elif msg.get("type") == "result":
+                            # A result is not externally terminal until the OS
+                            # process is reaped and its worker slot is released.
                             job.result = msg.get("data")
-                            job.progress = 100
-                            job.state = "completed"
-                            job.ended_at = time.monotonic()
+                            disposition = "completed"
                         elif msg.get("type") == "error":
-                            job.state = "failed"
-                            job.error = str(msg.get("error") or "worker_failed")[:128]
-                            job.ended_at = time.monotonic()
-                if job.state in TERMINAL:
+                            disposition = "failed"
+                            terminal_error = str(msg.get("error") or "worker_failed")[:128]
+                if disposition is not None:
                     break
+                with self.cv:
+                    if job.state in TERMINAL:
+                        break
                 if not proc.is_alive() and not pipe.poll():
                     break
-            with self.cv:
-                if job.state == "running":
-                    job.state = "failed"
-                    job.error = "worker_exited_without_result"
-                    job.ended_at = time.monotonic()
         finally:
             self._terminate(proc)
             try:
@@ -292,6 +290,13 @@ class ProcessJobManager:
             with self.cv:
                 self.active = max(0, self.active - 1)
                 job.reaped = True
+                if job.state == "running":
+                    job.state = disposition or "failed"
+                    if job.state == "completed":
+                        job.progress = 100
+                    else:
+                        job.error = terminal_error or "worker_exited_without_result"
+                    job.ended_at = time.monotonic()
                 if self.by_account.get(job.account_id) == job.job_id:
                     self.by_account.pop(job.account_id, None)
                 self.cv.notify_all()
