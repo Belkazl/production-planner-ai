@@ -8,6 +8,8 @@ import copy
 import hashlib
 import os
 from pathlib import Path
+from .constraints import make_constrained_scheduler, PinConstraintError
+from .continuation import load_resume_state, export_resume_state, ContinuationError
 import re
 import threading
 import time
@@ -68,15 +70,21 @@ def _namespace():
     return ns
 
 
-def _unsupported_locks(payload,model,options):
-    for owner in (payload,model,options):
+def _extract_locks(payload, model, options):
+    for owner in (options, payload, model):
         for key in ('locked_operations','manual_locks','fixed_operations','pinned_operations'):
-            if owner.get(key):return True
-    if isinstance(payload.get('plan'),dict):
-        if any(isinstance(r,dict) and r.get('manual_locked') for r in
-               payload['plan'].get('generic_operations',payload['plan'].get('operations',[]))):
-            return True
-    return False
+            item = owner.get(key)
+            if item:
+                if not isinstance(item, list):
+                    raise FullGAError('ga_locks_must_be_array')
+                return copy.deepcopy(item)
+    plan = payload.get('plan')
+    if isinstance(plan,dict):
+        rows = plan.get('generic_operations') or plan.get('operations') or []
+        if not isinstance(rows,list):
+            raise FullGAError('ga_plan_locks_invalid')
+        return [copy.deepcopy(r) for r in rows if isinstance(r,dict) and r.get('manual_locked')]
+    return []
 
 
 def _assert_owned(plan,model):
@@ -110,11 +118,8 @@ def run(payload,progress):
     if not isinstance(opts,dict):raise FullGAError('ga_options_invalid')
     if not isinstance(original.get('orders'),list) or not original['orders']:
         raise FullGAError('ga_orders_missing')
-    if _unsupported_locks(payload,original,opts):
-        raise FullGAError('ga_manual_locks_require_verified_scheduler')
-    if opts.get('continue') or opts.get('continue_run'):
-        # No pretending to reuse a GA population from another process.
-        raise FullGAError('ga_resume_requires_saved_incumbent')
+    pins=_extract_locks(payload,original,opts)
+    continuing=bool(opts.get('continue') or opts.get('continue_run'))
     ga=_namespace()
     normalized=ga['canonicalize_model'](original)
     if not isinstance(normalized,dict) or not ga['model_ready'](normalized):
@@ -126,12 +131,23 @@ def run(payload,progress):
     seed=opts.get('seed',1729)
     if seed is not None and (isinstance(seed,bool) or not isinstance(seed,(int,float))):
         raise FullGAError('ga_seed_invalid')
-    objective=opts.get('objective','duration')
-    if objective not in {'duration','wait','idle','cycles','balanced',None}:
+    objective=opts.get('objective') or 'duration'
+    if objective not in {'duration','wait','idle','cycles','balanced'}:
         raise FullGAError('ga_objective_invalid')
+    if pins or continuing:
+        if not ga['_pp_generic_declared'](normalized):
+            raise FullGAError('ga_locks_and_continuation_require_generic_mode')
+    if pins:
+        try: pins=make_constrained_scheduler(ga,pins,normalized)
+        except PinConstraintError as ex: raise FullGAError(str(ex)) from ex
+    if continuing:
+        try:load_resume_state(opts.get('resume_state'),normalized,objective,pins,ga)
+        except ContinuationError as ex:raise FullGAError(str(ex)) from ex
+    elif opts.get('resume_state'):
+        raise FullGAError('ga_resume_state_requires_continue')
     state={}
     def compute():
-        try:state['result']=ga['optimize'](gens,population,seed,False,objective)
+        try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
         except BaseException as exc:state['exception']=exc
     progress({'percent':1,'phase':'starting','running':True})
     task=threading.Thread(target=compute,daemon=True)
@@ -159,5 +175,11 @@ def run(payload,progress):
     if not isinstance(result,dict) or not result.get('ok') or result.get('valid') is not True:
         raise FullGAError('ga_no_valid_solution')
     _assert_owned(result,normalized)
+    # Portable incumbent is portable across OS processes. The authenticated
+    # caller persists it per account alongside the model/last-plan state.
+    if ga['_pp_generic_declared'](normalized):
+        try: result['resume_state']=export_resume_state(result,normalized,objective,pins)
+        except ContinuationError as ex:raise FullGAError(str(ex)) from ex
+    result['locked_operations_applied']=len(pins)
     progress({'percent':100,'phase':'complete','running':False,'best_preview':result})
     return result
