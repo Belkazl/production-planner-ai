@@ -5,7 +5,7 @@
  * Never enable before a real legacy-GA black-box compatibility test passes.
  */
 export function createPythonGAUpstream({
-  enabled = false, origin, token, upstreamUrl,
+  enabled = false, origin, token, upstreamUrl, stateStore = null,
   sessionKey, verifyLogin, readAccountModel, hashModel, checkPlan,
   fetchImpl = fetch, sleep = ms => new Promise(ok => setTimeout(ok, ms)),
   now = () => Date.now(), maxWaitMs = 340000, pollMs = 250
@@ -26,21 +26,38 @@ export function createPythonGAUpstream({
     return {status:res.status,body:await res.json().catch(()=>({}))};
   }
   const account = async req => {
-    const principal=sessionKey(req);
+    const principal=await sessionKey(req);
     if(typeof principal!=='string'||principal.length<1||principal.length>256||!await verifyLogin(req))throw Error('account_not_authenticated');
     return principal;
   };
   const owned = (plan,model) => !!plan&&Array.isArray(plan.operations)&&plan.operations.length>0&&checkPlan(plan,model);
+  async function currentJob(principal){
+    const local=jobs.get(principal);
+    if(local||!stateStore)return local||null;
+    const saved=await stateStore.load(principal);
+    if(!saved)return null;
+    if(!/^[0-9a-f]{32}$/.test(String(saved.job_id||'')))throw Error('persisted_job_invalid');
+    const restored={id:saved.job_id,modelKey:saved.model_hash,state:saved.status,began:now(),
+      best:saved.best_preview||saved.result||null,progress:saved.progress||0,
+      result:saved.result||null,resume_state:saved.resume_state||null};
+    jobs.set(principal,restored);
+    return restored;
+  }
+  async function save(principal,state){
+    if(stateStore)await stateStore.save(principal,state);
+  }
   async function cancel(req){
     let principal;
     try{principal=await account(req)}catch{return {error:'worker_cancel_failed'}}
-    const job=jobs.get(principal);
+    let job;
+    try{job=await currentJob(principal)}catch{return {error:'worker_cancel_failed'}}
     if(!job||!['queued','running'].includes(job.state))return null;
     // A failed cancellation must never be treated as successful.
     try{
       const r=await call(principal,'/internal/jobs/'+job.id+'/cancel','POST',{});
       if(r.status!==200||r.body.status!=='cancelled')return {error:'worker_cancel_failed'};
-      job.state='cancelled';
+      job.state='cancelled';job.progress=Math.max(0,job.progress||0);
+      await save(principal,job);
       return r.body;
     }catch{return {error:'worker_cancel_failed'}}
   }
@@ -49,7 +66,8 @@ export function createPythonGAUpstream({
     try{principal=await account(req);model=await readAccountModel(req)}
     catch{return response({ok:false,error:'authentication_or_model_unavailable'},503)}
     if(!model||!Array.isArray(model.orders)||!model.orders.length)return response({ok:false,error:'account_model_not_ready'},409);
-    const current=jobs.get(principal);
+    let current;
+    try{current=await currentJob(principal)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
     if(current&&['queued','running'].includes(current.state))return response({ok:false,error:'optimization_running_stop_first'},409);
     const modelKey=hashModel(model);
     let args;
@@ -65,8 +83,12 @@ export function createPythonGAUpstream({
       const r=await call(principal,'/internal/jobs','POST',{model,options:args});
       if(r.status!==202||!/^[0-9a-f]{32}$/.test(r.body.job_id||''))
         return response({ok:false,error:r.status===409?'optimization_running_stop_first':'ga_worker_unavailable'},r.status===409?409:503);
-      state={id:r.body.job_id,modelKey,state:'queued',began:now(),best:null};
+      state={id:r.body.job_id,modelKey,state:'queued',began:now(),best:null,progress:0,result:null,resume_state:null};
       jobs.set(principal,state);
+      try{await save(principal,state)}catch{
+       try{await call(principal,'/internal/jobs/'+state.id+'/cancel','POST',{})}catch{}
+       state.state='failed';return response({ok:false,error:'ga_state_unavailable'},503);
+      }
     }catch{return response({ok:false,error:'ga_worker_unavailable'},503)}
     const abort=()=>{if(state.state!=='cancelled')void cancel(req)};
     if(opts?.signal)opts.signal.addEventListener('abort',abort,{once:true});
@@ -77,15 +99,19 @@ export function createPythonGAUpstream({
         if(r.status!==200)throw Error('ga_worker_status_unavailable');
         const data=r.body;
         if(data.best_preview&&owned(data.best_preview,model))state.best=data.best_preview;
-        state.state=data.status;
+        state.state=data.status;state.progress=Math.max(0,Math.min(100,Number(data.progress)||0));
+        if(stateStore&&data.status!=='completed')await save(principal,state);
         if(data.status==='completed'){
           const fresh=await readAccountModel(req);
           if(hashModel(fresh)!==modelKey){state.state='stale';return response({ok:false,error:'account_model_changed_during_run'},409)}
-          if(!owned(data.result,fresh)){state.state='invalid';return response({ok:false,error:'account_plan_mismatch'},409)}
+          if(!owned(data.result,fresh)){state.state='invalid';await save(principal,state);return response({ok:false,error:'account_plan_mismatch'},409)}
+          state.result=data.result;state.best=data.result;state.progress=100;
+          state.resume_state=data.result?.resume_state||null;
+          await save(principal,state);
           return response({...data.result,ok:true});
         }
-        if(data.status==='cancelled')return response({ok:false,stopped:true,error:'optimization_stopped'});
-        if(['failed','timed_out'].includes(data.status))return response({ok:false,error:'ga_worker_'+data.status},503);
+        if(data.status==='cancelled'){await save(principal,state);return response({ok:false,stopped:true,error:'optimization_stopped'});}
+        if(['failed','timed_out'].includes(data.status)){await save(principal,state);return response({ok:false,error:'ga_worker_'+data.status},503);}
         if(!['queued','running'].includes(data.status))throw Error('ga_worker_invalid_status');
         await sleep(pollMs);
       }
@@ -95,6 +121,7 @@ export function createPythonGAUpstream({
       await cancel(req);
       if(state.state==='cancelled'||opts?.signal?.aborted)throw Object.assign(new Error('ga_upstream_aborted'),{name:'AbortError'});
       state.state='failed';
+      try{await save(principal,state)}catch{}
       return response({ok:false,error:'ga_worker_unavailable'},503);
     }finally{opts?.signal?.removeEventListener('abort',abort)}
   }
@@ -102,21 +129,30 @@ export function createPythonGAUpstream({
     let principal,model;
     try{principal=await account(req);model=await readAccountModel(req)}
     catch{return response({ok:false,error:'authentication_or_model_unavailable'},503)}
-    const state=jobs.get(principal);
+    let state;
+    try{state=await currentJob(principal)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
     if(!state)return response({ok:true,running:false,success:false,done:0,total:0,percent:0,phase:'idle',best_preview:null,candidate_preview:null});
+    if(state.state==='completed'&&state.result){
+      if(!owned(state.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
+      return response({ok:true,running:false,success:true,done:100,total:100,percent:100,phase:'completed',best_preview:state.result,candidate_preview:null});
+    }
+    if(['cancelled','failed','timed_out','interrupted','invalid','stale'].includes(state.state))return response({ok:true,running:false,success:false,done:state.progress||0,total:100,percent:state.progress||0,phase:state.state,best_preview:state.best,candidate_preview:null});
     if(hashModel(model)!==state.modelKey){await cancel(req);return response({ok:false,error:'account_model_changed_during_run'},409)}
     let status;
-    try{const r=await call(principal,'/internal/jobs/'+state.id);if(r.status!==200)throw Error('worker_status_failed');status=r.body}
+    try{const r=await call(principal,'/internal/jobs/'+state.id);
+      if(r.status===404&&stateStore){state.state='interrupted';state.error='worker_restarted';await save(principal,state);return response({ok:false,error:'ga_worker_interrupted'},503)}
+      if(r.status!==200)throw Error('worker_status_failed');status=r.body}
     catch{return response({ok:false,error:'ga_worker_unavailable'},503)}
-    state.state=status.status;
+    state.state=status.status;state.progress=Math.max(0,Math.min(100,Number(status.progress)||0));
     if(status.best_preview){
       if(!owned(status.best_preview,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
       state.best=status.best_preview;
     }
     if(status.status==='completed'){
       if(!owned(status.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
-      state.best=status.result;
+      state.best=status.result;state.result=status.result;state.resume_state=status.result?.resume_state||null;
     }
+    try{await save(principal,state)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
     const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));
     return response({ok:true,running,success:status.status==='completed',done:pct,total:100,
       percent:pct,phase:status.status,best_preview:state.best,candidate_preview:null});
