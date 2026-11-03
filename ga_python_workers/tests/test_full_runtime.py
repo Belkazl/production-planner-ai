@@ -76,6 +76,23 @@ class FullWorkerTests(unittest.TestCase):
   lock['equipment_ids']=['OTHER']
   with self.assertRaisesRegex(FullGAError,'ga_no_valid_solution'):
    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+ def test_3c_resume_between_distinct_os_processes(self):
+  manager=ProcessJobManager(capacity=1,timeout_s=45,adapter='ga_workers.full_runtime_adapter:run')
+  try:
+   model=sample('RESUME',material=True,setup=True)
+   first=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':5}})
+   a=manager.wait('one-account',first['job_id'],timeout=30)
+   self.assertEqual(a['status'],'completed',a)
+   incumbent=a['result']['resume_state']
+   second=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':9,'continue':True,'resume_state':incumbent}})
+   b=manager.wait('one-account',second['job_id'],timeout=30)
+   self.assertEqual(b['status'],'completed',b)
+   self.assertNotEqual(a['pid'],b['pid'])
+   self.assertTrue(b['result']['continued'])
+   self.assertEqual(b['result']['resume_state']['completed_runs'],2)
+   self.assertLessEqual(b['result']['duration_minutes'],a['result']['duration_minutes'])
+   print('FULL_GA_RESUME_TWO_OS_PIDS_PASS',{'run1_pid':a['pid'],'run2_pid':b['pid']},flush=True)
+  finally: manager.shutdown()
  def test_4_cross_tenant_resource_rejected(self):
   from ga_workers.full_runtime_adapter import _assert_owned
   m=sample('M')
