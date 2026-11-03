@@ -82,6 +82,7 @@ class _Job:
     proc: Optional[multiprocessing.Process] = field(default=None, repr=False)
     pipe: object = field(default=None, repr=False)
     stop_requested: bool = False
+    reaped: bool = False
 
 
 class ProcessJobManager:
@@ -162,6 +163,13 @@ class ProcessJobManager:
             snapshot = self._snapshot_locked(job, include_plan=True)
         if proc:
             self._terminate(proc)
+            # Do not acknowledge stop while this account still occupies a
+            # process slot. This only waits for its own watcher, never another
+            # tenant's calculation.
+            with self.cv:
+                deadline = time.monotonic() + 4
+                while not job.reaped and time.monotonic() < deadline:
+                    self.cv.wait(timeout=0.05)
         return snapshot
 
     def _terminate(self, proc):
@@ -283,6 +291,7 @@ class ProcessJobManager:
                 pass
             with self.cv:
                 self.active = max(0, self.active - 1)
+                job.reaped = True
                 if self.by_account.get(job.account_id) == job.job_id:
                     self.by_account.pop(job.account_id, None)
                 self.cv.notify_all()
