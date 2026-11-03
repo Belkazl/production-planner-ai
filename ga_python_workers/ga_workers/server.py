@@ -13,6 +13,13 @@ from .manager import ProcessJobManager, JobConflict, JobNotFound, ForbiddenJob, 
 MAX_BODY = 4_000_000
 
 
+class BurstSafeHTTPServer(ThreadingHTTPServer):
+    # Python TCPServer defaults to a backlog of just five. A legitimate
+    # ten-account optimization burst can exceed it before handlers start.
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def make_server(port=None, manager=None, token=None, bind="0.0.0.0"):
     token = token if token is not None else os.getenv("PP_WORKER_INTERNAL_TOKEN", "")
     if len(token) < 24:
@@ -109,7 +116,7 @@ def make_server(port=None, manager=None, token=None, bind="0.0.0.0"):
                     return self.respond(403, {"error": "account_mismatch"})
             return self.respond(404, {"error": "not_found"})
 
-    server = ThreadingHTTPServer((bind, port), Handler)
+    server = BurstSafeHTTPServer((bind, port), Handler)
     server.daemon_threads = True
     server.ga_job_manager = manager
     return server
