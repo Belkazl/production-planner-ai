@@ -136,4 +136,29 @@ class FullWorkerTests(unittest.TestCase):
     self.assertTrue(all(str(op['order']).startswith('U'+str(i)) for op in s['result']['generic_operations']))
    print('FULL_GA_10_ACCOUNTS_PASS',{'completed':10,'pids':10,'peak':manager.metrics()['peak']},flush=True)
   finally:manager.shutdown()
+ def test_7_terminal_status_waits_until_process_slot_reaped(self):
+  manager=ProcessJobManager(capacity=1,timeout_s=45,adapter='ga_workers.full_runtime_adapter:run')
+  original=manager._terminate
+  def slow_termination(proc):
+   # Make the cleanup window observable; a completed HTTP response must
+   # never arrive while the OS process still owns a compute slot.
+   time.sleep(0.2)
+   return original(proc)
+  manager._terminate=slow_termination
+  try:
+   job=manager.submit('qa-atomic',{'model':sample('ATOMIC',material=True,setup=True),
+      'options':{'generations':12,'population':12,'seed':101}})
+   deadline=time.monotonic()+30
+   while time.monotonic()<deadline:
+    snapshot=manager.get('qa-atomic',job['job_id'])
+    if snapshot['status']=='completed':
+     self.assertEqual(manager.metrics()['active'],0)
+     self.assertTrue(snapshot['progress']==100)
+     break
+    self.assertNotIn(snapshot['status'],('failed','timed_out','cancelled'))
+    time.sleep(0.01)
+   else: self.fail('atomic cleanup did not complete')
+   print('FULL_GA_ATOMIC_CLEANUP_PASS',flush=True)
+  finally:manager.shutdown()
+
 if __name__=='__main__':unittest.main(verbosity=2)
