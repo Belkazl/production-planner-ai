@@ -17,13 +17,27 @@ const factory=`const ppPythonGAUpstream=createPythonGAUpstream({
  enabled:typeof Bun!=='undefined'&&Bun.env.PP_PY_GA_WORKERS_ENABLED==='1',
  origin:typeof Bun==='undefined'?'':Bun.env.PP_PY_GA_WORKER_ORIGIN,
  token:typeof Bun==='undefined'?'':Bun.env.PP_PY_GA_WORKER_TOKEN,
- upstreamUrl,sessionKey:ppSecureSessionKey,verifyLogin:ppVerifyLogin,
+ upstreamUrl,
+ sessionKey:async req=>{
+  if(typeof Bun==='undefined'||Bun.env.PP_PY_GA_PERSISTENCE_ENABLED!=='1')return ppSecureSessionKey(req);
+  const r=await fetch(PP_AUTH_GATEWAY_ORIGIN+'/api/auth/me',{headers:{cookie:req.headers.get('cookie')||''},redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(12000)});
+  if(r.status!==200)throw Error('qa_account_identity_unavailable');
+  const d=await r.json();
+  if(!/^[a-f0-9-]{36}$/.test(String(d.account_id||'')))throw Error('qa_account_identity_invalid');
+  return d.account_id;
+ },
+ verifyLogin:ppVerifyLogin,
+ stateStore:createGAStateStore({
+  enabled:typeof Bun!=='undefined'&&Bun.env.PP_PY_GA_PERSISTENCE_ENABLED==='1',
+  origin:typeof Bun==='undefined'?'':Bun.env.PP_PY_GA_STATE_ORIGIN,
+  token:typeof Bun==='undefined'?'':Bun.env.PP_PY_GA_STATE_TOKEN
+ }),
  readAccountModel:ppReadAccountModel,hashModel:ppAccountModelHash,
  checkPlan:ppAccountPlanBelongsToModel
 });
 `;
 source=source.replace(accountAnchor,factory+accountAnchor);
-source='import {createPythonGAUpstream} from "./python-ga-upstream.mjs";\n'+source;
+source='import {createGAStateStore} from "./ga-python-state-store.mjs";\nimport {createPythonGAUpstream} from "./python-ga-upstream.mjs";\n'+source;
 if(!source.includes('ppPythonGAUpstream.fetch(req,')||!source.includes('const ppPythonGAUpstream=createPythonGAUpstream'))throw Error('python_ga_build_incomplete');
 writeFileSync('index.ts',source);
 console.log('PP_PYTHON_GA_UPSTREAM_ROUTING_READY',JSON.stringify({upstreamFetchPoints:upstreamCount,enabledBy:'PP_PY_GA_WORKERS_ENABLED=1',legacySetupBridgePreserved:true}));
