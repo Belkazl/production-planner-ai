@@ -1,7 +1,7 @@
 // LiftOrbit QA-only auth/storage gateway. Never connect to the customer database.
 // Source contains no secrets: DATABASE_URL is injected from a separate Railway Postgres.
 import { SQL } from "bun";
-import { randomBytes, randomUUID, createHash } from "node:crypto";
+import { randomBytes, randomUUID, createHash, timingSafeEqual } from "node:crypto";
 
 if(Bun.env.PP_QA_AUTH_ONLY!=="1")throw Error("qa_auth_flag_required");
 if(!Bun.env.DATABASE_URL || !/^postgres(ql)?:\/\//.test(Bun.env.DATABASE_URL))
@@ -56,9 +56,40 @@ async function body(req){
  const x=JSON.parse(raw);if(!isObj(x))throw Error("invalid_object");
  return x;
 }
+
+function verifiedInternal(req){
+ const secret=Bun.env.PP_QA_STATE_TOKEN||"";
+ const provided=(req.headers.get("authorization")||"").replace(/^Bearer /,"");
+ const a=Buffer.from(secret),b=Buffer.from(provided);
+ return a.length>=32&&a.length===b.length&&timingSafeEqual(a,b);
+}
+const validUuid=x=>typeof x==="string"&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(x);
+const validJob=x=>typeof x==="string"&&/^[0-9a-f]{32}$/.test(x);
+async function internalState(req,path,method){
+ if(!verifiedInternal(req))return err(401,"qa_internal_token_required");
+ if(path!=="/internal/ga-state")return err(404,"not_found");
+ if(method==="GET"){
+  const account=new URL(req.url).searchParams.get("account_id");
+  if(!validUuid(account))return err(422,"invalid_account_id");
+  const rows=await sql.unsafe("SELECT id,account_id,worker_job_id,status,model_hash,progress,resume_state,best_plan,result,error FROM qa_optimization_jobs WHERE account_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",[account]);
+  return ok(200,{ok:true,state:rows[0]?{job_id:rows[0].id,account_id:rows[0].account_id,worker_job_id:rows[0].worker_job_id,status:rows[0].status,model_hash:rows[0].model_hash,progress:rows[0].progress,resume_state:rows[0].resume_state,best_preview:rows[0].best_plan,result:rows[0].result,error:rows[0].error}:null});
+ }
+ if(method==="POST"){
+  const value=await body(req),account=value.account_id,job=value.job_id,status=value.status;
+  if(!validUuid(account)||!validJob(job)||typeof value.model_hash!=="string"||!/^[a-f0-9]{64}$/.test(value.model_hash)||!["queued","running","completed","cancelled","timed_out","failed","stale","invalid","interrupted"].includes(status))return err(422,"invalid_state");
+  const progress=Math.max(0,Math.min(100,Number(value.progress)||0));
+  const encode=x=>x==null?null:JSON.stringify(x);
+  const rows=await sql.unsafe("INSERT INTO qa_optimization_jobs(id,account_id,worker_job_id,status,model_hash,progress,resume_state,best_plan,result,error,updated_at) VALUES($1,$2,$1,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,now()) ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,model_hash=EXCLUDED.model_hash,progress=EXCLUDED.progress,resume_state=COALESCE(EXCLUDED.resume_state,qa_optimization_jobs.resume_state),best_plan=COALESCE(EXCLUDED.best_plan,qa_optimization_jobs.best_plan),result=COALESCE(EXCLUDED.result,qa_optimization_jobs.result),error=EXCLUDED.error,updated_at=now() WHERE qa_optimization_jobs.account_id=EXCLUDED.account_id RETURNING id",[job,account,status,value.model_hash,progress,encode(value.resume_state),encode(value.best_preview),encode(value.result),typeof value.error==="string"?value.error.slice(0,140):null]);
+  if(!rows.length)return err(409,"state_account_mismatch");
+  return ok(200,{ok:true,job_id:job});
+ }
+ return err(405,"method_not_allowed");
+}
+
 async function handler(req){
  const path=new URL(req.url).pathname,method=req.method;
  try{
+  if(path.startsWith("/internal/"))return await internalState(req,path,method);
   if(path==="/health"&&method==="GET"){
    const r=await sql.unsafe("SELECT 1 AS ok");
    return ok(r[0]?.ok===1?200:503,{ok:r[0]?.ok===1,qa_only:true});
