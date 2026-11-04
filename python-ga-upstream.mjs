@@ -30,7 +30,18 @@ export function createPythonGAUpstream({
     if(typeof principal!=='string'||principal.length<1||principal.length>256||!await verifyLogin(req))throw Error('account_not_authenticated');
     return principal;
   };
-  const owned = (plan,model) => !!plan&&Array.isArray(plan.operations)&&plan.operations.length>0&&checkPlan(plan,model);
+  const publicPlan = plan => {
+    if(!plan||typeof plan!=='object')return plan;
+    if(Array.isArray(plan.operations)&&plan.operations.length)return plan;
+    const generic=plan.generic_operations;
+    if(!Array.isArray(generic)||!generic.length)return plan;
+    const operations=generic.filter(x=>x&&x.phase!=='setup'&&x.order!=null);
+    return operations.length?{...plan,operations}:plan;
+  };
+  const owned = (plan,model) => {
+    plan=publicPlan(plan);
+    return !!plan&&Array.isArray(plan.operations)&&plan.operations.length>0&&checkPlan(plan,model);
+  };
   async function currentJob(principal){
     const local=jobs.get(principal);
     if(local||!stateStore)return local||null;
@@ -98,7 +109,7 @@ export function createPythonGAUpstream({
         const r=await call(principal,'/internal/jobs/'+state.id);
         if(r.status!==200)throw Error('ga_worker_status_unavailable');
         const data=r.body;
-        if(data.best_preview&&owned(data.best_preview,model))state.best=data.best_preview;
+        if(data.best_preview){const live=publicPlan(data.best_preview);if(owned(live,model))state.best=live;}
         state.state=data.status;state.progress=Math.max(0,Math.min(100,Number(data.progress)||0));
         if(stateStore&&data.status!=='completed')await save(principal,state);
         if(data.status==='completed'){
@@ -145,8 +156,9 @@ export function createPythonGAUpstream({
     catch{return response({ok:false,error:'ga_worker_unavailable'},503)}
     state.state=status.status;state.progress=Math.max(0,Math.min(100,Number(status.progress)||0));
     if(status.best_preview){
-      if(!owned(status.best_preview,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
-      state.best=status.best_preview;
+      const live=publicPlan(status.best_preview);
+      if(!owned(live,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
+      state.best=live;
     }
     if(status.status==='completed'){
       if(!owned(status.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
