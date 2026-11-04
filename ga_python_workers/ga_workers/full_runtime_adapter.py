@@ -9,7 +9,7 @@ import hashlib
 import os
 from pathlib import Path
 from .constraints import make_constrained_scheduler, PinConstraintError
-from .continuation import load_resume_state, export_resume_state, ContinuationError
+from .continuation import load_resume_state, load_resume_plan, export_resume_state, ContinuationError
 import re
 import threading
 import time
@@ -167,9 +167,13 @@ def run(payload,progress):
         try: pins=make_constrained_scheduler(ga,pins,normalized)
         except PinConstraintError as ex: raise FullGAError(str(ex)) from ex
     if continuing:
-        try:load_resume_state(opts.get('resume_state'),normalized,objective,pins,ga)
+        try:
+            if opts.get('resume_state'):
+                load_resume_state(opts.get('resume_state'),normalized,objective,pins,ga)
+            else:
+                load_resume_plan(opts.get('resume_plan'),normalized,objective,pins,ga)
         except ContinuationError as ex:raise FullGAError(str(ex)) from ex
-    elif opts.get('resume_state'):
+    elif opts.get('resume_state') or opts.get('resume_plan'):
         raise FullGAError('ga_resume_state_requires_continue')
     state={}
     def compute():
