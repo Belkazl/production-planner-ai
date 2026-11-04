@@ -434,9 +434,11 @@ function ppLiveMotionHtml(html){
  if(start<0||end<=start)throw Error("PP_MOTION_LIVE_SCRIPT_MISSING");
  let script=html.slice(start,end);
  const rep=(a,b,label)=>{const n=script.split(a).length-1;if(n!==1)throw Error("PP_MOTION_ANCHOR_"+label+"_COUNT_"+n);script=script.replace(a,b)};
- rep("let timer=null,token=0,mode='best',best=null,candidate=null;","let timer=null,token=0,mode='candidate',best=null,candidate=null;","initial");
- rep("let my=++token;best=null;candidate=null;mode='best';","let my=++token;best=null;candidate=null;mode='candidate';","run");
- rep("b.dataset.mode==='best'","b.dataset.mode==='candidate'","button");
+ // Keep Best found as the default live mode. The isolated Python GA always
+ // exposes best_preview during a run; candidate_preview is optional.
+ rep("let timer=null,token=0,mode='best',best=null,candidate=null;","let timer=null,token=0,mode='best',best=null,candidate=null;","initial");
+ rep("let my=++token;best=null;candidate=null;mode='best';","let my=++token;best=null;candidate=null;mode='best';","run");
+ rep("b.dataset.mode==='best'","b.dataset.mode==='best'","button");
  rep("if(window.__ppOptimizationInFlight&&incumbent){","if(window.__ppOptimizationInFlight&&incumbent&&mode==='best'){","clamp_only_best");
  rep("   try{\n     const ppShownCommitted=","   try{\n"+"\n     let note=document.getElementById('ppOptimizerCandidateStatus');\n     if(!note){const toolbar=document.querySelector('#planView .toolbar')||document.querySelector('.toolbar');if(toolbar){note=document.createElement('div');note.id='ppOptimizerCandidateStatus';note.setAttribute('role','status');note.style.cssText='display:none;padding:9px 12px;margin:8px 0;border:1px solid #b7cee9;border-radius:9px;background:#f1f7ff;color:#24436c;font:600 12px/1.5 system-ui,sans-serif;white-space:normal;';toolbar.insertAdjacentElement('afterend',note);}}\n     if(note&&window.__ppOptimizationInFlight){const now=Number(p.duration_minutes),saved=Number(incumbent?.duration_minutes);note.textContent=(mode==='candidate'?'Тестируемый вариант':'Лучший найденный')+': '+(Number.isFinite(now)?Math.round(now)+' мин':'—')+(Number.isFinite(saved)?' · Принятый план: '+Math.round(saved)+' мин':'')+' · Временный просмотр, не сохранён';note.style.display='block';}\n     window.__PP_LIVE_MOTION_STATE__={mode,previewDuration:p.duration_minutes,acceptedDuration:incumbent?.duration_minutes,running:!!window.__ppOptimizationInFlight,at:Date.now()};\n"+"     const ppShownCommitted=","show_badge");
  const reset="if(window.__ppOptimizationInFlight){if(ppShownCommitted){window.__ppTabPlan=ppShownCommitted;window.__ppGenericPlan=ppShownCommitted;}if(typeof previousKpiMetrics!=='undefined')previousKpiMetrics=ppPreviewWas}";
@@ -444,7 +446,7 @@ function ppLiveMotionHtml(html){
  rep("else if(a&&typeof window.overrideSecondary==='function')window.overrideSecondary(a);","else if(a&&typeof window.overrideSecondary==='function')window.overrideSecondary(a);\n     "+reset,"restore_after_secondary");
  rep("if(my===token){token++;const committed=window.__ppOptimizerCommittedPlan;if(committed){","if(my===token){token++;const note=document.getElementById('ppOptimizerCandidateStatus');if(note)note.style.display='none';const committed=window.__ppOptimizerCommittedPlan;if(committed){","finish_hide");
  const result=html.slice(0,start)+script+html.slice(end);
- if(!result.includes("PP_LIVE_MOTION_STATE__")||result.includes("let my=++token;best=null;candidate=null;mode='best';"))throw Error("PP_MOTION_OUTPUT_INVALID");
+ if(!result.includes("PP_LIVE_MOTION_STATE__")||!result.includes("let my=++token;best=null;candidate=null;mode='best';"))throw Error("PP_MOTION_OUTPUT_INVALID");
  return result
 }
 function ppEquipmentEditorFixHtml(html){
@@ -474,7 +476,7 @@ function ppReliablePollingHtml(html){
  if(start<0||end<=start)throw Error("PP_RELIABLE_POLL_WIDGET_NOT_FOUND");
  let script=html.slice(start,end);
  const replaceOne=(from,to,label)=>{const count=script.split(from).length-1;if(count!==1)throw Error("PP_RELIABLE_POLL_"+label+"_ANCHOR_"+count);script=script.replace(from,to)};
- replaceOne("let timer=null,token=0,mode='candidate',best=null,candidate=null;","let timer=null,token=0,mode='candidate',best=null,candidate=null,polling=false;","guard");
+ replaceOne("let timer=null,token=0,mode='best',best=null,candidate=null;","let timer=null,token=0,mode='best',best=null,candidate=null,polling=false;","guard");
  replaceOne("async function poll(my){\n   try{","async function poll(my){\n   if(polling)return;\n   polling=true;\n   try{","poll_start");
  replaceOne("   }catch(e){}\n }\n function stop(){if(timer){clearInterval(timer);timer=null}}","   }catch(e){}finally{polling=false}\n }\n function stop(){if(timer){clearTimeout(timer);timer=null}}","poll_finish");
  replaceOne("stop();timer=setInterval(()=>poll(my),120);setTimeout(()=>poll(my),10);","stop();const next=async()=>{if(my!==token)return;await poll(my);if(my===token)timer=setTimeout(next,1400)};timer=setTimeout(next,50);","sequential");
