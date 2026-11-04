@@ -42,6 +42,22 @@ export function createPythonGAUpstream({
     plan=publicPlan(plan);
     return !!plan&&Array.isArray(plan.operations)&&plan.operations.length>0&&checkPlan(plan,model);
   };
+  const compactResumePlan = plan => {
+    if(!plan||typeof plan!=='object')return null;
+    let sequence=Array.isArray(plan.order_sequence)?plan.order_sequence.filter(x=>x!=null):[];
+    if(!sequence.length){
+      const rows=(Array.isArray(plan.generic_operations)&&plan.generic_operations.length?plan.generic_operations:plan.operations)||[];
+      const seen=new Set();
+      sequence=[...rows]
+        .filter(x=>x&&x.order!=null&&!x.is_setup&&String(x.phase||'').toLowerCase()!=='setup')
+        .sort((a,b)=>Number(a.start_min||0)-Number(b.start_min||0)||Number(a.end_min||0)-Number(b.end_min||0))
+        .map(x=>String(x.order))
+        .filter(x=>{if(seen.has(x))return false;seen.add(x);return true});
+    }
+    if(!sequence.length)return null;
+    return {order_sequence:sequence,duration_minutes:Number(plan.duration_minutes||0),
+      optimization_run:Number(plan.optimization_run||0),total_generations:Number(plan.total_generations||0)};
+  };
   async function currentJob(principal){
     const local=jobs.get(principal);
     if(local||!stateStore)return local||null;
@@ -89,6 +105,13 @@ export function createPythonGAUpstream({
       args=JSON.parse(raw);if(!args||typeof args!=='object'||Array.isArray(args))throw Error('invalid_args');
       for(const key of ['account','accountId','account_id','model','cookie'])delete args[key];
     }catch{return response({ok:false,error:'invalid_ga_options'},422)}
+    const continuing=!!(args.continue||args.continue_run);
+    if(continuing&&!args.resume_state&&!args.resume_plan&&current?.resume_state)
+      args.resume_state=current.resume_state;
+    if(continuing&&!args.resume_state&&!args.resume_plan){
+      const seed=compactResumePlan(current?.best||current?.result);
+      if(seed)args.resume_plan=seed;
+    }
     let state;
     try{
       const r=await call(principal,'/internal/jobs','POST',{model,options:args});
@@ -122,7 +145,11 @@ export function createPythonGAUpstream({
           return response({...data.result,ok:true});
         }
         if(data.status==='cancelled'){await save(principal,state);return response({ok:false,stopped:true,error:'optimization_stopped'});}
-        if(['failed','timed_out'].includes(data.status)){await save(principal,state);return response({ok:false,error:'ga_worker_'+data.status},503);}
+        if(['failed','timed_out'].includes(data.status)){
+          state.error=typeof data.error==='string'?data.error:null;await save(principal,state);
+          const continuationError=state.error&&state.error.startsWith('continuation_');
+          return response({ok:false,error:continuationError?state.error:'ga_worker_'+data.status},continuationError?409:503);
+        }
         if(!['queued','running'].includes(data.status))throw Error('ga_worker_invalid_status');
         await sleep(pollMs);
       }
