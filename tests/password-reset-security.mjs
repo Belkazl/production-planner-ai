@@ -14,6 +14,8 @@ must(runtime,"/api/auth/reset-password","reset_route");
 must(runtime,"ppRequireSameOrigin(req)","same_origin_guard");
 must(runtime,"Забыли пароль?","forgot_ui");
 must(runtime,"reset_token","reset_link_ui");
+must(auth,'/#reset_token=',"fragment_token_link");
+if(auth.includes('/?reset_token='))throw Error("RESET_TOKEN_QUERY_LEAK");
 if(/return ok\(200,\{[^}]*token/i.test(auth))throw Error("RESET_TOKEN_LEAK");
 console.log("PP_PASSWORD_RESET_SECURITY_PASS",JSON.stringify({
  hashedToken:true,expiresMinutes:30,oneTime:true,revokeSessions:true,
