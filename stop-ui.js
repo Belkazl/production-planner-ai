@@ -16,11 +16,24 @@ const style=document.createElement("style");
 style.id="ppStopOptimizerStyles";
 style.textContent="#ppStopOptimizer{display:none;align-items:center;justify-content:center;border:1px solid #e49a95;background:#fff2f0;color:#af2f24;padding:11px 15px;border-radius:10px;cursor:pointer;min-height:42px;font:700 14px/1.2 system-ui;max-width:100%}#ppStopOptimizer.pp-on{display:inline-flex}#ppStopOptimizer:disabled{opacity:.55;cursor:wait}#ppStopModal{position:fixed;inset:0;z-index:2147483600;padding:16px;align-items:center;justify-content:center;background:rgba(8,27,55,.62);box-sizing:border-box}#ppStopModal.pp-open{display:flex!important}#ppStopModal .pp-box{max-width:580px;width:100%;max-height:88vh;overflow-y:auto;box-sizing:border-box;background:#fff;border-radius:16px;padding:20px;color:#223752;box-shadow:0 18px 70px #14253f40;font:14px/1.45 system-ui,sans-serif}#ppStopModal h3{font-size:20px;margin:0 0 8px}#ppStopModal p{color:#5a6c84;margin:0 0 15px}#ppStopModal .pp-choice{display:flex;gap:10px;align-items:center;padding:12px;margin-bottom:8px;border:1px solid #d2dce9;border-radius:9px;cursor:pointer}#ppStopModal .pp-choice:has(input:checked){border-color:#3377d8;background:#eff5ff}#ppStopModal .pp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}#ppStopModal button{background:#2566cc;color:#fff;border:0;border-radius:9px;padding:11px 14px;font:700 14px system-ui;cursor:pointer}#ppStopModal button.pp-secondary{background:#eef1f7;color:#33445e}";
 document.head.appendChild(style);
-let generation=0,running=false,requestStop=false,prevPlan=null,items=[],timer=null,criterion="duration",originalBtn=btn.onclick,selectedPlan=null,modalShown=false,stoppedPlanAvailable=false;
+let generation=0,running=false,requestStop=false,prevPlan=null,items=[],timer=null,criterion="duration",originalBtn=btn.onclick,selectedPlan=null,modalShown=false,stoppedPlanAvailable=false,candidateAvailable=false;
 const keys={duration:"duration_minutes",wait:"operator_wait_minutes",idle:"machine_idle_minutes",cycles:"batch_count"};
 const label={duration:"Общее время",wait:"Ожидание оператора",idle:"Простой оборудования",cycles:"Число циклов"};
 function key(){return keys[criterion]||keys.duration}
 function valid(p){return !!(p&&p.valid!==false&&!p.partial&&Array.isArray(p.operations)&&p.operations.length&&Number.isFinite(Number(p[key()]))&&Number(p[key()])>=0)}
+function liveModeButton(mode){
+ return document.querySelector('#planView [data-mode="'+mode+'"]')||document.querySelector('[data-mode="'+mode+'"]');
+}
+function preferBestLivePreview(){
+ const best=liveModeButton("best");
+ if(best&&typeof best.click==="function")best.click();
+ const candidate=liveModeButton("candidate");
+ if(candidate){
+  candidate.disabled=running&&!candidateAvailable;
+  candidate.setAttribute("aria-disabled",String(running&&!candidateAvailable));
+  candidate.title=running&&!candidateAvailable?"Current isolated GA exposes the best intermediate plan during this run.":"";
+ }
+}
 function hasContinuablePlan(){
  if(stoppedPlanAvailable||valid(selectedPlan)||valid(prevPlan))return true;
  if(valid(window.__ppOptimizerCommittedPlan)||valid(window.__ppTabPlan))return true;
@@ -45,7 +58,11 @@ async function poll(my){
  try{
   const response=await fetch("/api/plan-progress?stop_snapshot="+Date.now(),{cache:"no-store"});
   const data=await response.json();
-  if(my===generation&&running&&!requestStop&&data&&data.ok){record(data.candidate_preview);record(data.best_preview)}
+  if(my===generation&&running&&!requestStop&&data&&data.ok){
+   candidateAvailable=valid(data.candidate_preview);
+   if(!candidateAvailable&&valid(data.best_preview))preferBestLivePreview();
+   record(data.candidate_preview);record(data.best_preview)
+  }
  }catch(e){console.warn("PP_STOP_PROGRESS",String(e))}
  if(my===generation&&running&&!requestStop)timer=setTimeout(()=>poll(my),1750);
 }
@@ -107,7 +124,8 @@ function showModal(){
 btn.onclick=async function(event){
  if(running || btn.disabled)return;
  const my=++generation;
- running=true;requestStop=false;items=[];stop.disabled=true;selectedPlan=null;modalShown=false;stoppedPlanAvailable=false;window.__ppStopUiLocked=false;
+ running=true;requestStop=false;items=[];stop.disabled=true;selectedPlan=null;modalShown=false;stoppedPlanAvailable=false;candidateAvailable=false;window.__ppStopUiLocked=false;
+ preferBestLivePreview();
  // Make the restart control unavailable immediately, even before the original
  // GA handler updates the primary button's disabled attribute.
  window.dispatchEvent(new Event("pp:optimizer-started"));
@@ -118,7 +136,8 @@ btn.onclick=async function(event){
  try{return await originalBtn.call(this,event)}
  finally{
   if(my!==generation)return;
-  running=false;clearTimeout(timer);stop.classList.remove("pp-on");
+  running=false;clearTimeout(timer);stop.classList.remove("pp-on");candidateAvailable=false;
+  const candidate=liveModeButton("candidate");if(candidate){candidate.disabled=false;candidate.removeAttribute("aria-disabled");candidate.title=""}
   if(requestStop){
    window.__ppOptimizationInFlight=false;
    const finished=document.getElementById("valid");
@@ -154,7 +173,8 @@ stop.onclick=async function(){
   // client-side running guard immediately, without waiting for the cancelled
   // /api/plan request's delayed promise/finalizers. Invalidate stale polls.
   generation++;
-  running=false;
+  running=false;candidateAvailable=false;
+  const candidate=liveModeButton("candidate");if(candidate){candidate.disabled=false;candidate.removeAttribute("aria-disabled");candidate.title=""}
   clearTimeout(timer);
   try{window.__ppCurrentOptimizationAbort?.abort("stopped_by_user")}catch(e){}
   window.__ppOptimizationInFlight=false;
