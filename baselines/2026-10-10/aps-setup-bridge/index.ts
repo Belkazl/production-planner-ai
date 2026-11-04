@@ -416,6 +416,10 @@ function ppStrictOptimizerHtml(h){
    "const ppOriginal=ppIncumbentCurrentPlan();const cont=hasResult||!!ppOriginal;"
   ],
   [
+   "locked_operations:locks}),cache:'no-store'}),d=await r.json();",
+   "locked_operations:locks,resume_plan:cont&&ppInc?{order_sequence:(Array.isArray(ppInc.order_sequence)&&ppInc.order_sequence.length?ppInc.order_sequence:(()=>{const seen=new Set();return [...(ppInc.generic_operations||ppInc.operations||[])].filter(x=>x&&x.order!=null&&!x.is_setup&&String(x.phase||'').toLowerCase()!=='setup').sort((a,b)=>Number(a.start_min||0)-Number(b.start_min||0)||Number(a.end_min||0)-Number(b.end_min||0)).map(x=>String(x.order)).filter(x=>{if(seen.has(x))return false;seen.add(x);return true})})()),duration_minutes:Number(ppInc.duration_minutes||0),optimization_run:Number(ppInc.optimization_run||0),total_generations:Number(ppInc.total_generations||0)}:null}),cache:'no-store'}),d=await r.json();"
+  ],
+  [
    "function clearPlan(){window.__ppOptimizerCommittedPlan=null;window.__ppOptimizationInFlight=false;q('ganttContent')",
    "function clearPlan(){window.__ppOptimizerCommittedPlan=null;window.__ppOptimizationInFlight=false;window.__ppTabPlan=null;window.__ppGenericPlan=null;window.__ppManualPlan=null;q('ganttContent')"
   ],
