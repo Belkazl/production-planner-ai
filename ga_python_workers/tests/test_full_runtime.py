@@ -58,12 +58,17 @@ class FullWorkerTests(unittest.TestCase):
   self.assertGreater(second['resume_state']['total_trials'],state['total_trials'])
   self.assertEqual(second['resume_state']['completed_runs'],2)
   self.assertLessEqual(second['duration_minutes'],first['duration_minutes'])
+  legacy_seed={k:copy.deepcopy(first.get(k)) for k in ('order_sequence','duration_minutes','optimization_run','total_generations')}
+  seeded=run({'model':model,'options':{'generations':12,'population':12,'seed':13,'continue':True,'resume_plan':legacy_seed}},lambda _:None)
+  self.assertTrue(seeded['continued'])
+  self.assertEqual(seeded['resume_state']['completed_runs'],2)
+  self.assertLessEqual(seeded['duration_minutes'],first['duration_minutes'])
   altered=copy.deepcopy(model);altered['orders'][0]['quantity']=99
   with self.assertRaisesRegex(FullGAError,'model_changed'):
    run({'model':altered,'options':{'continue':True,'resume_state':state}},lambda _:None)
   with self.assertRaisesRegex(FullGAError,'missing_or_invalid'):
    run({'model':model,'options':{'continue':True}},lambda _:None)
-  print('FULL_GA_FRESH_PROCESS_RESUME_PASS',{'first_runs':1,'continued_runs':second['resume_state']['completed_runs']},flush=True)
+  print('FULL_GA_FRESH_PROCESS_RESUME_PASS',{'first_runs':1,'continued_runs':second['resume_state']['completed_runs'],'legacy_seed':True},flush=True)
  def test_3b_lock_conflicts_fail_closed(self):
   model=sample('BAD',material=True,setup=True)
   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
