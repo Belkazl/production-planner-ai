@@ -201,5 +201,13 @@ async function handler(req){
   return err(e?.message==="body_too_large"?413:503,"qa_request_failed");
  }
 }
+if(String(Bun.env.PP_PASSWORD_RESET_DIAGNOSTIC||"")==="1"){
+  try{
+    const rows=await sql.unsafe("SELECT id FROM qa_accounts WHERE lower(email)=lower($1) LIMIT 2",["belkazl@gmail.com"]);
+    console.log("PASSWORD_RESET_DIAGNOSTIC",JSON.stringify({found:rows.length===1,count:rows.length}));
+  }catch(_){
+    console.log("PASSWORD_RESET_DIAGNOSTIC",JSON.stringify({found:false,count:-1}));
+  }
+}
 Bun.serve({port:Number(Bun.env.PORT||8080),fetch:handler});
 console.log("LIFTORBIT_QA_AUTH_READY",JSON.stringify({port:Number(Bun.env.PORT||8080),storage:"isolated-postgres",ready:true}));
