@@ -13,6 +13,14 @@ fresh.setAttribute("aria-label","Начать оптимизацию занов�
 // Keep restart immediately BEFORE the primary optimizer action, which is right-aligned.
 // Inserting it after the main action can push the restart button beyond the viewport.
 btn.insertAdjacentElement("beforebegin",fresh);
+function placeFreshNextToPrimary(){
+ const parent=btn.parentNode;
+ if(parent&&fresh.parentNode===parent&&fresh.nextElementSibling!==btn)parent.insertBefore(fresh,btn);
+}
+const layoutObserver=btn.parentNode?new MutationObserver(()=>queueMicrotask(placeFreshNextToPrimary)):null;
+if(layoutObserver)layoutObserver.observe(btn.parentNode,{childList:true});
+setTimeout(placeFreshNextToPrimary,0);
+setTimeout(placeFreshNextToPrimary,300);
 let resetting=false;
 const find=id=>document.getElementById(id);
 const currentProject=()=>{try{return localStorage.getItem("prodplan.project.active.v2")}catch(_){return null}};
@@ -24,6 +32,23 @@ function isBusy(){
  return resetting || window.__PP_STOP_DEBUG__?.().running===true;
 }
 function updateDisabled(){fresh.disabled=isBusy()}
+function releaseStalePrimaryGuard(){
+ // The upstream UI can leave its lexical "busy" guard stuck after a failed
+ // pre-flight save/import while later wrappers visually re-enable the button.
+ // Only release it when the stop controller confirms no real GA pass is running.
+ if(window.__PP_STOP_DEBUG__?.().running===true)return false;
+ try{if(typeof busy!=="undefined")busy=false}catch(_){}
+ try{
+  if(typeof modelReady!=="undefined"&&typeof model!=="undefined"&&model&&Array.isArray(model.orders)&&model.orders.length)
+   modelReady=true;
+ }catch(_){}
+ window.__ppOptimizationInFlight=false;
+ btn.disabled=false;
+ return true;
+}
+btn.addEventListener("click",()=>{
+ if(!isBusy())releaseStalePrimaryGuard();
+},true);
 const observer=new MutationObserver(updateDisabled);
 observer.observe(btn,{attributes:true,attributeFilter:["disabled"]});
 window.addEventListener("pp:optimizer-started",updateDisabled);
@@ -99,6 +124,7 @@ fresh.onclick=async function(){
   updateDisabled();
   try{
    if(typeof btn.onclick!=="function")throw Error("Управление оптимизацией ещё не готово");
+   releaseStalePrimaryGuard();
    await btn.onclick({type:"click",target:btn,preventDefault(){}})
   }
   finally{finish()}
@@ -117,7 +143,9 @@ window.__PP_FRESH_OPTIMIZER_DEBUG__=()=>({
  freshMode:!!window.__ppFreshRestartMode,
  pending:!!window.__ppFreshRestartPending,
  referenceDuration:window.__ppFreshReferencePlan?.duration_minutes??null,
- project:window.__ppFreshRestartProject??null
+ project:window.__ppFreshRestartProject??null,
+ upstreamBusy:(()=>{try{return typeof busy!=="undefined"?!!busy:null}catch(_){return null}})(),
+ modelReady:(()=>{try{return typeof modelReady!=="undefined"?!!modelReady:null}catch(_){return null}})()
 });
 updateDisabled();
 })();
