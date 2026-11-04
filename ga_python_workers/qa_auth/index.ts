@@ -27,7 +27,7 @@ const resetReady=/^https:\/\//.test(resetPublicOrigin)&&resetFrom.length>=5&&res
 const validEmail=email=>/^[^\s@]{1,80}@[^\s@]{1,120}\.[^\s@]{2,32}$/.test(email);
 async function sendResetEmail(to,token){
  if(!resetReady)throw Error("password_reset_unavailable");
- const link=resetPublicOrigin+"/?reset_token="+encodeURIComponent(token);
+ const link=resetPublicOrigin+"/#reset_token="+encodeURIComponent(token);
  const html='<div style="font-family:Arial,sans-serif;color:#213450;line-height:1.55"><h2 style="margin:0 0 16px">Reset your LiftOrbit password</h2><p>We received a request to reset your LiftOrbit password.</p><p><a href="'+link+'" style="display:inline-block;padding:12px 18px;background:#2467dd;color:#fff;text-decoration:none;border-radius:8px">Set a new password</a></p><p>This link expires in 30 minutes and can be used only once.</p><p>If you did not request a password reset, you can ignore this email.</p></div>';
  const text="Reset your LiftOrbit password\n\nOpen this link to set a new password:\n"+link+"\n\nThis link expires in 30 minutes and can be used only once.\nIf you did not request a password reset, ignore this email.";
  const response=await fetch("https://api.resend.com/emails",{
@@ -151,7 +151,7 @@ async function handler(req){
    try{await sendResetEmail(account.email,token)}
    catch(_){
     await sql.unsafe("DELETE FROM qa_password_resets WHERE token_hash=$1",[tokenHash]);
-    return err(503,"password_reset_unavailable");
+    console.warn("PASSWORD_RESET_EMAIL_FAILED");
    }
    return ok(200,generic);
   }
