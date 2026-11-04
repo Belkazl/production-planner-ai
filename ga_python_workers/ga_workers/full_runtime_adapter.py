@@ -110,6 +110,32 @@ def _assert_owned(plan,model):
     return True
 
 
+def _preview_plan(best,model):
+    """Normalize a live generic-GA snapshot to the public plan contract."""
+    if not isinstance(best,dict) or best.get('valid') is not True:
+        return None
+    preview=copy.deepcopy(best)
+    rows=preview.get('operations')
+    if not isinstance(rows,list) or not rows:
+        generic=preview.get('generic_operations')
+        if isinstance(generic,list) and generic:
+            # The generic optimizer's live snapshot can expose only
+            # generic_operations even though the completed result exposes both.
+            # Public progress consumers require operations, so derive the
+            # production rows without mutating the optimizer snapshot.
+            rows=[copy.deepcopy(x) for x in generic
+                  if isinstance(x,dict) and x.get('phase')!='setup' and x.get('order') is not None]
+            if rows:
+                preview['operations']=rows
+    if not isinstance(preview.get('operations'),list) or not preview['operations']:
+        return None
+    try:
+        _assert_owned(preview,model)
+    except FullGAError:
+        return None
+    return preview
+
+
 def run(payload,progress):
     if not isinstance(payload,dict) or not isinstance(payload.get('model'),dict):
         raise FullGAError('ga_model_required')
@@ -158,12 +184,12 @@ def run(payload,progress):
         try:
             snap=ga.get('_pp_progress_snapshot',lambda: {})()
             pct=int(snap.get('percent') or 0)
-            best=snap.get('best_preview')
+            best=_preview_plan(snap.get('best_preview'),normalized)
             if (pct,last[1] if best is not None else 0)!=last:
                 # Preserve the preview contract without reporting data from
                 # another account; all inputs here belong to this one process.
                 preview={'percent':min(99,max(1,pct)),'phase':snap.get('phase','optimizing'),'running':True}
-                if isinstance(best,dict) and best.get('operations'):
+                if best is not None:
                     preview['best_preview']=best
                 progress(preview)
                 last=(pct,1 if best is not None else 0)
