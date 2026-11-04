@@ -107,9 +107,14 @@ const outStorage=async id=>{
 async function store(id,storage){
  await sql.unsafe("INSERT INTO qa_storage(account_id,storage,updated_at) VALUES($1,$2::jsonb,now()) ON CONFLICT(account_id) DO UPDATE SET storage=excluded.storage,updated_at=now()",[id,JSON.stringify(storage)]);
 }
+const MAX_REQUEST_BYTES=20_000_000;
+const MAX_STORAGE_BYTES=18_000_000;
 async function body(req){
- const raw=await req.text();
- if(raw.length>1900000)throw Error("body_too_large");
+ const declared=Number(req.headers.get("content-length")||0);
+ if(Number.isFinite(declared)&&declared>MAX_REQUEST_BYTES)throw Error("body_too_large");
+ const buffer=await req.arrayBuffer();
+ if(buffer.byteLength>MAX_REQUEST_BYTES)throw Error("body_too_large");
+ const raw=new TextDecoder().decode(buffer);
  const x=JSON.parse(raw);if(!isObj(x))throw Error("invalid_object");
  return x;
 }
@@ -215,17 +220,15 @@ async function handler(req){
    if(!isObj(v)&&typeof x.key==="string"&&x.key.length<=150&&"value" in x){
      v=await outStorage(account.id);v[x.key]=x.value;
    }
-   if(!isObj(v)||JSON.stringify(v).length>1800000)return err(422,"invalid_storage");
+   if(!isObj(v)||Buffer.byteLength(JSON.stringify(v),"utf8")>MAX_STORAGE_BYTES)return err(422,"invalid_storage");
    await store(account.id,v);
    return ok(200,{ok:true,storage:v});
   }
   if(path==="/api/project/model/import"&&method==="POST"){
    const x=await body(req);
    if(!isObj(x.model)||!Array.isArray(x.model.orders))return err(422,"invalid_model");
-   const storage=await outStorage(account.id);
-   storage["prodplan.projects.v2"]=JSON.stringify([{id:"qa-isolated-project",name:"QA Test Model",model:x.model}]);
-   storage["prodplan.project.active.v2"]="qa-isolated-project";
-   await store(account.id,storage);
+   // Import is a transient planner hand-off. Persistent project identity/history is saved
+   // by /api/db-storage; never replace an account's projects with a synthetic QA project here.
    return ok(200,{ok:true,model:x.model});
   }
   return err(405,"method_not_allowed");
