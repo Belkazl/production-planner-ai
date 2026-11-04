@@ -32,6 +32,26 @@ function isBusy(){
  return resetting || window.__PP_STOP_DEBUG__?.().running===true;
 }
 function updateDisabled(){fresh.disabled=isBusy()}
+function restoreSavedPlanReadiness(){
+ const meta=find("meta"),status=find("valid");
+ const saved=/Сохранённая оптимизация|Saved optimization/i.test(meta?.textContent||"");
+ if(!saved||isBusy())return false;
+ let ready=false,shown=null;
+ try{
+  ready=typeof model!=="undefined"&&!!model&&Array.isArray(model.orders)&&model.orders.length>0;
+  if(ready&&typeof model_ready==="function")ready=!!model_ready(model);
+  shown=window.__ppTabPlan||window.__ppOptimizerCommittedPlan||null;
+ }catch(_){}
+ const ops=shown&&(shown.operations||shown.generic_operations||[]);
+ if(!ready||!shown||shown.valid===false||!Array.isArray(ops)||!ops.length)return false;
+ try{modelReady=true;hasResult=true}catch(_){}
+ window.__ppOptimizerCommittedPlan=shown;
+ btn.disabled=false;
+ btn.textContent="Продолжить оптимизацию";
+ if(status&&/Нужны данные|Data required|Ожидаю данные|Waiting for data/i.test(status.textContent||""))
+  status.textContent="Готово к расчёту";
+ return true;
+}
 function releaseStalePrimaryGuard(){
  // The upstream UI can leave its lexical "busy" guard stuck after a failed
  // pre-flight save/import while later wrappers visually re-enable the button.
@@ -54,6 +74,12 @@ observer.observe(btn,{attributes:true,attributeFilter:["disabled"]});
 window.addEventListener("pp:optimizer-started",updateDisabled);
 window.addEventListener("pp:optimizer-finished",updateDisabled);
 window.addEventListener("pp:optimizer-stopped",updateDisabled);
+const savedReadyObserver=new MutationObserver(()=>queueMicrotask(()=>{restoreSavedPlanReadiness();updateDisabled()}));
+const savedMeta=find("meta"),savedStatus=find("valid");
+if(savedMeta)savedReadyObserver.observe(savedMeta,{childList:true,subtree:true,characterData:true});
+if(savedStatus)savedReadyObserver.observe(savedStatus,{childList:true,subtree:true,characterData:true});
+setTimeout(restoreSavedPlanReadiness,0);
+setTimeout(restoreSavedPlanReadiness,250);
 function setText(id,text){
  const node=find(id);
  if(node)node.textContent=text;
