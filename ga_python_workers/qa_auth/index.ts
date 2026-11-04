@@ -203,7 +203,7 @@ async function handler(req){
 }
 if(String(Bun.env.PP_PASSWORD_RESET_DIAGNOSTIC||"")==="1"){
   try{
-    const rows=await sql.unsafe("SELECT id FROM qa_accounts WHERE lower(email)=lower($1) LIMIT 2",["belkazl@gmail.com"]);
+    const rows=await sql.unsafe("SELECT id FROM qa_accounts WHERE lower(email)=lower($1) LIMIT 2",["fadeev.msa@gmail.com"]);
     console.log("PASSWORD_RESET_DIAGNOSTIC",JSON.stringify({found:rows.length===1,count:rows.length}));
   }catch(_){
     console.log("PASSWORD_RESET_DIAGNOSTIC",JSON.stringify({found:false,count:-1}));
