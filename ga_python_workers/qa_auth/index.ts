@@ -12,12 +12,36 @@ const ddl=[
 "CREATE TABLE IF NOT EXISTS qa_sessions (token_hash text PRIMARY KEY, account_id text NOT NULL REFERENCES qa_accounts(id) ON DELETE CASCADE, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now())",
 "CREATE TABLE IF NOT EXISTS qa_storage (account_id text PRIMARY KEY REFERENCES qa_accounts(id) ON DELETE CASCADE, storage jsonb NOT NULL DEFAULT '{}'::jsonb, updated_at timestamptz NOT NULL DEFAULT now())",
 "CREATE TABLE IF NOT EXISTS qa_optimization_jobs (id text PRIMARY KEY, account_id text NOT NULL REFERENCES qa_accounts(id) ON DELETE CASCADE, worker_job_id text, status text NOT NULL, model_hash text NOT NULL, progress integer NOT NULL DEFAULT 0, resume_state jsonb, best_plan jsonb, result jsonb, error text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())",
+"CREATE TABLE IF NOT EXISTS qa_password_resets (token_hash text PRIMARY KEY, account_id text NOT NULL REFERENCES qa_accounts(id) ON DELETE CASCADE, expires_at timestamptz NOT NULL, used_at timestamptz, created_at timestamptz NOT NULL DEFAULT now())",
 "CREATE INDEX IF NOT EXISTS qa_sessions_expiry_idx ON qa_sessions(expires_at)",
-"CREATE INDEX IF NOT EXISTS qa_jobs_account_idx ON qa_optimization_jobs(account_id,created_at DESC)"
+"CREATE INDEX IF NOT EXISTS qa_jobs_account_idx ON qa_optimization_jobs(account_id,created_at DESC)",
+"CREATE INDEX IF NOT EXISTS qa_password_resets_account_idx ON qa_password_resets(account_id,created_at DESC)"
 ];
 for(const statement of ddl)await sql.unsafe(statement);
 const digest=v=>createHash("sha256").update(v).digest("hex");
 const cookieName="liftorbit_qa_session";
+const resetPublicOrigin=String(Bun.env.PP_PASSWORD_RESET_PUBLIC_ORIGIN||"https://app.liftorbit.app").replace(/\/+$/,"");
+const resetFrom=String(Bun.env.PP_PASSWORD_RESET_FROM||"").trim();
+const resendKey=String(Bun.env.RESEND_API_KEY||"").trim();
+const resetReady=/^https:\/\//.test(resetPublicOrigin)&&resetFrom.length>=5&&resendKey.length>=20;
+const validEmail=email=>/^[^\s@]{1,80}@[^\s@]{1,120}\.[^\s@]{2,32}$/.test(email);
+async function sendResetEmail(to,token){
+ if(!resetReady)throw Error("password_reset_unavailable");
+ const link=resetPublicOrigin+"/?reset_token="+encodeURIComponent(token);
+ const html='<div style="font-family:Arial,sans-serif;color:#213450;line-height:1.55"><h2 style="margin:0 0 16px">Reset your LiftOrbit password</h2><p>We received a request to reset your LiftOrbit password.</p><p><a href="'+link+'" style="display:inline-block;padding:12px 18px;background:#2467dd;color:#fff;text-decoration:none;border-radius:8px">Set a new password</a></p><p>This link expires in 30 minutes and can be used only once.</p><p>If you did not request a password reset, you can ignore this email.</p></div>';
+ const text="Reset your LiftOrbit password\n\nOpen this link to set a new password:\n"+link+"\n\nThis link expires in 30 minutes and can be used only once.\nIf you did not request a password reset, ignore this email.";
+ const response=await fetch("https://api.resend.com/emails",{
+  method:"POST",
+  headers:{"authorization":"Bearer "+resendKey,"content-type":"application/json"},
+  body:JSON.stringify({from:resetFrom,to:[to],subject:"Reset your LiftOrbit password",html,text}),
+  signal:AbortSignal.timeout(15000)
+ });
+ if(!response.ok){
+  if(response.body)try{await response.body.cancel()}catch{}
+  throw Error("reset_email_failed");
+ }
+ if(response.body)try{await response.body.cancel()}catch{}
+}
 const ok=(status,value,cookie)=>{
  const h={"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"};
  if(cookie)h["set-cookie"]=cookie;
@@ -92,11 +116,11 @@ async function handler(req){
   if(path.startsWith("/internal/"))return await internalState(req,path,method);
   if(path==="/health"&&method==="GET"){
    const r=await sql.unsafe("SELECT 1 AS ok");
-   return ok(r[0]?.ok===1?200:503,{ok:r[0]?.ok===1,qa_only:true});
+   return ok(r[0]?.ok===1?200:503,{ok:r[0]?.ok===1,qa_only:true,password_reset:resetReady});
   }
   if(path==="/api/auth/register"&&method==="POST"){
    const x=await body(req),email=String(x.email||"").trim().toLowerCase(),pw=x.password;
-   if(!/^[^\s@]{1,80}@[^\s@]{1,120}\.[^\s@]{2,32}$/.test(email)||typeof pw!=="string"||pw.length<10||pw.length>128)return err(422,"invalid_credentials_format");
+   if(!validEmail(email)||typeof pw!=="string"||pw.length<10||pw.length>128)return err(422,"invalid_credentials_format");
    const id=randomUUID(),hash=await Bun.password.hash(pw);
    const rows=await sql.unsafe("INSERT INTO qa_accounts(id,email,company,passwd_hash) VALUES($1,$2,$3,$4) ON CONFLICT(email) DO NOTHING RETURNING id",[id,email,String(x.company||"").slice(0,120),hash]);
    if(!rows.length)return err(409,"account_already_exists");
@@ -110,6 +134,36 @@ async function handler(req){
    const rows=await sql.unsafe("SELECT id,passwd_hash FROM qa_accounts WHERE email=$1 LIMIT 1",[email]);
    if(!rows.length||!await Bun.password.verify(pw,rows[0].passwd_hash))return err(401,"invalid_credentials");
    return ok(200,{ok:true,account_id:rows[0].id},await createSession(rows[0].id));
+  }
+  if(path==="/api/auth/forgot-password"&&method==="POST"){
+   if(!resetReady)return err(503,"password_reset_unavailable");
+   const x=await body(req),email=String(x.email||"").trim().toLowerCase();
+   if(!validEmail(email))return err(422,"invalid_email");
+   const generic={ok:true};
+   const rows=await sql.unsafe("SELECT id,email FROM qa_accounts WHERE email=$1 LIMIT 1",[email]);
+   if(!rows.length){await Bun.sleep(120);return ok(200,generic)}
+   const account=rows[0];
+   const recent=await sql.unsafe("SELECT count(*)::int AS n FROM qa_password_resets WHERE account_id=$1 AND created_at>now()-interval '15 minutes'",[account.id]);
+   if(Number(recent[0]?.n||0)>=3)return ok(200,generic);
+   await sql.unsafe("DELETE FROM qa_password_resets WHERE account_id=$1 AND (used_at IS NOT NULL OR expires_at<now())",[account.id]);
+   const token=randomBytes(32).toString("base64url"),tokenHash=digest(token);
+   await sql.unsafe("INSERT INTO qa_password_resets(token_hash,account_id,expires_at) VALUES($1,$2,now()+interval '30 minutes')",[tokenHash,account.id]);
+   try{await sendResetEmail(account.email,token)}
+   catch(_){
+    await sql.unsafe("DELETE FROM qa_password_resets WHERE token_hash=$1",[tokenHash]);
+    return err(503,"password_reset_unavailable");
+   }
+   return ok(200,generic);
+  }
+  if(path==="/api/auth/reset-password"&&method==="POST"){
+   const x=await body(req),token=String(x.token||""),pw=x.password;
+   if(!/^[A-Za-z0-9_-]{40,90}$/.test(token)||typeof pw!=="string"||pw.length<10||pw.length>128)
+    return err(422,"invalid_reset_format");
+   const nextHash=await Bun.password.hash(pw);
+   const rows=await sql.unsafe("WITH claimed AS (UPDATE qa_password_resets SET used_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() RETURNING account_id), changed AS (UPDATE qa_accounts a SET passwd_hash=$2 FROM claimed c WHERE a.id=c.account_id RETURNING a.id), revoked AS (DELETE FROM qa_sessions s USING changed c WHERE s.account_id=c.id RETURNING s.account_id) SELECT id FROM changed LIMIT 1",[digest(token),nextHash]);
+   if(!rows.length)return err(400,"invalid_or_expired_reset_token");
+   await sql.unsafe("DELETE FROM qa_password_resets WHERE account_id=$1",[rows[0].id]);
+   return ok(200,{ok:true});
   }
   if(path==="/api/auth/logout"&&method==="POST"){
    const token=readCookie(req);
