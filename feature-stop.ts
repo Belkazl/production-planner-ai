@@ -23,12 +23,11 @@ function stoppedVariants(state) {
 async function stopOptimization(req) {
  const state=ppActiveObjectiveRun;
  if(!state||state.completed)return jsonifyBridge({ok:false,error:"optimization_not_running"},409);
- if(!state.best?.operations?.length)return jsonifyBridge({ok:false,error:"no_complete_plan_yet"},409);
  state.stopRequested=true;state.completed=true;
  try{state.abortController?.abort("user_stopped")}catch(e){}
  const variants=stoppedVariants(state);
  console.log("APS_STOP_USER",JSON.stringify({run:state.id,objective:state.goal,variants:variants.length,duration:state.best?.duration_minutes}));
- return jsonifyBridge({ok:true,stopped:true,objective:state.goal,best_preview:state.best,variants});
+ return jsonifyBridge({ok:true,stopped:true,objective:state.goal,best_preview:state.best||null,variants});
 }
 `;
 once("async function handler(req){const path=new URL(req.url).pathname;",
