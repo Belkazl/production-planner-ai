@@ -27,7 +27,8 @@ function makeEnv({hold=false,foreign=false,outage=false}={}){
   const j=jobs.get(match[1]);assert.equal(key,j.owner);
   if(match[2]){j.status='cancelled';stops.push(match[1]);return Response.json({status:'cancelled'})}
   const m=foreign?models.get('A9'):j.model;
-  const plan={ok:true,valid:true,operations:m.orders.map(x=>({order:x.id})),setup_rules_processed:false};
+  const plan={ok:true,valid:true,operations:m.orders.map(x=>({order:x.id})),setup_rules_processed:false,
+   resume_state:{version:1,owner:key,completed_runs:1,total_trials:12}};
   return Response.json({status:j.status,progress:j.status==='completed'?100:15,result:j.status==='completed'?plan:null,best_preview:null});
  };
  const bridge=createPythonGAUpstream({enabled:true,origin:ORIGIN,token:TOKEN,
@@ -88,6 +89,19 @@ test('unrelated model route still uses the original authenticated API',async()=>
  const {bridge}=makeEnv();
  const r=await bridge.fetch(request('A3','/api/model'),{});
  assert.equal((await r.json()).legacy,true);
+});
+test('continue without client resume_state reuses only the same account completed resume state',async()=>{
+ const {bridge,calls}=makeEnv();
+ const req=request('A2','/api/plan','POST',{});
+ let res=await bridge.fetch(req,{body:new TextEncoder().encode(JSON.stringify({objective:'duration'})).buffer});
+ assert.equal(res.status,200);await res.json();
+ res=await bridge.fetch(req,{body:new TextEncoder().encode(JSON.stringify({objective:'duration',continue:true})).buffer});
+ assert.equal(res.status,200);await res.json();
+ const posts=calls.filter(x=>x.url.endsWith('/internal/jobs')&&x.opts.method==='POST');
+ assert.equal(posts.length,2);
+ const second=JSON.parse(posts[1].opts.body);
+ assert.equal(second.options.resume_state.owner,'A2');
+ assert.equal(second.options.continue,true);
 });
 test('manual operation locks are passed through to original GA unchanged',async()=>{
  const {bridge,calls}=makeEnv();
