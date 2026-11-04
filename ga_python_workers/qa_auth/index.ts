@@ -44,8 +44,9 @@ if(String(Bun.env.PP_LEGACY_SNAPSHOT_MIGRATE||"")==="1"){
   if(!ceramic||!paint)throw Error("snapshot_projects_missing");
   if(!Array.isArray(ceramic.model?.orders)||ceramic.model.orders.length!==12)throw Error("snapshot_orders_invalid");
   if(!Array.isArray(ceramic.savedPlans)||ceramic.savedPlans.length!==6||!ceramic.lastPlan)throw Error("snapshot_plans_invalid");
+  const parseStorage=v=>{if(v&&typeof v==="object"&&!Array.isArray(v))return v;if(typeof v==="string"){try{const x=JSON.parse(v);return x&&typeof x==="object"&&!Array.isArray(x)?x:{}}catch{return {}}}return {}};
   const existingRows=await sql.unsafe("SELECT storage FROM qa_storage WHERE account_id=$1 LIMIT 1",[targetId]);
-  const existing=existingRows[0]?.storage&&typeof existingRows[0].storage==="object"?existingRows[0].storage:{};
+  const existing=parseStorage(existingRows[0]?.storage);
   const already=existing["prodplan.projects.v2"]===snap.projects_storage&&String(existing["prodplan.project.active.v2"]||"")===String(snap.active_project_id);
   if(!already){
    await sql.unsafe("CREATE TABLE IF NOT EXISTS qa_storage_recovery_backups (id bigserial PRIMARY KEY,account_id text NOT NULL,email text NOT NULL,reason text NOT NULL,storage jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(account_id,reason))");
@@ -54,8 +55,10 @@ if(String(Bun.env.PP_LEGACY_SNAPSHOT_MIGRATE||"")==="1"){
    await sql.unsafe("INSERT INTO qa_storage(account_id,storage,updated_at) VALUES($1,$2::jsonb,now()) ON CONFLICT(account_id) DO UPDATE SET storage=excluded.storage,updated_at=now()",[targetId,JSON.stringify(next)]);
   }
   const verifyRows=await sql.unsafe("SELECT storage FROM qa_storage WHERE account_id=$1 LIMIT 1",[targetId]);
-  const verify=verifyRows[0]?.storage||{};
-  const verifyProjects=JSON.parse(verify["prodplan.projects.v2"]);
+  const verify=parseStorage(verifyRows[0]?.storage);
+  const rawVerify=verify["prodplan.projects.v2"];
+  if(typeof rawVerify!=="string")throw Error("target_projects_key_missing");
+  const verifyProjects=JSON.parse(rawVerify);
   const verifyCeramic=verifyProjects.find(p=>p&&p.id===snap.project_id);
   if(!verifyCeramic||verifyCeramic.model?.orders?.length!==12||verifyCeramic.savedPlans?.length!==6)throw Error("target_verify_failed");
   console.log("PP_LEGACY_SNAPSHOT_MIGRATION_PASS",JSON.stringify({
