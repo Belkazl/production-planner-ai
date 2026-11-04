@@ -84,6 +84,39 @@ function setText(id,text){
  const node=find(id);
  if(node)node.textContent=text;
 }
+function storedLastPlan(){
+ try{
+  const id=currentProject();
+  const list=JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]");
+  const project=Array.isArray(list)?list.find(x=>x&&x.id===id):null;
+  const p=project?.lastPlan;
+  const ops=p&&(p.operations||p.generic_operations||[]);
+  return p&&p.valid!==false&&Array.isArray(ops)&&ops.length?p:null;
+ }catch(_){return null}
+}
+function showFreshDisplayBaseline(){
+ const p=window.__ppFreshDisplayBaseline;
+ const ops=p&&(p.operations||p.generic_operations||[]);
+ if(!p||p.valid===false||!Array.isArray(ops)||!ops.length)return false;
+ try{
+  if(typeof renderPlan==="function")renderPlan(p);
+  if(typeof renderKpisWithDelta==="function")renderKpisWithDelta(p);
+ }catch(e){console.warn("PP_FRESH_BASELINE_RENDER",String(e));return false}
+ // This is display-only. Do not let the previous plan turn the new search into
+ // a continuation or become the accepted incumbent.
+ window.__ppOptimizerCommittedPlan=null;
+ window.__ppTabPlan=null;
+ window.__ppGenericPlan=null;
+ window.__ppManualPlan=null;
+ try{if(typeof hasResult!=="undefined")hasResult=false}catch(_){}
+ btn.disabled=false;
+ btn.textContent="Запустить оптимизацию";
+ const status=find("validator");
+ if(status)status.textContent="Показан предыдущий валидный план как временная база. Идёт новый поиск; первый новый Best found заменит его автоматически.";
+ const badge=find("valid");
+ if(badge)badge.textContent="GA: новый поиск · ожидаем первый новый план";
+ return true;
+}
 function resetVisiblePlan(){
  // clearPlan is the original app's reset; it clears all four KPIs and the Gantt.
  try{if(typeof clearPlan==="function")clearPlan()}catch(e){console.warn("PP_FRESH_RESET_GANTT",String(e))}
@@ -139,11 +172,14 @@ fresh.onclick=async function(){
   });
   const data=await response.json();
   if(!response.ok||!data?.ok)throw Error(data?.error||"Не удалось сбросить оптимизацию");
+  const previous=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||window.__ppManualPlan||storedLastPlan();
+  try{window.__ppFreshDisplayBaseline=previous?JSON.parse(JSON.stringify(previous)):null}catch(_){window.__ppFreshDisplayBaseline=previous||null}
   window.__ppFreshRestartMode=true;
   window.__ppFreshRestartPending=true;
   window.__ppFreshRestartProject=currentProject();
   window.__ppFreshReferencePlan=null;
   resetVisiblePlan();
+  showFreshDisplayBaseline();
   // Use the existing (stop + progress + original GA) click chain, not a second GA implementation.
   resetting=false;
   fresh.textContent=oldText;
@@ -169,6 +205,7 @@ window.__PP_FRESH_OPTIMIZER_DEBUG__=()=>({
  freshMode:!!window.__ppFreshRestartMode,
  pending:!!window.__ppFreshRestartPending,
  referenceDuration:window.__ppFreshReferencePlan?.duration_minutes??null,
+ displayBaselineDuration:window.__ppFreshDisplayBaseline?.duration_minutes??null,
  project:window.__ppFreshRestartProject??null,
  upstreamBusy:(()=>{try{return typeof busy!=="undefined"?!!busy:null}catch(_){return null}})(),
  modelReady:(()=>{try{return typeof modelReady!=="undefined"?!!modelReady:null}catch(_){return null}})()
