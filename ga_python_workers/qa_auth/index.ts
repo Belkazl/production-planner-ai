@@ -18,6 +18,64 @@ const ddl=[
 "CREATE INDEX IF NOT EXISTS qa_password_resets_account_idx ON qa_password_resets(account_id,created_at DESC)"
 ];
 for(const statement of ddl)await sql.unsafe(statement);
+
+if(String(Bun.env.PP_LEGACY_SNAPSHOT_MIGRATE||"")==="1"){
+ const legacyUrl=String(Bun.env.LEGACY_DATABASE_URL||"");
+ const recoveryEmail="belkazl@gmail.com";
+ const snapshotName="production-2026-10-15-ceramic-materials-v1";
+ let legacy=null;
+ const parseStorage=v=>{if(v&&typeof v==="object"&&!Array.isArray(v))return v;if(typeof v==="string"){try{const x=JSON.parse(v);return x&&typeof x==="object"&&!Array.isArray(x)?x:{}}catch{return {}}}return {}};
+ try{
+  if(!/^postgres(ql)?:\/\//.test(legacyUrl))throw Error("legacy_db_url_missing");
+  legacy=new SQL(legacyUrl,{max:1,connectionTimeout:8,idleTimeout:15});
+  const targetRows=await sql.unsafe("SELECT id FROM qa_accounts WHERE email=$1 LIMIT 2",[recoveryEmail]);
+  if(targetRows.length!==1)throw Error("target_account_not_unique");
+  const targetId=targetRows[0].id;
+  const snapRows=await legacy.unsafe("SELECT tenant_id,project_id,project_revision,projects_storage,active_project_id FROM pp_production_etalon_snapshots WHERE snapshot_name=$1 LIMIT 2",[snapshotName]);
+  if(snapRows.length!==1)throw Error("snapshot_not_unique");
+  const snap=snapRows[0];
+  const ownerRows=await legacy.unsafe("SELECT email FROM pp_accounts WHERE tenant_id=$1",[snap.tenant_id]);
+  if(ownerRows.length!==1||String(ownerRows[0].email).toLowerCase()!==recoveryEmail)throw Error("legacy_owner_mismatch");
+  let projects;
+  try{projects=JSON.parse(snap.projects_storage)}catch{throw Error("snapshot_projects_invalid_json")}
+  if(!Array.isArray(projects)||projects.length!==2)throw Error("snapshot_project_count");
+  const ceramic=projects.find(p=>p&&p.id===snap.project_id&&p.name==="Керамика");
+  const paint=projects.find(p=>p&&p.name==="Покраска");
+  if(!ceramic||!paint)throw Error("snapshot_projects_missing");
+  if(!Array.isArray(ceramic.model?.orders)||ceramic.model.orders.length!==12)throw Error("snapshot_orders_invalid");
+  if(!Array.isArray(ceramic.savedPlans)||ceramic.savedPlans.length!==6||!ceramic.lastPlan)throw Error("snapshot_plans_invalid");
+
+  const existingRows=await sql.unsafe("SELECT storage FROM qa_storage WHERE account_id=$1 LIMIT 1",[targetId]);
+  const existing=parseStorage(existingRows[0]?.storage);
+  const already=existing["prodplan.projects.v2"]===snap.projects_storage&&String(existing["prodplan.project.active.v2"]||"")===String(snap.active_project_id);
+  if(!already){
+   await sql.unsafe("CREATE TABLE IF NOT EXISTS qa_storage_recovery_backups (id bigserial PRIMARY KEY,account_id text NOT NULL,email text NOT NULL,reason text NOT NULL,storage jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(account_id,reason))");
+   await sql.unsafe("INSERT INTO qa_storage_recovery_backups(account_id,email,reason,storage) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(account_id,reason) DO NOTHING",[targetId,recoveryEmail,"repair-after-import-bug:"+snapshotName,JSON.stringify(existing)]);
+   const next={...existing,"prodplan.projects.v2":snap.projects_storage,"prodplan.project.active.v2":String(snap.active_project_id)};
+   await sql.unsafe("INSERT INTO qa_storage(account_id,storage,updated_at) VALUES($1,$2::jsonb,now()) ON CONFLICT(account_id) DO UPDATE SET storage=excluded.storage,updated_at=now()",[targetId,JSON.stringify(next)]);
+  }
+
+  const verifyRows=await sql.unsafe("SELECT storage FROM qa_storage WHERE account_id=$1 LIMIT 1",[targetId]);
+  const verify=parseStorage(verifyRows[0]?.storage);
+  const rawVerify=verify["prodplan.projects.v2"];
+  if(typeof rawVerify!=="string")throw Error("target_projects_key_missing");
+  const verifyProjects=JSON.parse(rawVerify);
+  const verifyCeramic=verifyProjects.find(p=>p&&p.id===snap.project_id);
+  if(!verifyCeramic||verifyCeramic.model?.orders?.length!==12||verifyCeramic.savedPlans?.length!==6||!verifyCeramic.lastPlan)throw Error("target_verify_failed");
+  console.log("PP_LEGACY_SNAPSHOT_MIGRATION_PASS",JSON.stringify({
+   email:recoveryEmail,tenant_id:snap.tenant_id,snapshot:snapshotName,
+   project_id:snap.project_id,project_revision:snap.project_revision,
+   projects:verifyProjects.map(p=>p.name),orders:verifyCeramic.model.orders.length,
+   savedPlans:verifyCeramic.savedPlans.length,activePlan:!!verifyCeramic.lastPlan,
+   alreadyMigrated:already,backupCreated:!already
+  }));
+ }catch(e){
+  console.error("PP_LEGACY_SNAPSHOT_MIGRATION_FAILED",String(e?.message||e).slice(0,220));
+  throw e;
+ }finally{
+  if(legacy)try{await legacy.close()}catch{}
+ }
+}
 const digest=v=>createHash("sha256").update(v).digest("hex");
 const cookieName="liftorbit_qa_session";
 const resetPublicOrigin=String(Bun.env.PP_PASSWORD_RESET_PUBLIC_ORIGIN||"https://app.liftorbit.app").replace(/\/+$/,"");
