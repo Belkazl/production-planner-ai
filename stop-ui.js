@@ -124,14 +124,14 @@ function showModal(){
 btn.onclick=async function(event){
  if(running || btn.disabled)return;
  const my=++generation;
- running=true;requestStop=false;items=[];stop.disabled=true;selectedPlan=null;modalShown=false;stoppedPlanAvailable=false;candidateAvailable=false;window.__ppStopUiLocked=false;
+ running=true;requestStop=false;items=[];stop.disabled=false;selectedPlan=null;modalShown=false;stoppedPlanAvailable=false;candidateAvailable=false;window.__ppStopUiLocked=false;
  preferBestLivePreview();
  // Make the restart control unavailable immediately, even before the original
  // GA handler updates the primary button's disabled attribute.
  window.dispatchEvent(new Event("pp:optimizer-started"));
  stop.textContent="Остановить оптимизацию";stop.classList.add("pp-on");
  criterion=(typeof window.ppOptimizerObjective==="function"?window.ppOptimizerObjective():null)||(typeof model!=="undefined"&&model?.objective)||"duration";
- prevPlan=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||null;
+ prevPlan=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||window.__ppFreshDisplayBaseline||null;
  timer=setTimeout(()=>poll(my),600);
  try{return await originalBtn.call(this,event)}
  finally{
@@ -154,7 +154,7 @@ btn.onclick=async function(event){
  }
 };
 stop.onclick=async function(){
- if(!running||requestStop||!items.length)return;
+ if(!running||requestStop)return;
  stop.disabled=true;stop.textContent="Останавливаю...";
  try{
   const response=await fetch("/api/optimizer-stop",{method:"POST",cache:"no-store"});
