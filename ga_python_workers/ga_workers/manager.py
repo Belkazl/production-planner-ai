@@ -58,7 +58,14 @@ def _worker(conn, adapter_path, payload):
     except BaseException as exc:
         try:
             # Never return a traceback or environment variables to API clients.
-            conn.send({"type": "error", "error": type(exc).__name__})
+            # Internal GA errors are deliberately short machine codes; preserve
+            # those so the authenticated bridge can distinguish a bad resume
+            # state from a real worker crash.
+            detail=str(exc)
+            safe=(detail if detail and len(detail)<=128 and
+                  all(c.islower() or c.isdigit() or c=='_' for c in detail)
+                  else type(exc).__name__)
+            conn.send({"type": "error", "error": safe})
         except (BrokenPipeError, EOFError, OSError):
             pass
     finally:
