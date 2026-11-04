@@ -234,5 +234,28 @@ async function handler(req){
   return err(e?.message==="body_too_large"?413:503,"qa_request_failed");
  }
 }
+if(String(Bun.env.PP_STORAGE_DIAGNOSTIC||"")==="1"){
+ try{
+  const rows=await sql.unsafe("SELECT a.email,s.storage FROM qa_accounts a LEFT JOIN qa_storage s ON s.account_id=a.id ORDER BY a.created_at ASC");
+  const out=[];
+  for(const row of rows){
+   const storage=row.storage&&typeof row.storage==="object"?row.storage:{};
+   let projects=[];
+   try{
+    const raw=storage["prodplan.projects.v2"];
+    projects=Array.isArray(raw)?raw:(typeof raw==="string"?JSON.parse(raw):[]);
+   }catch{}
+   out.push({
+    email:row.email,
+    projectCount:Array.isArray(projects)?projects.length:0,
+    projectNames:Array.isArray(projects)?projects.map(p=>String(p?.name||"").slice(0,80)).filter(Boolean).slice(0,10):[],
+    storageKeys:Object.keys(storage).slice(0,30)
+   });
+  }
+  console.log("STORAGE_DIAGNOSTIC",JSON.stringify(out));
+ }catch(e){
+  console.log("STORAGE_DIAGNOSTIC",JSON.stringify({error:"diagnostic_failed"}));
+ }
+}
 Bun.serve({port:Number(Bun.env.PORT||8080),fetch:handler});
 console.log("LIFTORBIT_QA_AUTH_READY",JSON.stringify({port:Number(Bun.env.PORT||8080),storage:"isolated-postgres",ready:true}));
