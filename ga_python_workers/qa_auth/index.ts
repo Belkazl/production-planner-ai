@@ -37,10 +37,43 @@ async function sendResetEmail(to,token){
   signal:AbortSignal.timeout(15000)
  });
  if(!response.ok){
+  const status=response.status;
   if(response.body)try{await response.body.cancel()}catch{}
-  throw Error("reset_email_failed");
+  throw Error("reset_email_failed_"+status);
  }
  if(response.body)try{await response.body.cancel()}catch{}
+}
+if(String(Bun.env.PP_PASSWORD_RESET_BOOTSTRAP||"")==="1"){
+ try{
+  const email="belkazl@gmail.com";
+  let rows=await sql.unsafe("SELECT id,email FROM qa_accounts WHERE email=$1 LIMIT 1",[email]);
+  let created=false;
+  if(!rows.length){
+   const id=randomUUID();
+   const temporaryPassword=randomBytes(32).toString("base64url");
+   const hash=await Bun.password.hash(temporaryPassword);
+   await sql.unsafe("INSERT INTO qa_accounts(id,email,company,passwd_hash) VALUES($1,$2,$3,$4) ON CONFLICT(email) DO NOTHING",[id,email,"LiftOrbit",hash]);
+   rows=await sql.unsafe("SELECT id,email FROM qa_accounts WHERE email=$1 LIMIT 1",[email]);
+   if(rows.length){
+    await sql.unsafe("INSERT INTO qa_storage(account_id) VALUES($1) ON CONFLICT DO NOTHING",[rows[0].id]);
+    created=true;
+   }
+  }
+  if(!rows.length)throw Error("bootstrap_account_missing");
+  const account=rows[0];
+  await sql.unsafe("DELETE FROM qa_password_resets WHERE account_id=$1",[account.id]);
+  const token=randomBytes(32).toString("base64url");
+  await sql.unsafe("INSERT INTO qa_password_resets(token_hash,account_id,expires_at) VALUES($1,$2,now()+interval '30 minutes')",[digest(token),account.id]);
+  try{
+   await sendResetEmail(account.email,token);
+   console.log("PASSWORD_RESET_BOOTSTRAP",JSON.stringify({accountReady:true,created,mailSent:true}));
+  }catch(e){
+   await sql.unsafe("DELETE FROM qa_password_resets WHERE token_hash=$1",[digest(token)]);
+   console.log("PASSWORD_RESET_BOOTSTRAP",JSON.stringify({accountReady:true,created,mailSent:false,error:String(e?.message||"send_failed").slice(0,80)}));
+  }
+ }catch(e){
+  console.log("PASSWORD_RESET_BOOTSTRAP",JSON.stringify({accountReady:false,created:false,mailSent:false,error:String(e?.message||"bootstrap_failed").slice(0,80)}));
+ }
 }
 const ok=(status,value,cookie)=>{
  const h={"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"};
@@ -200,14 +233,6 @@ async function handler(req){
   // No exception text, credentials, cookies, client data, or SQL is written to logs.
   return err(e?.message==="body_too_large"?413:503,"qa_request_failed");
  }
-}
-if(String(Bun.env.PP_PASSWORD_RESET_DIAGNOSTIC||"")==="1"){
-  try{
-    const rows=await sql.unsafe("SELECT id FROM qa_accounts WHERE lower(email)=lower($1) LIMIT 2",["fadeev.msa@gmail.com"]);
-    console.log("PASSWORD_RESET_DIAGNOSTIC",JSON.stringify({found:rows.length===1,count:rows.length}));
-  }catch(_){
-    console.log("PASSWORD_RESET_DIAGNOSTIC",JSON.stringify({found:false,count:-1}));
-  }
 }
 Bun.serve({port:Number(Bun.env.PORT||8080),fetch:handler});
 console.log("LIFTORBIT_QA_AUTH_READY",JSON.stringify({port:Number(Bun.env.PORT||8080),storage:"isolated-postgres",ready:true}));
