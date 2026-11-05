@@ -111,6 +111,20 @@ test('unrelated model route still uses the original authenticated API',async()=>
  const r=await bridge.fetch(request('A3','/api/model'),{});
  assert.equal((await r.json()).legacy,true);
 });
+test('duplicate async start joins the same active account job instead of returning 409',async()=>{
+ const {bridge,jobs}=makeEnv({hold:true});
+ const req=request('A7','/api/plan','POST',{});
+ const body=new TextEncoder().encode(JSON.stringify({objective:'duration',__pp_async_start:true})).buffer;
+ const first=await bridge.fetch(req,{body});
+ assert.equal(first.status,202);
+ const one=await first.json();assert.equal(one.started,true);assert.equal(jobs.size,1);
+ const second=await bridge.fetch(req,{body});
+ assert.equal(second.status,202);
+ const two=await second.json();
+ assert.equal(two.started,true);assert.equal(two.joined,true);
+ assert.equal(two.job_id,one.job_id);
+ assert.equal(jobs.size,1);
+});
 test('continue without client resume_state reuses only the same account completed resume state',async()=>{
  const {bridge,calls}=makeEnv();
  const req=request('A2','/api/plan','POST',{});
