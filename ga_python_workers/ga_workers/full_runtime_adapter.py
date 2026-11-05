@@ -204,6 +204,13 @@ def run(payload,progress):
                         print("PP_GA_RAW_PROGRESS_SHAPE",{str(k):{"type":type(v).__name__,"nonnull":v is not None} for k,v in raw_progress.items()},flush=True)
                     related=sorted(str(k) for k in ga.keys() if any(x in str(k).lower() for x in ('candidate','progress','preview')))
                     print("PP_GA_RELATED_NAMES",related,flush=True)
+                    meta={}
+                    for name in related:
+                        fn=ga.get(name)
+                        code=getattr(fn,'__code__',None)
+                        if callable(fn) and code is not None:
+                            meta[name]={"args":list(code.co_varnames[:code.co_argcount]),"names":sorted(set(str(x) for x in code.co_names if isinstance(x,str)))}
+                    print("PP_GA_RELATED_META",meta,flush=True)
                     state_keys_logged=True
             pct=int(snap.get('percent') or 0)
             best=_preview_plan(snap.get('best_preview'),normalized)
