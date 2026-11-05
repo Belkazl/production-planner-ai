@@ -183,18 +183,25 @@ def run(payload,progress):
     task=threading.Thread(target=compute,daemon=True)
     task.start()
     last=(-1,0)
+    last_candidate_at=0.0
     while task.is_alive():
         task.join(timeout=0.15)
         try:
             snap=ga.get('_pp_progress_snapshot',lambda: {})()
             pct=int(snap.get('percent') or 0)
             best=_preview_plan(snap.get('best_preview'),normalized)
-            if (pct,last[1] if best is not None else 0)!=last:
+            candidate=_preview_plan(snap.get('candidate_preview'),normalized)
+            now=time.monotonic()
+            candidate_due=candidate is not None and (now-last_candidate_at)>=2.0
+            if (pct,last[1] if best is not None else 0)!=last or candidate_due:
                 # Preserve the preview contract without reporting data from
                 # another account; all inputs here belong to this one process.
                 preview={'percent':min(99,max(1,pct)),'phase':snap.get('phase','optimizing'),'running':True}
                 if best is not None:
                     preview['best_preview']=best
+                if candidate_due:
+                    preview['candidate_preview']=candidate
+                    last_candidate_at=now
                 progress(preview)
                 last=(pct,1 if best is not None else 0)
         except Exception:
