@@ -199,6 +199,11 @@ def run(payload,progress):
                 internal=ga.get('_PP_GENERIC_STATE')
                 if isinstance(internal,dict):
                     print("PP_GA_STATE_KEYS",sorted(str(k) for k in internal.keys()),flush=True)
+                    raw_progress=ga.get('_PP_PLAN_PROGRESS')
+                    if isinstance(raw_progress,dict):
+                        print("PP_GA_RAW_PROGRESS_SHAPE",{str(k):{"type":type(v).__name__,"nonnull":v is not None} for k,v in raw_progress.items()},flush=True)
+                    related=sorted(str(k) for k in ga.keys() if any(x in str(k).lower() for x in ('candidate','progress','preview')))
+                    print("PP_GA_RELATED_NAMES",related,flush=True)
                     state_keys_logged=True
             pct=int(snap.get('percent') or 0)
             best=_preview_plan(snap.get('best_preview'),normalized)
