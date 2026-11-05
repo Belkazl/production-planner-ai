@@ -64,6 +64,30 @@ test('ten real upstream requests route account models to distinct jobs',async()=
   assert(p.operations.every(x=>x.order.startsWith('A'+i+'-')));
  }
 });
+test('public plan contract fills legacy frontend arrays used by join()',async()=>{
+ const {bridge,jobs}=makeEnv({hold:true});
+ const req=request('JOINSAFE','/api/plan','POST',{});
+ const body=new TextEncoder().encode(JSON.stringify({objective:'duration',__pp_async_start:true})).buffer;
+ const start=await bridge.fetch(req,{body});
+ assert.equal(start.status,202);
+ const job=[...jobs.values()][0];
+ job.status='completed';
+ job.result={
+   ok:true,valid:true,duration_minutes:10,
+   operations:[{order:'JOINSAFE-O1',equipment_id:'E1',employee_id:'P1'}],
+   generic_operations:[{order:'JOINSAFE-O1',equipment_id:'E1',employee_id:'P1'}]
+ };
+ const progress=await bridge.fetch(request('JOINSAFE','/api/plan-progress'),{});
+ const data=await progress.json();
+ assert.equal(data.success,true);
+ assert.deepEqual(data.result.validation_errors,[]);
+ assert.deepEqual(data.result.errors,[]);
+ assert.deepEqual(data.result.warnings,[]);
+ assert.deepEqual(data.result.order_sequence,[]);
+ assert.deepEqual(data.result.operations[0].equipment_ids,['E1']);
+ assert.deepEqual(data.result.operations[0].employee_ids,['P1']);
+ assert.deepEqual(data.result.operations[0].resources,[]);
+});
 test('async start returns immediately and progress carries candidate then final result',async()=>{
  const {bridge,jobs}=makeEnv({hold:true});
  const req=request('A6','/api/plan','POST',{});
