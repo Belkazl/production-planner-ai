@@ -32,11 +32,47 @@ export function createPythonGAUpstream({
   };
   const publicPlan = plan => {
     if(!plan||typeof plan!=='object')return plan;
-    if(Array.isArray(plan.operations)&&plan.operations.length)return plan;
-    const generic=plan.generic_operations;
-    if(!Array.isArray(generic)||!generic.length)return plan;
-    const operations=generic.filter(x=>x&&x.phase!=='setup'&&x.order!=null);
-    return operations.length?{...plan,operations}:plan;
+    const rawOps=Array.isArray(plan.operations)&&plan.operations.length
+      ? plan.operations
+      : (Array.isArray(plan.generic_operations)?plan.generic_operations:[]);
+    const operations=rawOps
+      .filter(x=>x&&typeof x==='object')
+      .map(x=>({
+        ...x,
+        equipment_ids:Array.isArray(x.equipment_ids)?x.equipment_ids:(x.equipment_id!=null?[x.equipment_id]:[]),
+        employee_ids:Array.isArray(x.employee_ids)?x.employee_ids:(x.employee_id!=null?[x.employee_id]:[]),
+        resources:Array.isArray(x.resources)?x.resources:[],
+        material_ids:Array.isArray(x.material_ids)?x.material_ids:[]
+      }));
+    const generic=Array.isArray(plan.generic_operations)&&plan.generic_operations.length
+      ? plan.generic_operations.map(x=>x&&typeof x==='object'?({
+          ...x,
+          equipment_ids:Array.isArray(x.equipment_ids)?x.equipment_ids:(x.equipment_id!=null?[x.equipment_id]:[]),
+          employee_ids:Array.isArray(x.employee_ids)?x.employee_ids:(x.employee_id!=null?[x.employee_id]:[]),
+          resources:Array.isArray(x.resources)?x.resources:[],
+          material_ids:Array.isArray(x.material_ids)?x.material_ids:[]
+        }):x)
+      : operations;
+    const batches=(Array.isArray(plan.batches)?plan.batches:[]).map(b=>b&&typeof b==='object'?({
+      ...b,
+      equipment_ids:Array.isArray(b.equipment_ids)?b.equipment_ids:[],
+      employee_ids:Array.isArray(b.employee_ids)?b.employee_ids:[]
+    }):b);
+    return {
+      ...plan,
+      ok:plan.ok!==false,
+      valid:plan.valid!==false,
+      validation_errors:Array.isArray(plan.validation_errors)?plan.validation_errors:[],
+      errors:Array.isArray(plan.errors)?plan.errors:[],
+      warnings:Array.isArray(plan.warnings)?plan.warnings:[],
+      messages:Array.isArray(plan.messages)?plan.messages:[],
+      violations:Array.isArray(plan.violations)?plan.violations:[],
+      conflicts:Array.isArray(plan.conflicts)?plan.conflicts:[],
+      order_sequence:Array.isArray(plan.order_sequence)?plan.order_sequence:[],
+      operations,
+      generic_operations:generic,
+      batches
+    };
   };
   const owned = (plan,model) => {
     plan=publicPlan(plan);
@@ -203,7 +239,8 @@ export function createPythonGAUpstream({
     }
     if(status.status==='completed'){
       if(!owned(status.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
-      state.best=status.result;state.result=status.result;state.resume_state=status.result?.resume_state||null;state.error=null;
+      const finalPlan=publicPlan(status.result);
+      state.best=finalPlan;state.result=finalPlan;state.resume_state=finalPlan?.resume_state||null;state.error=null;
     }else if(['failed','timed_out'].includes(status.status)){
       state.error=typeof status.error==='string'?status.error:null;
     }
