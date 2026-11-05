@@ -65,8 +65,8 @@ export function createPythonGAUpstream({
     if(!saved)return null;
     if(!/^[0-9a-f]{32}$/.test(String(saved.job_id||'')))throw Error('persisted_job_invalid');
     const restored={id:saved.job_id,modelKey:saved.model_hash,state:saved.status,began:now(),
-      best:saved.best_preview||saved.result||null,progress:saved.progress||0,
-      result:saved.result||null,resume_state:saved.resume_state||null};
+      best:saved.best_preview||saved.result||null,candidate:null,progress:saved.progress||0,
+      result:saved.result||null,resume_state:saved.resume_state||null,error:saved.error||null};
     jobs.set(principal,restored);
     return restored;
   }
@@ -105,6 +105,8 @@ export function createPythonGAUpstream({
       args=JSON.parse(raw);if(!args||typeof args!=='object'||Array.isArray(args))throw Error('invalid_args');
       for(const key of ['account','accountId','account_id','model','cookie'])delete args[key];
     }catch{return response({ok:false,error:'invalid_ga_options'},422)}
+    const asyncStart=args.__pp_async_start===true;
+    delete args.__pp_async_start;
     const continuing=!!(args.continue||args.continue_run);
     if(continuing&&!args.resume_state&&!args.resume_plan&&current?.resume_state)
       args.resume_state=current.resume_state;
@@ -117,13 +119,14 @@ export function createPythonGAUpstream({
       const r=await call(principal,'/internal/jobs','POST',{model,options:args});
       if(r.status!==202||!/^[0-9a-f]{32}$/.test(r.body.job_id||''))
         return response({ok:false,error:r.status===409?'optimization_running_stop_first':'ga_worker_unavailable'},r.status===409?409:503);
-      state={id:r.body.job_id,modelKey,state:'queued',began:now(),best:null,progress:0,result:null,resume_state:null};
+      state={id:r.body.job_id,modelKey,state:'queued',began:now(),best:null,candidate:null,progress:0,result:null,resume_state:null,error:null};
       jobs.set(principal,state);
       try{await save(principal,state)}catch{
        try{await call(principal,'/internal/jobs/'+state.id+'/cancel','POST',{})}catch{}
        state.state='failed';return response({ok:false,error:'ga_state_unavailable'},503);
       }
     }catch{return response({ok:false,error:'ga_worker_unavailable'},503)}
+    if(asyncStart)return response({ok:true,started:true,job_id:state.id,percent:0,phase:'queued'},202);
     const abort=()=>{if(state.state!=='cancelled')void cancel(req)};
     if(opts?.signal)opts.signal.addEventListener('abort',abort,{once:true});
     try{
@@ -133,6 +136,7 @@ export function createPythonGAUpstream({
         if(r.status!==200)throw Error('ga_worker_status_unavailable');
         const data=r.body;
         if(data.best_preview){const live=publicPlan(data.best_preview);if(owned(live,model))state.best=live;}
+        if(data.candidate_preview){const liveCandidate=publicPlan(data.candidate_preview);if(owned(liveCandidate,model))state.candidate=liveCandidate;}
         state.state=data.status;state.progress=Math.max(0,Math.min(100,Number(data.progress)||0));
         if(stateStore&&data.status!=='completed')await save(principal,state);
         if(data.status==='completed'){
@@ -172,9 +176,10 @@ export function createPythonGAUpstream({
     if(!state)return response({ok:true,running:false,success:false,done:0,total:0,percent:0,phase:'idle',best_preview:null,candidate_preview:null});
     if(state.state==='completed'&&state.result){
       if(!owned(state.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
-      return response({ok:true,running:false,success:true,done:100,total:100,percent:100,phase:'completed',best_preview:state.result,candidate_preview:null});
+      return response({ok:true,running:false,success:true,done:100,total:100,percent:100,phase:'completed',
+        best_preview:state.result,candidate_preview:null,result:state.result,resume_state:state.resume_state||null,error:null});
     }
-    if(['cancelled','failed','timed_out','interrupted','invalid','stale'].includes(state.state))return response({ok:true,running:false,success:false,done:state.progress||0,total:100,percent:state.progress||0,phase:state.state,best_preview:state.best,candidate_preview:null});
+    if(['cancelled','failed','timed_out','interrupted','invalid','stale'].includes(state.state))return response({ok:true,running:false,success:false,done:state.progress||0,total:100,percent:state.progress||0,phase:state.state,best_preview:state.best,candidate_preview:state.candidate||null,result:null,error:state.error||null});
     if(hashModel(model)!==state.modelKey){await cancel(req);return response({ok:false,error:'account_model_changed_during_run'},409)}
     let status;
     try{const r=await call(principal,'/internal/jobs/'+state.id);
@@ -187,14 +192,23 @@ export function createPythonGAUpstream({
       if(!owned(live,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
       state.best=live;
     }
+    if(status.candidate_preview){
+      const liveCandidate=publicPlan(status.candidate_preview);
+      if(!owned(liveCandidate,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
+      state.candidate=liveCandidate;
+    }
     if(status.status==='completed'){
       if(!owned(status.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
-      state.best=status.result;state.result=status.result;state.resume_state=status.result?.resume_state||null;
+      state.best=status.result;state.result=status.result;state.resume_state=status.result?.resume_state||null;state.error=null;
+    }else if(['failed','timed_out'].includes(status.status)){
+      state.error=typeof status.error==='string'?status.error:null;
     }
     try{await save(principal,state)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
     const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));
     return response({ok:true,running,success:status.status==='completed',done:pct,total:100,
-      percent:pct,phase:status.status,best_preview:state.best,candidate_preview:null});
+      percent:pct,phase:status.status,best_preview:state.best,candidate_preview:running?(state.candidate||null):null,
+      result:status.status==='completed'?state.result:null,resume_state:status.status==='completed'?(state.resume_state||null):null,
+      error:state.error||null});
   }
   async function fetchUpstream(req,opts){
     if(!enabled)return fallback(req,opts);
