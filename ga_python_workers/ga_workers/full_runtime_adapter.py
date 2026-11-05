@@ -222,6 +222,7 @@ def run(payload,progress):
                     preview['best_preview']=best
                 if candidate_due:
                     preview['candidate_preview']=candidate
+                    print("PP_GA_CANDIDATE_EMIT",{"seq":candidate_seq,"at_ms":round(now*1000)},flush=True)
                     last_candidate_at=now
                     last_candidate_seq=candidate_seq
                 progress(preview)
