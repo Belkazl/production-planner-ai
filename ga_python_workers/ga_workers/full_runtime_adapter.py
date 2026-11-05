@@ -189,12 +189,21 @@ def run(payload,progress):
             out=original_progress_candidate(model_arg,sim_arg,objective_arg)
             try:
                 raw=(ga.get('_PP_PLAN_PROGRESS') or {}).get('candidate_preview')
+                if not state.get('candidate_shape_logged'):
+                    meta={"type":type(raw).__name__}
+                    if isinstance(raw,dict):
+                        meta.update({"keys":sorted(str(k) for k in raw.keys()),"valid":raw.get('valid'),
+                                     "ops":len(raw.get('operations') or []),"generic_ops":len(raw.get('generic_operations') or [])})
+                    print("PP_GA_CANDIDATE_SHAPE",meta,flush=True)
+                    state['candidate_shape_logged']=True
                 live=_preview_plan(raw,normalized)
                 if live is not None:
                     state['candidate_preview']=live
                     state['candidate_seq']=int(state.get('candidate_seq') or 0)+1
-            except Exception:
-                pass
+            except Exception as ex:
+                if not state.get('candidate_shape_logged'):
+                    print("PP_GA_CANDIDATE_SHAPE",{"error":type(ex).__name__+":"+str(ex)[:100]},flush=True)
+                    state['candidate_shape_logged']=True
             return out
         ga['_pp_progress_candidate']=captured_progress_candidate
     def compute():
