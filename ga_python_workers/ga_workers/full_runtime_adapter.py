@@ -147,6 +147,10 @@ def run(payload,progress):
     pins=_extract_locks(payload,original,opts)
     continuing=bool(opts.get('continue') or opts.get('continue_run'))
     ga=_namespace()
+    for name in ('optimize','_pp_optimize_generic'):
+        fn=ga.get(name);code=getattr(fn,'__code__',None)
+        if callable(fn) and code is not None:
+            print("PP_GA_OPT_META",name,{"args":list(code.co_varnames[:code.co_argcount]),"names":sorted(set(str(x) for x in code.co_names if isinstance(x,str)))},flush=True)
     normalized=ga['canonicalize_model'](original)
     if not isinstance(normalized,dict) or not ga['model_ready'](normalized):
         raise FullGAError('ga_model_not_ready')
