@@ -68,6 +68,8 @@ def _namespace():
     # preview-only: a defensive deep copy cannot affect GA fitness/selection.
     if not callable(ns.get('_ppf_copy')):
         ns['_ppf_copy']=copy.deepcopy
+    if not callable(ns.get('deepcopy')):
+        ns['deepcopy']=copy.deepcopy
     required=('canonicalize_model','model_ready','install_model','optimize',
               '_pp_optimize_generic','_pp_setup_generic_apply')
     if not all(callable(ns.get(n)) for n in required):
@@ -222,7 +224,6 @@ def run(payload,progress):
                     preview['best_preview']=best
                 if candidate_due:
                     preview['candidate_preview']=candidate
-                    print("PP_GA_CANDIDATE_EMIT",{"seq":candidate_seq,"at_ms":round(now*1000)},flush=True)
                     last_candidate_at=now
                     last_candidate_seq=candidate_seq
                 progress(preview)
