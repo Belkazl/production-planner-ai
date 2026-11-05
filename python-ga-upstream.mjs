@@ -95,7 +95,6 @@ export function createPythonGAUpstream({
     if(!model||!Array.isArray(model.orders)||!model.orders.length)return response({ok:false,error:'account_model_not_ready'},409);
     let current;
     try{current=await currentJob(principal)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
-    if(current&&['queued','running'].includes(current.state))return response({ok:false,error:'optimization_running_stop_first'},409);
     const modelKey=hashModel(model);
     let args;
     try{
@@ -107,6 +106,11 @@ export function createPythonGAUpstream({
     }catch{return response({ok:false,error:'invalid_ga_options'},422)}
     const asyncStart=args.__pp_async_start===true;
     delete args.__pp_async_start;
+    if(current&&['queued','running'].includes(current.state)){
+      if(asyncStart&&current.modelKey===modelKey)
+        return response({ok:true,started:true,joined:true,job_id:current.id,percent:current.progress||0,phase:current.state},202);
+      return response({ok:false,error:'optimization_running_stop_first'},409);
+    }
     const continuing=!!(args.continue||args.continue_run);
     if(continuing&&!args.resume_state&&!args.resume_plan&&current?.resume_state)
       args.resume_state=current.resume_state;
