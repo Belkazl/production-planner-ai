@@ -175,7 +175,21 @@ def run(payload,progress):
         except ContinuationError as ex:raise FullGAError(str(ex)) from ex
     elif opts.get('resume_state') or opts.get('resume_plan'):
         raise FullGAError('ga_resume_state_requires_continue')
-    state={}
+    state={'candidate_preview':None,'candidate_seq':0}
+    original_progress_candidate=ga.get('_pp_progress_candidate')
+    if callable(original_progress_candidate):
+        def captured_progress_candidate(model_arg,sim_arg,objective_arg):
+            out=original_progress_candidate(model_arg,sim_arg,objective_arg)
+            try:
+                raw=(ga.get('_PP_PLAN_PROGRESS') or {}).get('candidate_preview')
+                live=_preview_plan(raw,normalized)
+                if live is not None:
+                    state['candidate_preview']=live
+                    state['candidate_seq']=int(state.get('candidate_seq') or 0)+1
+            except Exception:
+                pass
+            return out
+        ga['_pp_progress_candidate']=captured_progress_candidate
     def compute():
         try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
         except BaseException as exc:state['exception']=exc
@@ -184,39 +198,17 @@ def run(payload,progress):
     task.start()
     last=(-1,0)
     last_candidate_at=0.0
-    progress_keys_logged=False
-    state_keys_logged=False
+    last_candidate_seq=0
     while task.is_alive():
         task.join(timeout=0.15)
         try:
             snap=ga.get('_pp_progress_snapshot',lambda: {})()
-            if not progress_keys_logged and isinstance(snap,dict):
-                print("PP_GA_PROGRESS_KEYS",sorted(str(k) for k in snap.keys()),flush=True)
-                fn=ga.get('_pp_progress_snapshot')
-                print("PP_GA_PROGRESS_NAMES",sorted(set(str(k) for k in getattr(getattr(fn,'__code__',None),'co_names',()) if isinstance(k,str))),flush=True)
-                progress_keys_logged=True
-            if not state_keys_logged:
-                internal=ga.get('_PP_GENERIC_STATE')
-                if isinstance(internal,dict):
-                    print("PP_GA_STATE_KEYS",sorted(str(k) for k in internal.keys()),flush=True)
-                    raw_progress=ga.get('_PP_PLAN_PROGRESS')
-                    if isinstance(raw_progress,dict):
-                        print("PP_GA_RAW_PROGRESS_SHAPE",{str(k):{"type":type(v).__name__,"nonnull":v is not None} for k,v in raw_progress.items()},flush=True)
-                    related=sorted(str(k) for k in ga.keys() if any(x in str(k).lower() for x in ('candidate','progress','preview')))
-                    print("PP_GA_RELATED_NAMES",related,flush=True)
-                    meta={}
-                    for name in related:
-                        fn=ga.get(name)
-                        code=getattr(fn,'__code__',None)
-                        if callable(fn) and code is not None:
-                            meta[name]={"args":list(code.co_varnames[:code.co_argcount]),"names":sorted(set(str(x) for x in code.co_names if isinstance(x,str)))}
-                    print("PP_GA_RELATED_META",meta,flush=True)
-                    state_keys_logged=True
             pct=int(snap.get('percent') or 0)
             best=_preview_plan(snap.get('best_preview'),normalized)
-            candidate=_preview_plan(snap.get('candidate_preview'),normalized)
+            candidate=state.get('candidate_preview') or _preview_plan(snap.get('candidate_preview'),normalized)
+            candidate_seq=int(state.get('candidate_seq') or 0)
             now=time.monotonic()
-            candidate_due=candidate is not None and (now-last_candidate_at)>=2.0
+            candidate_due=candidate is not None and candidate_seq!=last_candidate_seq and (now-last_candidate_at)>=2.0
             if (pct,last[1] if best is not None else 0)!=last or candidate_due:
                 # Preserve the preview contract without reporting data from
                 # another account; all inputs here belong to this one process.
@@ -226,6 +218,7 @@ def run(payload,progress):
                 if candidate_due:
                     preview['candidate_preview']=candidate
                     last_candidate_at=now
+                    last_candidate_seq=candidate_seq
                 progress(preview)
                 last=(pct,1 if best is not None else 0)
         except Exception:
