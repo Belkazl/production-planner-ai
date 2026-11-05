@@ -184,10 +184,14 @@ def run(payload,progress):
     task.start()
     last=(-1,0)
     last_candidate_at=0.0
+    progress_keys_logged=False
     while task.is_alive():
         task.join(timeout=0.15)
         try:
             snap=ga.get('_pp_progress_snapshot',lambda: {})()
+            if not progress_keys_logged and isinstance(snap,dict):
+                print("PP_GA_PROGRESS_KEYS",sorted(str(k) for k in snap.keys()),flush=True)
+                progress_keys_logged=True
             pct=int(snap.get('percent') or 0)
             best=_preview_plan(snap.get('best_preview'),normalized)
             candidate=_preview_plan(snap.get('candidate_preview'),normalized)
