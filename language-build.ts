@@ -41,16 +41,16 @@ function ppNonBlockingDbSyncHtml(html:string){
 }
 
 const asyncDbShim=readFileSync("nonblocking-db-shim.js","utf8");
+const asyncInline="<script id=\"ppAsyncPlanTransport\">"+asyncPlanJs+"</script>";
 const inline="<style id=\"ppLanguageUiCss\">"+css+"</style>"+
- "<script id=\"ppAsyncPlanTransport\">"+asyncPlanJs+"</script>"+
  "<script id=\"ppLanguageUiJs\">"+js+"</script>";
 // Replace the legacy autoclave-only heading in the proxied UI HTML before localization.
 // This is presentation-only: optimizer, saved models, routing and API payloads stay unchanged.
 one("const h=await r.text();const pp3Mode",
-    "const h=ppNonBlockingDbSyncHtml((await r.text()).replaceAll('Занятость автоклавов','Загрузка оборудования'));const pp3Mode",
+    "const h=ppNonBlockingDbSyncHtml((await r.text()).replaceAll('Занятость автоклавов','Загрузка оборудования').replace('</head>',PP_ASYNC_PLAN_INLINE+'</head>'));const pp3Mode",
     "generic_equipment_heading");
 one("async function serveGanttUi(req){",
- "const PP_ASYNC_DB_SHIM="+JSON.stringify(asyncDbShim)+";\n"+ppNonBlockingDbSyncHtml.toString()+"\nconst PP_LANGUAGE_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){",
+ "const PP_ASYNC_DB_SHIM="+JSON.stringify(asyncDbShim)+";\n"+ppNonBlockingDbSyncHtml.toString()+"\nconst PP_ASYNC_PLAN_INLINE="+JSON.stringify(asyncInline)+";\nconst PP_LANGUAGE_INLINE="+JSON.stringify(inline)+";\nasync function serveGanttUi(req){",
  "inject_language_bundle");
 one("+PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE+'</body>'",
  "+PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE+PP_LANGUAGE_INLINE+'</body>'",
@@ -67,5 +67,5 @@ console.log("PP_I18N_BUILD_OK",JSON.stringify({
  defaultLanguage:"en",supported:["en","ru"],login:true,authenticatedApp:true,
  selectorsPreserveRussianRouteKeys:true,projectDataUntouched:true,optimizerUntouched:true,
  bytes:source.length,uiJsBytes:js.length,uiCssBytes:css.length,asyncPlanJsBytes:asyncPlanJs.length,
- asyncStorageWrites:true,asyncPlanTransport:true
+ asyncStorageWrites:true,asyncPlanTransport:true,asyncPlanTransportEarly:true
 }));
