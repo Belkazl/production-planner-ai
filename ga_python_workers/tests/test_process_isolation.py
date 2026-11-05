@@ -56,6 +56,20 @@ class ProcessTests(unittest.TestCase):
         self.assertGreater(heartbeat, 1, "HTTP parent must stay responsive during CPU work")
         print("PY_GA_TEN_SESSIONS_PASS", json.dumps({"tenants": 10, "distinct_worker_pids": len(pids), "peak": self.manager.peak, "parent_heartbeats": heartbeat}), flush=True)
 
+    def test_candidate_preview_stays_account_isolated(self):
+        jobs = {t: self.manager.submit(t, payload(t, 0.75)) for t in ("CAND_A", "CAND_B")}
+        previews = {}
+        for tenant, info in jobs.items():
+            snap = until(lambda t=tenant, j=info["job_id"]: (
+                (x := self.manager.get(t, j)) if isinstance(self.manager.get(t, j).get("candidate_preview"), dict) else None
+            ), 8)
+            candidate = snap["candidate_preview"]
+            previews[tenant] = candidate
+            self.assertEqual(tenant, candidate["tenant_tag"])
+            self.assertTrue(candidate.get("candidate"))
+            self.assertTrue(all(str(x["order"]).startswith(tenant + "-ORDER-") for x in candidate["operations"]))
+        self.assertNotEqual(previews["CAND_A"]["tenant_tag"], previews["CAND_B"]["tenant_tag"])
+
     def test_hard_cancel_one_while_other_jobs_finish(self):
         long = self.manager.submit("CANCEL", payload("CANCEL", 4))
         others = {"OTHER" + str(i): self.manager.submit("OTHER" + str(i), payload("OTHER" + str(i), 0.25)) for i in range(6)}
