@@ -83,6 +83,7 @@ class _Job:
     ended_at: Optional[float] = None
     pid: Optional[int] = None
     best_preview: Optional[dict] = field(default=None, repr=False)
+    candidate_preview: Optional[dict] = field(default=None, repr=False)
     progress: int = 0
     result: Optional[dict] = field(default=None, repr=False)
     error: Optional[str] = None
@@ -194,6 +195,7 @@ class ProcessJobManager:
         result = {"job_id": job.job_id, "status": job.state, "progress": job.progress,
                   "running": job.state == "running", "pid": job.pid,
                   "error": job.error, "best_preview": job.best_preview,
+                  "candidate_preview": job.candidate_preview,
                   "duration_ms": (round(((job.ended_at or time.monotonic()) - job.started_at) * 1000)
                                   if job.started_at else None)}
         if include_plan and job.state == "completed":
@@ -273,6 +275,8 @@ class ProcessJobManager:
                             job.progress = min(99, max(job.progress, int(data.get("percent", 0))))
                             if isinstance(data.get("best_preview"), dict):
                                 job.best_preview = data["best_preview"]
+                            if isinstance(data.get("candidate_preview"), dict):
+                                job.candidate_preview = data["candidate_preview"]
                         elif msg.get("type") == "result":
                             # A result is not externally terminal until the OS
                             # process is reaped and its worker slot is released.
