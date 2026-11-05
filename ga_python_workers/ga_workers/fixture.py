@@ -17,7 +17,9 @@ def run(payload, progress):
         iterations += 1
         pct = min(99, int((time.monotonic() - began) / duration * 100))
         if pct >= next_mark:
-            progress({"percent": pct, "best_preview": {"operations": [{"order": x} for x in order_ids], "tenant_tag": tenant_tag}})
+            progress({"percent": pct,
+                      "best_preview": {"operations": [{"order": x} for x in order_ids], "tenant_tag": tenant_tag},
+                      "candidate_preview": {"operations": [{"order": x} for x in reversed(order_ids)], "tenant_tag": tenant_tag, "candidate": True}})
             next_mark += 20
     return {"valid": True, "operations": [{"order": x} for x in order_ids],
             "tenant_tag": tenant_tag, "iterations": iterations, "checksum": round(state, 5)}
