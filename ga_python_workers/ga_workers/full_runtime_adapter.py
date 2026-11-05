@@ -70,6 +70,12 @@ def _namespace():
         ns['_ppf_copy']=copy.deepcopy
     if not callable(ns.get('deepcopy')):
         ns['deepcopy']=copy.deepcopy
+    # Some recovered runtimes define a callable named copy, which shadows the
+    # stdlib module while progress preview still calls copy.deepcopy(...).
+    # Preserve the runtime callable and attach only the missing deepcopy helper.
+    runtime_copy=ns.get('copy')
+    if callable(runtime_copy) and not hasattr(runtime_copy,'deepcopy'):
+        runtime_copy.deepcopy=copy.deepcopy
     required=('canonicalize_model','model_ready','install_model','optimize',
               '_pp_optimize_generic','_pp_setup_generic_apply')
     if not all(callable(ns.get(n)) for n in required):
