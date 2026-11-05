@@ -183,9 +183,27 @@ def run(payload,progress):
     original_progress_candidate=ga.get('_pp_progress_candidate')
     if callable(original_progress_candidate):
         def captured_progress_candidate(model_arg,sim_arg,objective_arg):
+            state['candidate_calls']=int(state.get('candidate_calls') or 0)+1
             out=original_progress_candidate(model_arg,sim_arg,objective_arg)
             try:
                 raw=(ga.get('_PP_PLAN_PROGRESS') or {}).get('candidate_preview')
+                if not state.get('candidate_meta_logged'):
+                    meta={"calls":state['candidate_calls'],"raw_type":type(raw).__name__}
+                    if isinstance(raw,dict):
+                        meta.update({"keys":sorted(str(k) for k in raw.keys()),"valid":raw.get('valid'),
+                                     "ops":len(raw.get('operations') or []),"generic_ops":len(raw.get('generic_operations') or [])})
+                    try:
+                        probe=ga['_pp_progress_preview'](model_arg,sim_arg,objective_arg)
+                        meta["probe_type"]=type(probe).__name__
+                        if isinstance(probe,dict):
+                            meta["probe_keys"]=sorted(str(k) for k in probe.keys())
+                            meta["probe_valid"]=probe.get('valid')
+                            meta["probe_ops"]=len(probe.get('operations') or [])
+                            meta["probe_generic_ops"]=len(probe.get('generic_operations') or [])
+                    except Exception as ex:
+                        meta["probe_error"]=type(ex).__name__+":"+str(ex)[:100]
+                    print("PP_GA_CANDIDATE_META",meta,flush=True)
+                    state['candidate_meta_logged']=True
                 live=_preview_plan(raw,normalized)
                 if live is not None:
                     state['candidate_preview']=live
