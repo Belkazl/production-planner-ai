@@ -29,7 +29,10 @@ function makeEnv({hold=false,foreign=false,outage=false}={}){
   const m=foreign?models.get('A9'):j.model;
   const plan={ok:true,valid:true,operations:m.orders.map(x=>({order:x.id})),setup_rules_processed:false,
    resume_state:{version:1,owner:key,completed_runs:1,total_trials:12}};
-  return Response.json({status:j.status,progress:j.status==='completed'?100:15,result:j.status==='completed'?plan:null,best_preview:null});
+  const candidate={ok:true,valid:true,operations:[...m.orders].reverse().map(x=>({order:x.id})),candidate:true};
+  return Response.json({status:j.status,progress:j.status==='completed'?100:15,
+   result:j.status==='completed'?plan:null,best_preview:j.status==='running'?plan:null,
+   candidate_preview:j.status==='running'?candidate:null});
  };
  const bridge=createPythonGAUpstream({enabled:true,origin:ORIGIN,token:TOKEN,
   upstreamUrl:req=>'https://legacy.invalid'+new URL(req.url).pathname,
@@ -60,6 +63,24 @@ test('ten real upstream requests route account models to distinct jobs',async()=
   const p=await results[i].json();assert.equal(p.operations.length,12);
   assert(p.operations.every(x=>x.order.startsWith('A'+i+'-')));
  }
+});
+test('async start returns immediately and progress carries candidate then final result',async()=>{
+ const {bridge,jobs}=makeEnv({hold:true});
+ const req=request('A6','/api/plan','POST',{});
+ const start=await bridge.fetch(req,{body:new TextEncoder().encode(JSON.stringify({objective:'duration',__pp_async_start:true})).buffer});
+ assert.equal(start.status,202);
+ const started=await start.json();assert.equal(started.started,true);assert.equal(jobs.size,1);
+ let progress=await bridge.fetch(request('A6','/api/plan-progress'),{});
+ let state=await progress.json();
+ assert.equal(state.running,true);
+ assert.equal(state.candidate_preview.candidate,true);
+ assert(state.candidate_preview.operations.every(x=>x.order.startsWith('A6-')));
+ const job=[...jobs.values()][0];job.status='completed';
+ progress=await bridge.fetch(request('A6','/api/plan-progress'),{});
+ state=await progress.json();
+ assert.equal(state.success,true);assert.equal(state.running,false);
+ assert.equal(state.result.operations.length,12);
+ assert.equal(state.candidate_preview,null);
 });
 test('worker cannot replace schedule with foreign orders',async()=>{
  const {bridge}=makeEnv({foreign:true});
