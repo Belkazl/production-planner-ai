@@ -1,6 +1,7 @@
 import {readFileSync,writeFileSync} from "node:fs";
 let source=readFileSync("index.ts","utf8");
 const js=readFileSync("language-ui.js","utf8");
+const asyncPlanJs=readFileSync("async-plan-transport.js","utf8");
 const css=readFileSync("language-ui.css","utf8");
 if(!js.includes("prodplan.ui.language.v1")||!js.includes("__PP_LANGUAGE__")||
    !js.includes("ppLanguageSelect")||!css.includes(".pp-language-control"))
@@ -41,6 +42,7 @@ function ppNonBlockingDbSyncHtml(html:string){
 
 const asyncDbShim=readFileSync("nonblocking-db-shim.js","utf8");
 const inline="<style id=\"ppLanguageUiCss\">"+css+"</style>"+
+ "<script id=\"ppAsyncPlanTransport\">"+asyncPlanJs+"</script>"+
  "<script id=\"ppLanguageUiJs\">"+js+"</script>";
 // Replace the legacy autoclave-only heading in the proxied UI HTML before localization.
 // This is presentation-only: optimizer, saved models, routing and API payloads stay unchanged.
@@ -64,6 +66,6 @@ writeFileSync("index.ts",source);
 console.log("PP_I18N_BUILD_OK",JSON.stringify({
  defaultLanguage:"en",supported:["en","ru"],login:true,authenticatedApp:true,
  selectorsPreserveRussianRouteKeys:true,projectDataUntouched:true,optimizerUntouched:true,
- bytes:source.length,uiJsBytes:js.length,uiCssBytes:css.length,
- asyncStorageWrites:true
+ bytes:source.length,uiJsBytes:js.length,uiCssBytes:css.length,asyncPlanJsBytes:asyncPlanJs.length,
+ asyncStorageWrites:true,asyncPlanTransport:true
 }));
