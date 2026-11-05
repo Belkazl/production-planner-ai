@@ -189,6 +189,9 @@ def run(payload,progress):
             out=original_progress_candidate(model_arg,sim_arg,objective_arg)
             try:
                 raw=(ga.get('_PP_PLAN_PROGRESS') or {}).get('candidate_preview')
+                if raw is None and callable(ga.get('_pp_progress_preview')):
+                    try: raw=ga['_pp_progress_preview'](model_arg,sim_arg,objective_arg)
+                    except Exception: raw=None
                 if not state.get('candidate_shape_logged'):
                     meta={"type":type(raw).__name__}
                     if isinstance(raw,dict):
