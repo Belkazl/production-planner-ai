@@ -1,0 +1,37 @@
+name: Check authenticated planner via internal Railway gateway
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  internal-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Exercise public canary login against private gateway with synthetic invalid credentials
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error
+          from urllib.parse import urlparse
+          base="https://production-planner-gateway-v2-production.up.railway.app"
+          def hit(path,method="GET",headers=None,body=None):
+            d=json.dumps(body).encode() if body is not None else None
+            req=urllib.request.Request(base+path,data=d,method=method,headers={"User-Agent":"ProdPlanPrivateAuthReadOnlyQA/1.0","Cache-Control":"no-cache",**(headers or {})})
+            try:
+              with urllib.request.urlopen(req,timeout=30) as r:return r.status,r.read(40000).decode("utf8","replace")
+            except urllib.error.HTTPError as e:return e.code,e.read(40000).decode("utf8","replace")
+            except Exception as ex:return 0,str(ex)[:300]
+          st,t=hit("/__bridge_health");print("QA_INTERNAL_HEALTH",st,t[:150],flush=True);assert st==200
+          st,t=hit("/");print("QA_LOGIN_FORM",st,"type=\"password\"" in t,flush=True);assert st==200 and 'type="password"' in t
+          for path in ["/api/db-storage","/api/plan-progress","/api/plan"]:
+            st,t=hit(path);print("QA_BLOCK_ANON",path,st,t[:110],flush=True);assert st==401,(path,st,t[:200])
+          st,t=hit("/api/auth/me");print("QA_PRIVATE_AUTH_ME",st,t[:130],flush=True);assert st==401,(st,t[:200])
+          st,t=hit("/api/auth/login","POST",{"Origin":"https://production-planner-gateway-v2-production.up.railway.app","Sec-Fetch-Site":"same-origin","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
+          print("QA_PRIVATE_AUTH_WRONG_PASS",st,t[:180],flush=True)
+          assert st in (400,401,422) and "cross_origin_forbidden" not in t and "authentication_service_unavailable" not in t,(st,t[:230])
+          st,t=hit("/api/auth/login","POST",{"Origin":"https://untrusted.example","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
+          print("QA_PRIVATE_AUTH_CROSS_ORIGIN",st,t[:130],flush=True);assert st==403
+          st,t=hit("/api/auth/login","POST",{"Origin":"https://prodplan-auth-integration-qa-production.up.railway.app","Content-Type":"application/json"},{"email":"nobody+fake-qa@nowhere.invalid","password":"synthetic-wrong-pass-123"})
+          print("QA_OLD_CANARY_ORIGIN_DENIED",st,t[:100],flush=True);assert st==403
+          print("QA_INTERNAL_GATEWAY_AUTH_PASS",flush=True)
+          PY
