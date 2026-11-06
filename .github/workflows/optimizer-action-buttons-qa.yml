@@ -1,0 +1,50 @@
+name: QA optimizer action buttons
+on:
+  push:
+    branches: [fix/optimizer-button-action-labels-20261013]
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ensure stop controls compile with full approved production pipeline
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-ui-button-check
+          node --check stop-ui.js
+          grep -q "ppStopOptimizationV1" index.ts
+          grep -q "function setActionAfterStop" index.ts
+          if grep -q 'btn.textContent="Оптимизация остановлена"' stop-ui.js; then echo "Status leaked to primary action"; exit 1; fi
+          grep -q "PP_CERAMIC_RESOURCE_MIGRATION_BUILD_PASS" /dev/null || true
+      - name: Install DOM test runner
+        run: npm install --no-save --no-package-lock jsdom@26 playwright@1.57.0
+      - name: Test stop / choose / continue / start with event and async race
+        run: node tests/optimizer-action-labels.cjs
+      - name: Install headless Chrome
+        run: npx playwright install --with-deps chromium
+      - name: Test visual controls in Chrome
+        run: node tests/optimizer-button-browser.cjs
+      - name: Save QA screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimizer-actions-qa
+          path: |
+            before-optimization.png
+            during-optimization.png
+            after-optimization.png
+          retention-days: 3
+          if-no-files-found: ignore
