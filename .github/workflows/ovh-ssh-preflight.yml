@@ -1,0 +1,48 @@
+name: OVH VPS SSH connectivity check (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-ssh-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check OVH VPS over pinned SSH
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for name in OVH_HOST OVH_USER OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Required variable/secret missing: $name" >&2
+              exit 2
+            fi
+          done
+          if [[ ! "$OVH_HOST" =~ ^[a-zA-Z0-9.-]+$ || ! "$OVH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+            echo 'Invalid host or user format' >&2
+            exit 2
+          fi
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_actions_key"
+          knownfile="$HOME/.ssh/ovh_known_hosts"
+          trap 'rm -f "$keyfile" "$knownfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$knownfile"
+          chmod 600 "$keyfile" "$knownfile"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$knownfile" -o IdentitiesOnly=yes \
+            -i "$keyfile" "$OVH_USER@$OVH_HOST" \
+            'set -eu; echo "SSH_OK"; printf "host="; hostname; printf "kernel="; uname -r; printf "docker="; docker --version; printf "compose="; docker compose version; printf "docker_service="; systemctl is-active docker; df -h / | tail -n 1; free -m | head -n 2'
