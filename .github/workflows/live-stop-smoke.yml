@@ -6,45 +6,50 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 9
     steps:
-      - name: Verify live candidate UI and API
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Verify stop optimizer code in the protected release
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-test-build
+          node --check stop-ui.js
+          node --check language-ui.js
+          grep -q "ppStopOptimizationV1" index.ts
+          grep -q "ppStopOptimizer" index.ts
+          grep -q "ppOptimizerStartOver" index.ts
+          grep -q "ppLanguageUiJs" index.ts
+          node tests/start-over-session.cjs
+      - name: Check live protected gateway is healthy and denies anonymous optimizer calls
         run: |
           python3 - <<'PY'
-          import urllib.request, time
-          url="https://aps-setup-bridge-candidate-v2-production.up.railway.app"
-          def fetch(path,method="GET"):
-              req=urllib.request.Request(url+path,method=method)
-              with urllib.request.urlopen(req,timeout=50) as r:
-                  return r.status,r.read().decode("utf-8")
-          status,html=fetch("/")
-          assert status==200,(status,len(html))
-          assert 'ppStopOptimizationV1' in html, "stop script missing"
-          assert 'ppStopOptimizer' in html, "stop button missing"
-          assert 'ppGanttToolV2' in html, "Gantt component missing"
-          assert 'ppStopModal' in html, "stop choices modal missing"
-          print("SMOKE_UI_OK",len(html),flush=True)
-          status,body=fetch("/__bridge_health")
-          assert status==200,(status,body[:1000])
-          print("SMOKE_HEALTH_OK",body[:500],flush=True)
-          import json,re
-          status,body=fetch("/api/plan-progress?ppProgressCache=off")
-          d=json.loads(body)
-          scalars={k:v for k,v in d.items() if isinstance(v,(str,int,float,bool)) or v is None}
-          print("GA_PROGRESS_FIELDS",json.dumps(scalars,ensure_ascii=False),flush=True)
-          for ident in ["ppRealOptProgressV1","ppLivePanelV2"]:
-              m=re.search(r'<script id="'+ident+r'">(.*?)</script>',html,re.S)
-              if m:
-                  script=m.group(1)
-                  print("SCRIPT",ident,"bytes",len(script))
-                  for word in ["function update(","function render(","async function poll(","btn.textContent=","d.percent","d.generation","d.iteration","d.running","d.success"]:
-                      i=script.find(word)
-                      if i>=0:print("EXCERPT",ident,word,json.dumps(script[max(0,i-250):i+750],ensure_ascii=False),flush=True)
-          m=re.search(r'<script id="ppRealOptProgressV1">(.*?)</script>',html,re.S)
-          if m:print("WHOLE_PROGRESS_WIDGET",json.dumps(m.group(1),ensure_ascii=False),flush=True)
-          for word in ["async function runOpt(","async function optimize(","function runOpt(","function ppOptimizerObjective("]:
-              i=html.find(word)
-              if i>=0:print("OPT_FUNCTION",word,json.dumps(html[i:i+4700],ensure_ascii=False),flush=True)
-          for word in ["opt.onclick=","opt.onclick ="]:
-              i=html.find(word)
-              if i>=0:print("OPT_BUTTON_HANDLER",json.dumps(html[max(0,i-80):i+2000],ensure_ascii=False),flush=True)
+          import urllib.request,urllib.error,json
+          origin="https://production-planner-gateway-v2-production.up.railway.app"
+          def read(path):
+              req=urllib.request.Request(origin+path,headers={"User-Agent":"ProdPlanProtectedStopSmoke/1.0"})
+              try:
+                  with urllib.request.urlopen(req,timeout=35) as response:
+                      return response.status,response.read(20000).decode("utf8","replace")
+              except urllib.error.HTTPError as error:
+                  return error.code,error.read(20000).decode("utf8","replace")
+          st,h=read("/__bridge_health")
+          assert st==200,(st,h[:300])
+          st,login=read("/")
+          assert st==200 and 'type="password"' in login,(st,login[:200])
+          for path in ["/api/plan-progress","/api/plan","/api/optimizer-stop","/api/optimizer-reset"]:
+              st,body=read(path)
+              assert st in (401,405),(path,st,body[:200])
+          print("PROTECTED_STOP_BUILD_AND_LIVE_AUTH_PASS")
           PY

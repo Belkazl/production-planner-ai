@@ -48,7 +48,12 @@ function updateCounter(cell){
  const count=cell.querySelector("[data-pp-param-count]");
  if(!count)return;
  const n=cell.querySelectorAll("[data-oparam-list] > [data-oparam-pair]").length;
- const result=plural(n);
+ // Keep the counter in the selected UI language: the accordion observer
+ // updates it after DOM mutations and must not overwrite an English label
+ // with the original Russian plural form.
+ const result=window.__PP_LANGUAGE__?.current==="en"
+  ? window.__PP_LANGUAGE__.translate(plural(n))
+  : plural(n);
  if(count.textContent!==result)count.textContent=result;
 }
 function apply(){

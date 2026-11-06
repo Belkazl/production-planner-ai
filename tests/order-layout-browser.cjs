@@ -1,15 +1,26 @@
 const assert=require("node:assert/strict");
 const {chromium}=require("playwright");
-const URL="https://pp-progress-fix-qa-20261010-production.up.railway.app/";
+const fs=require("node:fs");
+const URL=process.env.PP_ORDER_QA_URL||"http://127.0.0.1:8080/";
 (async()=>{
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
-  const page=await browser.newPage({viewport:{width:1510,height:950},deviceScaleFactor:1});
+  const context=await browser.newContext({viewport:{width:1510,height:950},deviceScaleFactor:1});
+  await context.addCookies([{name:"pp_demo_auth",value:"tenantA",url:URL,httpOnly:true}]);
+  const page=await context.newPage();
   const errors=[];page.on("pageerror",err=>errors.push(String(err)));
   const resp=await page.goto(URL,{waitUntil:"domcontentloaded",timeout:90000});
   assert.equal(resp.status(),200);
   await page.waitForFunction(()=>Boolean(window.__PP_ORDER_PARAMS_ACCORDION_V1__?.installed),{timeout:30000});
-  await page.waitForFunction(()=>typeof model!=="undefined"&&Array.isArray(model?.orders)&&model.orders.length>=12,null,{timeout:65000});
+  // Synthetic 12-order fixture only: never edit, save or import production data.
+  const fixture=JSON.parse(fs.readFileSync("/tmp/pp-ceramics-live-model.json","utf8")).model;
+  await page.locator("#ppLanguageSelect").selectOption("ru");
+  await page.evaluate(data=>{
+    model=data;modelReady=true;
+    document.body.classList.remove("projects-mode");
+    document.getElementById("planView").style.display="block";
+  },fixture);
+  await page.waitForFunction(()=>typeof model!=="undefined"&&Array.isArray(model?.orders)&&model.orders.length>=12,null,{timeout:15000});
   const side=page.locator(".side .item").filter({hasText:/^Заказы$/}).first();
   assert.equal(await side.count(),1);
   await side.click();
