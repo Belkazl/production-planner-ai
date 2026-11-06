@@ -97,3 +97,46 @@ jobs:
       - name: Remove test container
         if: always()
         run: docker rm -f liftorbit-landing-staging-smoke || true
+
+  remote-capabilities:
+    name: Read-only OVH CI permissions audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect CI account capabilities (no mutations)
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for v in OVH_HOST OVH_USER OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            test -n "${!v:-}" || { echo "Missing $v"; exit 2; }
+          done
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_ci_audit_key"
+          hostfile="$HOME/.ssh/ovh_ci_audit_hosts"
+          trap 'rm -f "$keyfile" "$hostfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$keyfile" "$hostfile"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hostfile" \
+            -i "$keyfile" "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          printf 'identity='; id -un
+          printf 'groups='; id -nG
+          printf 'home_writable='; if test -w "$HOME"; then echo yes; else echo no; fi
+          printf 'docker_socket_rw='; if test -r /var/run/docker.sock -a -w /var/run/docker.sock; then echo yes; else echo no; fi
+          printf 'bun='; if command -v bun >/dev/null 2>&1; then bun --version; else echo absent; fi
+          printf 'curl='; if command -v curl >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'tar='; if command -v tar >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'python3='; if command -v python3 >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'systemd_user='; if systemctl --user show-environment >/dev/null 2>&1; then echo available; else echo unavailable; fi
+          printf 'linger='; loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo unknown
+          printf 'old_landing_health='; curl -fsS -m 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/health || echo unavailable
+          echo 'OVH_READONLY_CAPABILITY_AUDIT_OK'
+          REMOTE
