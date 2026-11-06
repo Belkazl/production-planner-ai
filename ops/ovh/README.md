@@ -41,3 +41,25 @@ When running over SSH without public HTTP, check via SSH port forwarding, e.g.
 - Two separate Postgres volumes exist on Railway and require inspection and backups.
 
 Do not move these with untested images or copy production secrets into GitHub.
+
+## Automated unprivileged OVH staging (operational)
+
+Workflow: `.github/workflows/ovh-landing-userspace-deploy.yml` on staging branch pushes.
+It uses the dedicated `liftorbit-ci` SSH key from GitHub Actions repository secrets,
+transfers a checked-out source bundle and pinned Bun runtime, and runs a second
+staging copy at `127.0.0.1:18081` under `liftorbit-ci` (no sudo or Docker).
+The server code is patched at build time to bind to loopback and permit
+only the matching localhost preview Origin.
+
+`18080` still runs the original, root-owned Docker staging container.
+The CI user cannot update it and must not be added to the Docker group.
+
+GitHub Actions checks `/health` after installation and via a new SSH connection.
+The deployment workflow also configures the dedicated user's crontab to
+relaunch the userspace staging instance on reboot and check it every five minutes.
+Crontab installation needs to be confirmed through a separate remote probe
+before declaring reboot persistence verified.
+
+These staging workflows must never be used as evidence that the primary
+`app.liftorbit.app` runtime, Python GA optimizer, or either PostgreSQL database
+has been migrated. All of those remain on Railway.
