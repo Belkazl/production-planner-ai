@@ -146,5 +146,11 @@ jobs:
           printf 'user_crontab='; if command -v crontab >/dev/null 2>&1; then echo available; else echo absent; fi
           printf 'userspace_18081_bind='
           if command -v ss >/dev/null 2>&1; then ss -lnt | grep ':18081' | sed 's/^[[:space:]]*//' || echo absent; else echo ss-unavailable; fi
+          printf 'staging_watchdog_entry_count='
+          (crontab -l 2>/dev/null || true) | grep -c '# liftorbit-ovh-staging-watchdog
+          REMOTE
+ || true
+          printf 'staging_watchdog_executable='
+          if test -x "$HOME/liftorbit-ci-landing/start.sh"; then echo yes; else echo no; fi
           echo 'OVH_READONLY_CAPABILITY_AUDIT_OK'
           REMOTE
