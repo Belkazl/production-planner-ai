@@ -142,5 +142,9 @@ jobs:
           curl -fsS --max-time 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18081/health || echo unavailable
           printf 'userspace_release='
           if test -r "$HOME/liftorbit-ci-landing/current.sha"; then cat "$HOME/liftorbit-ci-landing/current.sha"; else echo not-deployed; fi
+          printf 'cron_daemon='; systemctl is-active cron 2>/dev/null || echo missing
+          printf 'user_crontab='; if command -v crontab >/dev/null 2>&1; then echo available; else echo absent; fi
+          printf 'userspace_18081_bind='
+          if command -v ss >/dev/null 2>&1; then ss -lnt | grep ':18081' | sed 's/^[[:space:]]*//' || echo absent; else echo ss-unavailable; fi
           echo 'OVH_READONLY_CAPABILITY_AUDIT_OK'
           REMOTE
