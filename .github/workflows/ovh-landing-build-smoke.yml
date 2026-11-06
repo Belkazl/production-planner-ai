@@ -53,6 +53,36 @@ jobs:
             --data 'code=000000' http://localhost:18080/_preview/unlock)
           test "$local_status" = 200
           grep -q 'Incorrect code' /tmp/ovh-local-incorrect.html
+          # Exercise the full unlock flow without printing the preview code.
+          python3 - <<'PY'
+          import re, urllib.request, urllib.error
+          source = open('server.ts', encoding='utf8').read()
+          match = re.search(r'const PREVIEW_ACCESS_CODE="([0-9]+)";', source)
+          assert match is not None, 'preview code anchor missing'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect)
+          request = urllib.request.Request(
+              'http://localhost:18080/_preview/unlock',
+              data=('code=' + match.group(1)).encode(),
+              headers={'Origin':'http://localhost:18080','Sec-Fetch-Site':'same-origin',
+                       'Content-Type':'application/x-www-form-urlencoded'},
+              method='POST')
+          try:
+              response = opener.open(request, timeout=10)
+          except urllib.error.HTTPError as error:
+              response = error
+          assert response.status == 303, f'unexpected status {response.status}'
+          cookie = response.headers.get('Set-Cookie', '')
+          assert cookie.startswith('__Host-lo-preview=') and '; Secure' in cookie
+          page = urllib.request.Request('http://localhost:18080/',
+              headers={'Cookie':cookie.split(';', 1)[0]})
+          with urllib.request.urlopen(page, timeout=10) as result:
+              html = result.read(100000).decode('utf8', 'replace')
+          assert 'LiftOrbit' in html and 'This is a private preview' not in html
+          print('OVH_LOCAL_PREVIEW_UNLOCK_SMOKE_OK')
+          PY
           # Do not admit arbitrary origins.
           external_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
             -H 'Origin: https://untrusted.example' -H 'Sec-Fetch-Site: cross-site' \
