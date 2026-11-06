@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/ovh-landing-userspace-deploy.yml
       - ops/ovh/enable-local-preview.mjs
+      - ops/ovh/launch-userspace-staging.sh
       - server.ts
       - assets/**
       - package.json
@@ -103,6 +104,8 @@ jobs:
             "$target:/home/liftorbit-ci/liftorbit-ci-landing/uploads/$GITHUB_SHA.tgz"
           scp -q "${ssh_opts[@]}" "$(command -v bun)" \
             "$target:/home/liftorbit-ci/.local/bin/bun"
+          scp -q "${ssh_opts[@]}" ops/ovh/launch-userspace-staging.sh \
+            "$target:/home/liftorbit-ci/liftorbit-ci-landing/start.sh"
           ssh "${ssh_opts[@]}" "$target" "DEPLOY_SHA=$GITHUB_SHA bash -se" <<'REMOTE'
           set -euo pipefail
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
@@ -158,4 +161,20 @@ jobs:
           curl --fail --silent --max-time 10 http://127.0.0.1:18081/health | \
             python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; assert d.get("service") == "prodplan-landing-v1"'
           echo 'OVH_REMOTE_HEALTH_VERIFIED'
+          REMOTE
+          # Only the dedicated CI user's own crontab is changed.
+          ssh "${ssh_opts[@]}" "$target" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          base="$HOME/liftorbit-ci-landing"
+          chmod 700 "$base/start.sh"
+          existing=$(crontab -l 2>/dev/null || true)
+          {
+            printf '%s\n' "$existing" | sed '/# liftorbit-ovh-staging-watchdog$/d'
+            printf '@reboot /bin/bash %s/start.sh >> %s/watchdog.log 2>&1 # liftorbit-ovh-staging-watchdog\n' "$base" "$base"
+            printf '*/5 * * * * /bin/bash %s/start.sh >> %s/watchdog.log 2>&1 # liftorbit-ovh-staging-watchdog\n' "$base" "$base"
+          } | crontab -
+          count=$(crontab -l | grep -c '# liftorbit-ovh-staging-watchdog$')
+          [[ "$count" == 2 ]] || { echo 'cron_watchdog_install_failed' >&2; exit 2; }
+          test -x "$base/start.sh"
+          echo 'OVH_USER_REBOOT_AND_HEALTH_WATCHDOG_CONFIGURED'
           REMOTE
