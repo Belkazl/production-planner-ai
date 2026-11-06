@@ -1,0 +1,54 @@
+name: OVH landing staging - remote health verification
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ovh-staging-landing-verify.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-staging-health-verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check locally bound staging service via pinned SSH
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for v in OVH_HOST OVH_USER OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            [[ -n "${!v:-}" ]] || { echo "Missing $v" >&2; exit 2; }
+          done
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_staging_verify"
+          hostfile="$HOME/.ssh/ovh_staging_hosts"
+          trap 'rm -f "$keyfile" "$hostfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$keyfile" "$hostfile"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$hostfile" \
+            -o IdentitiesOnly=yes -i "$keyfile" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          health=$(curl --fail --silent --show-error --max-time 10 http://127.0.0.1:18080/health)
+          printf '%s\n' "$health" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; assert d.get("service") == "prodplan-landing-v1"'
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 http://127.0.0.1:18080/)
+          [[ "$status" == "200" ]] || { echo "Landing HTTP status $status" >&2; exit 3; }
+          echo 'OVH_STAGING_LANDING_HEALTH_OK'
+          REMOTE
