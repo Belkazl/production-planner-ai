@@ -12,5 +12,10 @@ const addition = `${anchor}
        && (previewHost === 'localhost:' + previewPort
            || previewHost === '127.0.0.1:' + previewPort)
        && origin === 'http://' + previewHost) sameSite = true;`;
-writeFileSync(path, source.replace(anchor, addition));
+let patched = source.replace(anchor, addition);
+const bindAnchor = "hostname:'0.0.0.0'";
+if (patched.split(bindAnchor).length !== 2) throw Error('landing_bind_anchor_changed');
+patched = patched.replace(bindAnchor,
+  "hostname:process.env.OVH_STAGING_BIND_LOOPBACK === '1' ? '127.0.0.1' : '0.0.0.0'");
+writeFileSync(path, patched);
 console.log('OVH_LOCAL_PREVIEW_ORIGIN_PATCH_OK');
