@@ -1,0 +1,87 @@
+name: QA Documents tab migration
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  docs-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile full approved planner with Documents tab
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-docs-check
+          grep 'PP_DOCUMENTS_TAB_BUILD_OK' /dev/null || true
+          grep -q 'pp-documents-tab-script' index.ts
+          grep -q 'pp-restart-optimizer-ui' index.ts
+          grep -q 'PP_START_OVER_INLINE+PP_DOCUMENTS_INLINE' index.ts
+          grep -q 'PP_ORDER_STACKED_UI_INLINE' index.ts
+          grep -q 'pp-current-model-card-style' index.ts
+          grep -q 'PP_CERAMIC_RESOURCE_MIGRATION_BUILD_PASS' ceramics-resource-repair.ts
+      - name: Fetch existing Gantt HTML read-only for test fixture
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          req=urllib.request.Request("https://production-planner-gateway-production.up.railway.app/",headers={"User-Agent":"ProdPlanDocumentsQAReadOnly/1.0"})
+          with urllib.request.urlopen(req,timeout=40) as resp:
+            html=resp.read(2000000)
+          assert b'id="ganttScroll"' in html and b'ppIncumbentDecision(a,b)' in html
+          assert b'ppImportBtn' in html and b'ppTemplateBtn' in html
+          model_request=urllib.request.Request("https://production-planner-gateway-production.up.railway.app/api/model",headers={"User-Agent":"ProdPlanRestartQAReadOnly/1.0"})
+          with urllib.request.urlopen(model_request,timeout=40) as model_response:
+            model_fixture=model_response.read(2000000)
+          open("/tmp/pp-ceramics-live-model.json","wb").write(model_fixture)
+          print("FRESH_RESTART_QA_FIXTURE_READY",len(model_fixture))
+          open("/tmp/pp-gateway-fixture.html","wb").write(html)
+          print("DOCUMENTS_QA_UPSTREAM_HTML_READY",len(html))
+          PY
+      - name: Install Chrome test runtime
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Run separate login gateway, original planner UI and protected bridge
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/docs-auth-backend.log 2>&1 &
+          auth_pid=$!
+          bun tests/planner-html-mock.ts >/tmp/docs-planner-backend.log 2>&1 &
+          planner_pid=$!
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/docs-bridge.log 2>&1 &
+          bridge_pid=$!
+          trap 'kill "$bridge_pid" "$planner_pid" "$auth_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/documents-tab-browser.cjs
+          node tests/current-model-card-browser.cjs
+          node tests/start-over-browser.cjs
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: documents-tab-desktop-mobile
+          path: |
+            docs-actions-desktop.png
+            docs-actions-mobile.png
+            planner-controls-1920.png
+            current-model-card-hidden.png
+            start-over-reset-state.png
+            start-over-first-new-baseline.png
+            start-over-second-improved.png
+          retention-days: 3
+          if-no-files-found: ignore
