@@ -5,9 +5,12 @@ const source = readFileSync(path, 'utf8');
 const anchor = 'let sameSite=allowedOrigins.has(origin);';
 if (source.split(anchor).length !== 2) throw Error('preview_origin_anchor_changed');
 const addition = `${anchor}
-   // SSH-forwarded staging only; public Railway preview behavior is unchanged.
+   // Local SSH-forwarded staging only; never permit an arbitrary Origin.
+   const previewPort = String(process.env.OVH_LOCAL_PREVIEW_PORT || '18080');
+   const previewHost = req.headers.get('host') || '';
    if (process.env.OVH_LOCAL_PREVIEW === '1'
-       && req.headers.get('host') === 'localhost:18080'
-       && origin === 'http://localhost:18080') sameSite = true;`;
+       && (previewHost === 'localhost:' + previewPort
+           || previewHost === '127.0.0.1:' + previewPort)
+       && origin === 'http://' + previewHost) sameSite = true;`;
 writeFileSync(path, source.replace(anchor, addition));
 console.log('OVH_LOCAL_PREVIEW_ORIGIN_PATCH_OK');
