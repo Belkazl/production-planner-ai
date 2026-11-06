@@ -1,0 +1,34 @@
+name: liftorbit-staging
+
+services:
+  landing:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: liftorbit/landing:ovh-staging
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.50
+    environment:
+      PORT: "3000"
+      OVH_LOCAL_PREVIEW: "1"
+    ports:
+      - "127.0.0.1:18080:3000"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "try { let r=await fetch('http://127.0.0.1:3000/health'); let j=await r.json(); process.exit(r.ok && j.ok===true ? 0:1) } catch { process.exit(1) }"
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

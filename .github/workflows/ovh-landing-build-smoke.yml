@@ -1,0 +1,156 @@
+name: OVH landing staging - build and smoke (no deploy)
+
+on:
+  push:
+    branches:
+      - ops/ovh-landing-staging-20261106
+  pull_request:
+    branches:
+      - marketing/liftorbit-onboarding-2026-10-16
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-landing-staging-build
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate staging compose
+        run: docker compose -f ops/ovh/landing.compose.yaml config --quiet
+      - name: Build source-matched Docker image
+        run: docker build --pull -t liftorbit-landing:staging-smoke .
+      - name: Start isolated test container
+        run: |
+          docker run -d --name liftorbit-landing-staging-smoke \
+            --read-only --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --memory 256m --cpus 0.5 \
+            -e PORT=3000 -e OVH_LOCAL_PREVIEW=1 -p 127.0.0.1:18080:3000 \
+            liftorbit-landing:staging-smoke
+      - name: Smoke test landing and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:18080/health > /tmp/ovh-health.json; then break; fi
+            sleep 2
+          done
+          jq -e '.ok == true and .service == "prodplan-landing-v1"' /tmp/ovh-health.json
+          curl -fsS http://127.0.0.1:18080/ > /tmp/ovh-landing.html
+          grep -qi 'LiftOrbit' /tmp/ovh-landing.html
+          # Local SSH-tunnel origin is accepted; a deliberately invalid access code must
+          # produce the form error rather than a 403 origin rejection.
+          local_status=$(curl -sS -o /tmp/ovh-local-incorrect.html -w '%{http_code}' -X POST \
+            -H 'Origin: http://localhost:18080' -H 'Sec-Fetch-Site: same-origin' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'code=000000' http://localhost:18080/_preview/unlock)
+          test "$local_status" = 200
+          grep -q 'Incorrect code' /tmp/ovh-local-incorrect.html
+          # Exercise the full unlock flow without printing the preview code.
+          python3 - <<'PY'
+          import re, urllib.request, urllib.error
+          source = open('server.ts', encoding='utf8').read()
+          match = re.search(r'const PREVIEW_ACCESS_CODE="([0-9]+)";', source)
+          assert match is not None, 'preview code anchor missing'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect)
+          request = urllib.request.Request(
+              'http://localhost:18080/_preview/unlock',
+              data=('code=' + match.group(1)).encode(),
+              headers={'Origin':'http://localhost:18080','Sec-Fetch-Site':'same-origin',
+                       'Content-Type':'application/x-www-form-urlencoded'},
+              method='POST')
+          try:
+              response = opener.open(request, timeout=10)
+          except urllib.error.HTTPError as error:
+              response = error
+          assert response.status == 303, f'unexpected status {response.status}'
+          cookie = response.headers.get('Set-Cookie', '')
+          assert cookie.startswith('__Host-lo-preview=') and '; Secure' in cookie
+          page = urllib.request.Request('http://localhost:18080/',
+              headers={'Cookie':cookie.split(';', 1)[0]})
+          with urllib.request.urlopen(page, timeout=10) as result:
+              html = result.read(100000).decode('utf8', 'replace')
+          assert 'LiftOrbit' in html and 'This is a private preview' not in html
+          print('OVH_LOCAL_PREVIEW_UNLOCK_SMOKE_OK')
+          PY
+          # Do not admit arbitrary origins.
+          external_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Origin: https://untrusted.example' -H 'Sec-Fetch-Site: cross-site' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'code=000000' http://localhost:18080/_preview/unlock)
+          test "$external_status" = 403
+          docker inspect -f '{{.State.Running}}' liftorbit-landing-staging-smoke | grep -qx true
+          echo 'OVH_LANDING_IMAGE_SMOKE_OK'
+      - name: Print container logs on failure only
+        if: failure()
+        run: docker logs liftorbit-landing-staging-smoke || true
+      - name: Remove test container
+        if: always()
+        run: docker rm -f liftorbit-landing-staging-smoke || true
+
+  remote-capabilities:
+    name: Read-only OVH CI permissions audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect CI account capabilities (no mutations)
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for v in OVH_HOST OVH_USER OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            test -n "${!v:-}" || { echo "Missing $v"; exit 2; }
+          done
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_ci_audit_key"
+          hostfile="$HOME/.ssh/ovh_ci_audit_hosts"
+          trap 'rm -f "$keyfile" "$hostfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$keyfile" "$hostfile"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hostfile" \
+            -i "$keyfile" "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          printf 'identity='; id -un
+          printf 'groups='; id -nG
+          printf 'home_writable='; if test -w "$HOME"; then echo yes; else echo no; fi
+          printf 'docker_socket_rw='; if test -r /var/run/docker.sock -a -w /var/run/docker.sock; then echo yes; else echo no; fi
+          printf 'bun='; if command -v bun >/dev/null 2>&1; then bun --version; else echo absent; fi
+          printf 'curl='; if command -v curl >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'tar='; if command -v tar >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'python3='; if command -v python3 >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'systemd_user='; if systemctl --user show-environment >/dev/null 2>&1; then echo available; else echo unavailable; fi
+          printf 'linger='; loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo unknown
+          printf 'old_landing_health='; curl -fsS -m 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/health || echo unavailable
+          printf 'userspace_18081_health='
+          curl -fsS --max-time 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18081/health || echo unavailable
+          printf 'userspace_release='
+          if test -r "$HOME/liftorbit-ci-landing/current.sha"; then cat "$HOME/liftorbit-ci-landing/current.sha"; else echo not-deployed; fi
+          printf 'cron_daemon='; systemctl is-active cron 2>/dev/null || echo missing
+          printf 'user_crontab='; if command -v crontab >/dev/null 2>&1; then echo available; else echo absent; fi
+          printf 'userspace_18081_bind='
+          if command -v ss >/dev/null 2>&1; then ss -lnt | grep ':18081' | sed 's/^[[:space:]]*//' || echo absent; else echo ss-unavailable; fi
+          printf 'staging_watchdog_entry_count='
+          (crontab -l 2>/dev/null || true) | grep -c '# liftorbit-ovh-staging-watchdog
+          REMOTE
+ || true
+          printf 'staging_watchdog_executable='
+          if test -x "$HOME/liftorbit-ci-landing/start.sh"; then echo yes; else echo no; fi
+          echo 'OVH_READONLY_CAPABILITY_AUDIT_OK'
+          REMOTE
