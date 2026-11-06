@@ -1,0 +1,52 @@
+name: OVH landing staging - build and smoke (no deploy)
+
+on:
+  push:
+    branches:
+      - ops/ovh-landing-staging-20261106
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-landing-staging-build
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate staging compose
+        run: docker compose -f ops/ovh/landing.compose.yaml config --quiet
+      - name: Build source-matched Docker image
+        run: docker build --pull -t liftorbit-landing:staging-smoke .
+      - name: Start isolated test container
+        run: |
+          docker run -d --name liftorbit-landing-staging-smoke \
+            --read-only --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --memory 256m --cpus 0.5 \
+            -e PORT=3000 -p 127.0.0.1:18080:3000 \
+            liftorbit-landing:staging-smoke
+      - name: Smoke test landing and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:18080/health > /tmp/ovh-health.json; then break; fi
+            sleep 2
+          done
+          jq -e '.ok == true and .service == "prodplan-landing-v1"' /tmp/ovh-health.json
+          curl -fsS http://127.0.0.1:18080/ > /tmp/ovh-landing.html
+          grep -qi 'LiftOrbit' /tmp/ovh-landing.html
+          docker inspect -f '{{.State.Running}}' liftorbit-landing-staging-smoke | grep -qx true
+          echo 'OVH_LANDING_IMAGE_SMOKE_OK'
+      - name: Print container logs on failure only
+        if: failure()
+        run: docker logs liftorbit-landing-staging-smoke || true
+      - name: Remove test container
+        if: always()
+        run: docker rm -f liftorbit-landing-staging-smoke || true
