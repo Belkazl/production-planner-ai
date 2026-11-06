@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ops/ovh-landing-staging-20261106
+  pull_request:
+    branches:
+      - marketing/liftorbit-onboarding-2026-10-16
   workflow_dispatch:
 
 permissions:
