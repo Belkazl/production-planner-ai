@@ -1,0 +1,161 @@
+name: OVH landing - unprivileged staging deploy
+
+on:
+  push:
+    branches:
+      - ops/ovh-landing-staging-20261106
+    paths:
+      - .github/workflows/ovh-landing-userspace-deploy.yml
+      - ops/ovh/enable-local-preview.mjs
+      - server.ts
+      - assets/**
+      - package.json
+      - growth.mjs
+      - public-preview.mjs
+      - conversion.mjs
+      - conversion.js
+      - conversion.css
+      - index.html
+      - site.css
+      - site.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-unprivileged-landing-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ops/ovh-landing-staging-20261106'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Local Bun staging smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run ops/ovh/enable-local-preview.mjs
+          env PORT=18081 OVH_LOCAL_PREVIEW=1 OVH_LOCAL_PREVIEW_PORT=18081 \
+            OVH_STAGING_BIND_LOOPBACK=1 bun server.ts > /tmp/liftorbit-local-stage.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=no
+          for i in {1..30}; do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:18081/health > /tmp/ovh-userspace-smoke.json; then
+              ready=yes
+              break
+            fi
+            sleep 1
+          done
+          [[ "$ready" == yes ]] || { cat /tmp/liftorbit-local-stage.log; exit 1; }
+          python3 -c 'import json; assert json.load(open("/tmp/ovh-userspace-smoke.json"))["ok"] is True'
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H 'Origin: http://localhost:18081' -H 'Sec-Fetch-Site: same-origin' \
+            --data 'code=000000' http://localhost:18081/_preview/unlock)
+          [[ "$status" == 200 ]] || { echo "Unexpected preview status: $status"; exit 1; }
+          echo 'LOCAL_UNPRIVILEGED_SMOKE_OK'
+
+      - name: Create restricted staging bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar czf "$RUNNER_TEMP/liftorbit-staging.tgz" \
+            package.json server.ts growth.mjs public-preview.mjs \
+            conversion.mjs conversion.js conversion.css index.html site.css \
+            site.js favicon.svg robots.txt sitemap.xml llms.txt \
+            65dead239d02c66083c4a583bb7b69c432fb9582.txt assets
+          test -s "$RUNNER_TEMP/liftorbit-staging.tgz"
+
+      - name: Transfer and run on OVH without Docker or sudo
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || { echo 'Unexpected VPS destination' >&2; exit 2; }
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          for v in OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            [[ -n "${!v:-}" ]] || { echo "Missing required secret $v" >&2; exit 2; }
+          done
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_ci_deploy"
+          hostfile="$HOME/.ssh/ovh_ci_hosts"
+          trap 'rm -f "$keyfile" "$hostfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$keyfile" "$hostfile"
+          target="$OVH_USER@$OVH_HOST"
+          ssh_opts=(-i "$keyfile" -o BatchMode=yes -o ConnectTimeout=20 \
+            -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o UserKnownHostsFile="$hostfile")
+          ssh "${ssh_opts[@]}" "$target" 'mkdir -p "$HOME/.local/bin" "$HOME/liftorbit-ci-landing/uploads" "$HOME/liftorbit-ci-landing/releases" "$HOME/liftorbit-ci-landing/logs"'
+          scp -q "${ssh_opts[@]}" "$RUNNER_TEMP/liftorbit-staging.tgz" \
+            "$target:/home/liftorbit-ci/liftorbit-ci-landing/uploads/$GITHUB_SHA.tgz"
+          scp -q "${ssh_opts[@]}" "$(command -v bun)" \
+            "$target:/home/liftorbit-ci/.local/bin/bun"
+          ssh "${ssh_opts[@]}" "$target" "DEPLOY_SHA=$GITHUB_SHA bash -se" <<'REMOTE'
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          base="$HOME/liftorbit-ci-landing"
+          release="$base/releases/$DEPLOY_SHA"
+          mkdir -p "$release"
+          tar xzf "$base/uploads/$DEPLOY_SHA.tgz" -C "$release"
+          chmod 700 "$HOME/.local/bin/bun"
+          if [[ -f "$base/current.pid" ]]; then
+            oldpid=$(cat "$base/current.pid")
+            if [[ "$oldpid" =~ ^[0-9]+$ ]] && kill -0 "$oldpid" 2>/dev/null; then
+              cmd=$(tr '\0' ' ' < "/proc/$oldpid/cmdline")
+              if [[ "$cmd" != *"$base/releases/"* || "$cmd" != *"/bun"* ]]; then
+                echo 'Refusing to terminate an unrelated process' >&2
+                exit 4
+              fi
+              kill "$oldpid"
+              for i in {1..20}; do
+                kill -0 "$oldpid" 2>/dev/null || break
+                sleep 0.2
+              done
+            fi
+          fi
+          cd "$release"
+          nohup env PORT=18081 OVH_LOCAL_PREVIEW=1 OVH_LOCAL_PREVIEW_PORT=18081 \
+            OVH_STAGING_BIND_LOOPBACK=1 "$HOME/.local/bin/bun" "$release/server.ts" \
+            > "$base/logs/$DEPLOY_SHA.log" 2>&1 < /dev/null &
+          newpid=$!
+          printf '%s\n' "$newpid" > "$base/current.pid"
+          printf '%s\n' "$DEPLOY_SHA" > "$base/current.sha"
+          ready=no
+          for i in {1..40}; do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:18081/health > /tmp/liftorbit-ci-health.json; then
+              ready=yes
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != yes ]]; then
+            tail -n 30 "$base/logs/$DEPLOY_SHA.log" >&2
+            exit 1
+          fi
+          python3 -c 'import json; assert json.load(open("/tmp/liftorbit-ci-health.json"))["ok"] is True'
+          if command -v ss >/dev/null 2>&1; then
+            ss -lnt | grep -E '127[.]0[.]0[.]1:18081[[:space:]]' >/dev/null || { echo 'Userspace landing is not bound to loopback' >&2; exit 1; }
+          fi
+          echo 'OVH_UNPRIVILEGED_STAGING_DEPLOYED'
+          REMOTE
+          # Independent SSH connection confirms that the server process outlived the deploying session.
+          sleep 3
+          ssh "${ssh_opts[@]}" "$target" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          curl --fail --silent --max-time 10 http://127.0.0.1:18081/health | \
+            python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; assert d.get("service") == "prodplan-landing-v1"'
+          echo 'OVH_REMOTE_HEALTH_VERIFIED'
+          REMOTE
