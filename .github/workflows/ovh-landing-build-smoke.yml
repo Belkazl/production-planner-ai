@@ -45,6 +45,20 @@ jobs:
           jq -e '.ok == true and .service == "prodplan-landing-v1"' /tmp/ovh-health.json
           curl -fsS http://127.0.0.1:18080/ > /tmp/ovh-landing.html
           grep -qi 'LiftOrbit' /tmp/ovh-landing.html
+          # Local SSH-tunnel origin is accepted; a deliberately invalid access code must
+          # produce the form error rather than a 403 origin rejection.
+          local_status=$(curl -sS -o /tmp/ovh-local-incorrect.html -w '%{http_code}' -X POST \
+            -H 'Origin: http://localhost:18080' -H 'Sec-Fetch-Site: same-origin' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'code=000000' http://127.0.0.1:18080/_preview/unlock)
+          test "$local_status" = 200
+          grep -q 'Incorrect code' /tmp/ovh-local-incorrect.html
+          # Do not admit arbitrary origins.
+          external_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Origin: https://untrusted.example' -H 'Sec-Fetch-Site: cross-site' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'code=000000' http://127.0.0.1:18080/_preview/unlock)
+          test "$external_status" = 403
           docker inspect -f '{{.State.Running}}' liftorbit-landing-staging-smoke | grep -qx true
           echo 'OVH_LANDING_IMAGE_SMOKE_OK'
       - name: Print container logs on failure only
