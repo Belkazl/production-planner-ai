@@ -32,7 +32,7 @@ jobs:
             --read-only --tmpfs /tmp:rw,nosuid,nodev,size=32m \
             --cap-drop ALL --security-opt no-new-privileges:true \
             --memory 256m --cpus 0.5 \
-            -e PORT=3000 -p 127.0.0.1:18080:3000 \
+            -e PORT=3000 -e OVH_LOCAL_PREVIEW=1 -p 127.0.0.1:18080:3000 \
             liftorbit-landing:staging-smoke
       - name: Smoke test landing and health
         shell: bash
