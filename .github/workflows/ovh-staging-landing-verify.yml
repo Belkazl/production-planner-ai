@@ -51,4 +51,18 @@ jobs:
           status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 http://127.0.0.1:18080/)
           [[ "$status" == "200" ]] || { echo "Landing HTTP status $status" >&2; exit 3; }
           echo 'OVH_STAGING_LANDING_HEALTH_OK'
+          echo 'OVH_CI_CAPABILITY_CHECK_BEGIN'
+          printf 'identity='; id -un
+          printf 'groups='; id -nG
+          printf 'staging_dir_writable='
+          if test -w /home/ubuntu/liftorbit-staging; then echo yes; else echo no; fi
+          printf 'docker_socket_access='
+          if test -r /var/run/docker.sock -a -w /var/run/docker.sock; then echo yes; else echo no; fi
+          printf 'bun_user_binary='
+          if command -v bun >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'newuidmap_binary='
+          if command -v newuidmap >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'systemd_linger='
+          loginctl show-user liftorbit-ci --property=Linger --value 2>/dev/null || echo unknown
+          echo 'OVH_CI_CAPABILITY_CHECK_END'
           REMOTE
