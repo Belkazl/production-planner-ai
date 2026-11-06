@@ -19,6 +19,7 @@ services:
     cpus: 0.50
     environment:
       PORT: "3000"
+      OVH_LOCAL_PREVIEW: "1"
     ports:
       - "127.0.0.1:18080:3000"
     healthcheck:
