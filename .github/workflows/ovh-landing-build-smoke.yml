@@ -138,5 +138,9 @@ jobs:
           printf 'systemd_user='; if systemctl --user show-environment >/dev/null 2>&1; then echo available; else echo unavailable; fi
           printf 'linger='; loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || echo unknown
           printf 'old_landing_health='; curl -fsS -m 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/health || echo unavailable
+          printf 'userspace_18081_health='
+          curl -fsS --max-time 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18081/health || echo unavailable
+          printf 'userspace_release='
+          if test -r "$HOME/liftorbit-ci-landing/current.sha"; then cat "$HOME/liftorbit-ci-landing/current.sha"; else echo not-deployed; fi
           echo 'OVH_READONLY_CAPABILITY_AUDIT_OK'
           REMOTE
