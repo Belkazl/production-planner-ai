@@ -55,10 +55,9 @@ jobs:
           from pathlib import Path
           p=Path("index.ts")
           t=p.read_text()
-          import re
-          matches=list(re.finditer(r"Bun\\.serve\\(\\{", t))
-          assert len(matches)==1, f"Unexpected listener count {len(matches)}: refusing to expose staging"
-          t=t[:matches[0].end()]+'hostname:"127.0.0.1",'+t[matches[0].end():]
+          anchor='Bun.serve({'
+          assert t.count(anchor)==1, f"Unexpected listener count {t.count(anchor)}: refusing to expose staging"
+          t=t.replace(anchor,'Bun.serve({hostname:"127.0.0.1",',1)
           p.write_text(t)
           PY
           PORT=18082 PP_AUTH_GATEWAY_ORIGIN=https://prodplan-auth-backend-production.up.railway.app \
