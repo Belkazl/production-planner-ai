@@ -1,0 +1,69 @@
+name: OVH migration prerequisites (read-only)
+on:
+  push:
+    branches:
+      - ops/ovh-migration-20261107
+    paths:
+      - .github/workflows/ovh-migration-readiness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Inspect current OVH capabilities without mutation
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for key in OVH_HOST OVH_USER OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            [[ -n "${!key:-}" ]] || { echo "Missing required SSH configuration: $key" >&2; exit 2; }
+          done
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          key="$HOME/.ssh/migration_audit_key"
+          hostfile="$HOME/.ssh/migration_audit_hosts"
+          trap 'rm -f "$key" "$hostfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$key" "$hostfile"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$hostfile" -o IdentitiesOnly=yes -i "$key" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          echo 'OVH_MIGRATION_AUDIT_START'
+          printf 'user='; id -un
+          printf 'groups='; id -nG
+          printf 'sudo_noninteractive='; if sudo -n true >/dev/null 2>&1; then echo yes; else echo no; fi
+          printf 'docker_socket_rw='; if test -r /var/run/docker.sock -a -w /var/run/docker.sock; then echo yes; else echo no; fi
+          printf 'sudo_docker_inspect='; if sudo -n docker info >/dev/null 2>&1; then echo yes; else echo no; fi
+          for cmd in docker podman bun postgres initdb pg_dump pg_restore psql python3 tar curl openssl crontab systemctl apt dpkg-deb; do
+            printf '%s=' "$cmd"
+            if command -v "$cmd" >/dev/null 2>&1; then echo available; else echo unavailable; fi
+          done
+          printf 'postgres16_binary='; if test -x /usr/lib/postgresql/16/bin/postgres; then echo yes; else echo no; fi
+          printf 'postgres18_binary='; if test -x /usr/lib/postgresql/18/bin/postgres; then echo yes; else echo no; fi
+          printf 'ssh_authorized_keys_writable='; if test -w "$HOME/.ssh/authorized_keys"; then echo yes; else echo no; fi
+          printf 'home_writable='; if test -w "$HOME"; then echo yes; else echo no; fi
+          printf 'root_storage_megabytes='; df -m / | tail -n 1 | awk '{print $2, $3, $4}'
+          printf 'memory_megabytes='; free -m | awk '/^Mem:/ {print $2, $3, $7}'
+          printf 'swap_megabytes='; free -m | awk '/^Swap:/ {print $2, $3, $4}'
+          printf 'systemd_user='; if systemctl --user show-environment >/dev/null 2>&1; then echo yes; else echo no; fi
+          for p in 18080 18081 18082 15432 15433 80 443; do
+            printf 'tcp_%s_listening=' "$p"
+            if ss -lnt | grep -Eq "[:.]$p[[:space:]]"; then echo yes; else echo no; fi
+          done
+          for p in 18080 18081; do
+            printf 'landing_%s_health=' "$p"
+            curl -sS -m 5 -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:$p/health" || echo unreachable
+          done
+          echo 'OVH_MIGRATION_AUDIT_FINISHED'
+          REMOTE
