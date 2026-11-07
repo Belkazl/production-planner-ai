@@ -1,0 +1,151 @@
+name: OVH planner staging - build and deploy loopback only
+on:
+  push:
+    branches:
+      - ops/ovh-migration-20261107
+    paths:
+      - .github/workflows/ovh-planner-staging.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ovh-planner-staging
+  cancel-in-progress: false
+jobs:
+  stage:
+    if: github.ref == 'refs/heads/ops/ovh-migration-20261107'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Build pinned planner and preserve GA isolation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun tests/account-model-boundary.cjs
+          bun tests/password-reset-security.mjs
+          bun tests/early-stop-contract.cjs
+          bun tests/continuation-compat-contract.cjs
+          bun tests/async-plan-transport-contract.cjs
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run tenant-model-build.ts
+          bun run ga-worker-build.ts
+          bun run ga-workers-enable.ts
+          PP_WORKER_TEST=1 bun tests/ga-process-workers.cjs
+          bun test tests/python-ga-upstream.test.mjs tests/python-ga-state.test.mjs
+          bun run python-ga-upstream-build.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-ovh-compile
+      - name: Force local-only listener, then smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("index.ts")
+          t=p.read_text()
+          before="Bun.serve({port:Number(Bun.env.PORT||8080),async fetch(req)"
+          assert t.count(before)==1, "Unexpected listener shape: refusing to expose staging"
+          t=t.replace(before,"Bun.serve({hostname:\"127.0.0.1\",port:Number(Bun.env.PORT||8080),async fetch(req)")
+          p.write_text(t)
+          PY
+          PORT=18082 PP_AUTH_GATEWAY_ORIGIN=https://prodplan-auth-backend-production.up.railway.app \
+            PP_PLANNER_HTML_ORIGIN=https://production-planner-gateway-production.up.railway.app \
+            PP_AUTH_PUBLIC_ORIGIN=http://localhost:18082 \
+            bun run index.ts > "$RUNNER_TEMP/planner-staging-local.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=no
+          for i in {1..40}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:18082/__bridge_health > "$RUNNER_TEMP/planner-health.json"; then ready=yes; break; fi
+            sleep 1
+          done
+          if [[ "$ready" != yes ]]; then tail -n 50 "$RUNNER_TEMP/planner-staging-local.log"; exit 1; fi
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("ok") is True' "$RUNNER_TEMP/planner-health.json"
+          [[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18082/api/auth/me)" == 401 ]]
+          echo 'OVH_PLANNER_BUILD_AND_LOOPBACK_SMOKE_OK'
+      - name: Package source and Bun executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar czf "$RUNNER_TEMP/ovh-planner.tgz" \
+            index.ts auth-runtime.js ga-worker-core.ts worker-manager.ts \
+            ga-python-state-store.mjs python-ga-upstream.mjs ga_python_workers
+          cp "$(command -v bun)" "$RUNNER_TEMP/ovh-bun"
+      - name: Upload and verify isolated staging on OVH
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_planner_key"
+          hostfile="$HOME/.ssh/ovh_planner_known"
+          trap 'rm -f "$keyfile" "$hostfile"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$keyfile" "$hostfile"
+          opts=(-o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o UserKnownHostsFile="$hostfile" -i "$keyfile")
+          target="$OVH_USER@$OVH_HOST"
+          ssh "${opts[@]}" "$target" 'mkdir -p "$HOME/liftorbit-ci-planner/releases" "$HOME/liftorbit-ci-planner/uploads" "$HOME/liftorbit-ci-planner/logs"'
+          scp -q "${opts[@]}" "$RUNNER_TEMP/ovh-planner.tgz" "$target:/home/liftorbit-ci/liftorbit-ci-planner/uploads/$GITHUB_SHA.tgz"
+          scp -q "${opts[@]}" "$RUNNER_TEMP/ovh-bun" "$target:/home/liftorbit-ci/liftorbit-ci-planner/uploads/$GITHUB_SHA.bun"
+          ssh "${opts[@]}" "$target" "DEPLOY_SHA=$GITHUB_SHA bash -se" <<'REMOTE'
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 2
+          base="$HOME/liftorbit-ci-planner"
+          release="$base/releases/$DEPLOY_SHA"
+          mkdir -p "$release"
+          tar -xzf "$base/uploads/$DEPLOY_SHA.tgz" -C "$release"
+          cp "$base/uploads/$DEPLOY_SHA.bun" "$release/bun"
+          chmod 700 "$release/bun"
+          if [[ -f "$base/current.pid" ]]; then
+            oldpid=$(cat "$base/current.pid")
+            if [[ "$oldpid" =~ ^[0-9]+$ ]] && kill -0 "$oldpid" 2>/dev/null; then
+              cmd=$(tr '\0' ' ' < "/proc/$oldpid/cmdline" || true)
+              if [[ "$cmd" != *"$base/releases/"* ]]; then
+                echo 'Unsafe prior PID: refusing to kill' >&2
+                exit 4
+              fi
+              kill "$oldpid"
+            fi
+          fi
+          cd "$release"
+          nohup env PORT=18082 PP_AUTH_GATEWAY_ORIGIN=https://prodplan-auth-backend-production.up.railway.app \
+            PP_PLANNER_HTML_ORIGIN=https://production-planner-gateway-production.up.railway.app \
+            PP_AUTH_PUBLIC_ORIGIN=http://localhost:18082 "$release/bun" run "$release/index.ts" \
+            > "$base/logs/$DEPLOY_SHA.log" 2>&1 < /dev/null &
+          pid=$!
+          printf '%s\n' "$pid" > "$base/current.pid"
+          printf '%s\n' "$DEPLOY_SHA" > "$base/current.sha"
+          for i in {1..45}; do
+            if curl -fsS --max-time 3 http://127.0.0.1:18082/__bridge_health > "$base/last-health.json"; then break; fi
+            sleep 1
+          done
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])).get("ok") is True' "$base/last-health.json"
+          ss -lnt | grep -E '127[.]0[.]0[.]1:18082[[:space:]]' >/dev/null || exit 3
+          echo 'OVH_PLANNER_STAGING_UP_LOOPBACK_ONLY'
+          REMOTE
+          sleep 3
+          ssh "${opts[@]}" "$target" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          curl -fsS --max-time 5 http://127.0.0.1:18082/__bridge_health | \
+            python3 -c 'import json,sys; assert json.load(sys.stdin).get("ok") is True'
+          echo 'OVH_PLANNER_STAGING_PERSISTENCE_CHECK_OK'
+          REMOTE
