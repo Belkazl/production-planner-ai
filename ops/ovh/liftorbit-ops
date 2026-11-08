@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Root-owned fixed-argument OVH operational helper.
+# CI may invoke only status, smoke, and update via narrowly scoped sudoers.
+set -euo pipefail
+umask 077
+base=/opt/liftorbit
+compose=(docker compose -f "$base/full.compose.yml")
+action="${1:-}"
+[[ "$#" -eq 1 ]] || { echo 'One action required'; exit 2; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'Root helper only'; exit 2; }
+[[ -f "$base/full.compose.yml" ]] || { echo 'STAGING_NOT_BOOTSTRAPPED'; exit 2; }
+
+report() {
+  # No raw container logs, env vars, secrets or customer records.
+  local names=(postgres-main postgres-auth planner-gateway auth-gateway ga-worker app)
+  for name in "${names[@]}"; do
+    local id state health oom
+    id=$("${compose[@]}" ps -q "$name" 2>/dev/null || true)
+    if [[ -z "$id" ]]; then
+      echo "LIFTORBIT_SERVICE $name missing"
+      continue
+    fi
+    read -r state health oom < <(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}} {{.State.OOMKilled}}' "$id")
+    echo "LIFTORBIT_SERVICE $name state=$state health=$health oom=$oom"
+  done
+}
+
+case "$action" in
+  status)
+    report
+    ;;
+
+  smoke)
+    report
+    for name in postgres-main postgres-auth planner-gateway auth-gateway ga-worker app; do
+      cid=$("${compose[@]}" ps -q "$name" 2>/dev/null || true)
+      [[ -n "$cid" ]] || { echo "SMOKE_MISSING_SERVICE $name"; exit 3; }
+      state=$(docker inspect --format '{{.State.Status}}:{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")
+      [[ "$state" == 'running:healthy' ]] || { echo "SMOKE_NOT_HEALTHY $name"; exit 3; }
+    done
+    # All network-facing checks happen on the VPS loopback.
+    curl --fail --silent --max-time 8 http://127.0.0.1:18082/__bridge_health > /dev/null
+    echo 'OVH_SIX_SERVICE_LOCAL_STAGING_SMOKE_OK'
+    ;;
+
+  update)
+    source_root=/home/liftorbit-ci/liftorbit-migration/sources
+    [[ -d "$source_root/ovh-app/current" && -d "$source_root/current" ]] || {
+      echo 'PINNED_RUNTIME_SOURCES_NOT_STAGED'; exit 4;
+    }
+    # Source code is treated as untrusted data; Compose and this helper remain
+    # root-owned and are never updated by the unprivileged CI account.
+    for pair in "app:$source_root/ovh-app/current" "auth:$source_root/current/auth" "ga:$source_root/current/ga"; do
+      name=${pair%%:*}
+      src=${pair#*:}
+      [[ -f "$src/Dockerfile" ]] || { echo "MISSING_DOCKERFILE $name"; exit 4; }
+      dest="$base/sources/$name"
+      stage="$base/sources/.$name.next"
+      mkdir -p "$stage"
+      find "$stage" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+      cp -a "$src/." "$stage/"
+      [[ -f "$stage/Dockerfile" ]] || exit 4
+      if [[ -d "$dest" ]]; then
+        old="$base/sources/.$name.previous"
+        rm -rf "$old"
+        mv "$dest" "$old"
+      fi
+      mv "$stage" "$dest"
+    done
+    "${compose[@]}" build app auth-gateway ga-worker
+    "${compose[@]}" up -d --no-deps app auth-gateway ga-worker
+    report
+    echo 'OVH_STAGING_RUNTIME_UPDATE_ATTEMPTED'
+    ;;
+
+  *)
+    echo 'Unsupported action; only status, smoke, update'
+    exit 2
+    ;;
+esac
