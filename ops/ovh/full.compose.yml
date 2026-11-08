@@ -101,6 +101,12 @@ services:
                         if match:
                             packages=[x for x in match.group(1).split() if _diag_re.fullmatch(r'[a-z][a-z0-9+_.-]{1,45}',x)]
                             print('OVH_GATEWAY_APT_PACKAGE_NAMES',','.join(packages[:18]) or 'none',flush=True)
+                        shape=('path=ABS' if '/usr/bin/apt-get' in raw_text else 'path=SEARCH')
+                        shape+=' count='+str(min(raw_text.count('apt-get'),9))
+                        shape+=' update='+str(bool(_diag_re.search(r'apt-get\\s+update\\b',raw_text))).lower()
+                        shape+=' install='+str(bool(_diag_re.search(r'apt-get\\s+install\\b',raw_text))).lower()
+                        shape+=' quiet='+str(('-qq' in raw_text) or ('-q' in raw_text)).lower()
+                        print('OVH_GATEWAY_APT_COMMAND_SHAPE',shape,flush=True)
             except BaseException as diag:
                 print('OVH_GATEWAY_SUBPROCESS_DIAG_ERROR',type(diag).__name__,flush=True)
             raise SystemExit(1)

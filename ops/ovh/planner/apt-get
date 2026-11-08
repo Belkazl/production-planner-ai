@@ -19,7 +19,14 @@ if dpkg-query -W -f='${Status}' postgresql-client 2>/dev/null | grep -qx 'instal
             *) allowed=no ;;
         esac
     done
-    if [ "$allowed" = yes ] && [ "$action" = update ] && [ "$client" = no ]; then exit 0; fi
-    if [ "$allowed" = yes ] && [ "$action" = install ] && [ "$client" = yes ]; then exit 0; fi
+    if [ "$allowed" = yes ] && [ "$action" = update ] && [ "$client" = no ]; then
+        echo 'OVH_COMPAT_APT_SKIP_UPDATE' >&2
+        exit 0
+    fi
+    if [ "$allowed" = yes ] && [ "$action" = install ] && [ "$client" = yes ]; then
+        echo 'OVH_COMPAT_APT_SKIP_INSTALL' >&2
+        exit 0
+    fi
 fi
+echo 'OVH_COMPAT_APT_FALLBACK' >&2
 exec "$real" "$@"
