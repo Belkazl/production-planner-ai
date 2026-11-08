@@ -135,4 +135,20 @@ jobs:
               print('OVH_LEGACY_FIRST_LINE_HAS_CONDITIONAL',str('||' in first).lower())
               print('OVH_LEGACY_FIRST_LINE_HAS_REDIRECT',str('>' in first).lower())
               print('OVH_LEGACY_FIRST_LINE_HAS_PIPE',str('|' in first).lower())
+          # Identify shell prerequisite dependencies without printing values or filenames.
+          script=data.get('D_START_GOOD','')
+          if isinstance(script,str) and script:
+              first=script.splitlines()[0]
+              refs=list(dict.fromkeys(re.findall(r'\$\{?([A-Z_][A-Z0-9_]{2,100})',first)))
+              for idx,key in enumerate(refs[:30],1):
+                  val=data.get(key)
+                  print('OVH_LEGACY_VAR_REF',idx,'name='+key,
+                        'in_snapshot='+str(isinstance(val,str)).lower(),
+                        'has_value='+str(bool(val)).lower(),
+                        'length='+str(len(val)) if isinstance(val,str) else 'not_present')
+              for cmd in ('printf','echo','cat','base64','openssl','gzip','sed','python3','env','mktemp','test','tee','cp','tr','install'):
+                  print('OVH_LEGACY_CMD_PRESENT',cmd,str(bool(re.search(r'\b'+re.escape(cmd)+r'\b',first))).lower())
+              print('OVH_LEGACY_USE_TEMP_FILE',str(bool(re.search(r'test\s+-s\s+/tmp/',first))).lower())
+              print('OVH_LEGACY_SHELL_HAS_REDIRECT_STDERR',str('2>' in first).lower())
+              print('OVH_LEGACY_SHELL_HAS_ENV_EXPANSION',str(bool(refs)).lower())
           PY
