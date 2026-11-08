@@ -114,4 +114,25 @@ jobs:
                         'length='+str(len(row)))
               for program in ('apt-get','test -','python3','pg_dump','pg_isready'):
                   print('OVH_LEGACY_PROGRAM_OCCURRENCES',program.replace(' ','_'),v.count(program))
+
+          # Classify the sensitive shell bootstrap without emitting any arguments.
+          import shlex
+          v=data.get('D_START_GOOD','')
+          if isinstance(v,str) and v:
+              for n,mat in enumerate(re.finditer(r'\\btest\\s+(-[A-Za-z]+)\\s+([^\\s;&|]+)',v),1):
+                  flag,target=mat.group(1),mat.group(2)
+                  flags={'flag':flag,'absolute':str(target.startswith('/')).lower(),
+                         'prefix_tmp':str(target.startswith('/tmp/')).lower(),
+                         'prefix_svc':str(target.startswith('/srv/')).lower(),
+                         'prefix_app':str(target.startswith('/app/')).lower(),
+                         'prefix_env':str(target.startswith(')).lower(),
+                         'target_len':str(len(target)),
+                         'quoted':str(target[:1] in ("'",'"')).lower()}
+                  print('OVH_LEGACY_TEST_CLASS',n,*(k+'='+val for k,val in flags.items()))
+              pattern=r'\\b(?:apt-get|test|python3|pip|sh|bash|&&|;|\\|\\|)\\b'
+              first=v.splitlines()[0]
+              print('OVH_LEGACY_PROGRAM_ORDER',','.join(re.findall(pattern,first)[:30]))
+              print('OVH_LEGACY_FIRST_LINE_HAS_CONDITIONAL',str('||' in first).lower())
+              print('OVH_LEGACY_FIRST_LINE_HAS_REDIRECT',str('>' in first).lower())
+              print('OVH_LEGACY_FIRST_LINE_HAS_PIPE',str('|' in first).lower())
           PY
