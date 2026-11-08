@@ -1,0 +1,45 @@
+name: OVH migration - audit shell syntax before executing backup
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-migration-shell-lint.yml
+      - .github/workflows/ovh-pg-dump-private-ssh.yml
+      - .github/workflows/ovh-railway-ssh-auth-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install YAML validator
+        run: python3 -m pip install --quiet PyYAML
+      - name: Parse workflows and bash syntax without executing backups
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, subprocess, yaml
+          files=[
+            pathlib.Path('.github/workflows/ovh-pg-dump-private-ssh.yml'),
+            pathlib.Path('.github/workflows/ovh-railway-ssh-auth-check.yml'),
+          ]
+          for file in files:
+              obj=yaml.safe_load(file.read_text())
+              count=0
+              for job in obj['jobs'].values():
+                  for step in job['steps']:
+                      if 'run' not in step: continue
+                      script=step['run']
+                      p=subprocess.run(['bash','-n'],input=script,text=True,capture_output=True)
+                      if p.returncode: raise SystemExit(f'{file}: bash-syntax-error: {p.stderr[:300]}')
+                      count+=1
+              assert count >= 1
+              print(f'SHELL_SYNTAX_CHECK_OK: {file.name} ({count} scripts)')
+          PY
