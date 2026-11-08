@@ -1,0 +1,57 @@
+name: OVH migration - prepare dedicated Railway SSH public key
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-ssh-key-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Generate and verify dedicated key as OVH restricted user
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 3
+          test -n "${OVH_SSH_PRIVATE_KEY:-}" && test -n "${OVH_SSH_KNOWN_HOSTS:-}" || exit 3
+          mkdir -p "$HOME/.ssh"
+          key="$HOME/.ssh/ovh_key_prep"
+          hosts="$HOME/.ssh/ovh_pinned_hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hosts"
+          chmod 600 "$key" "$hosts"
+          ssh -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+            -i "$key" "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          key="$HOME/.ssh/liftorbit_railway_migration_ed25519"
+          if [[ ! -f "$key" ]]; then
+            ssh-keygen -q -t ed25519 -N '' -f "$key" \
+              -C 'liftorbit-railway-ovh-temporary-20261108'
+          fi
+          test -f "$key.pub" && test -s "$key"
+          chmod 600 "$key"
+          chmod 644 "$key.pub"
+          echo 'RAILWAY_MIGRATION_PUBLIC_KEY_BEGIN'
+          cat "$key.pub"
+          echo 'RAILWAY_MIGRATION_PUBLIC_KEY_END'
+          ssh-keygen -l -f "$key.pub"
+          echo 'RAILWAY_MIGRATION_PRIVATE_KEY_STAYS_ON_OVH'
+          REMOTE
