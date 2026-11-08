@@ -85,6 +85,36 @@ jobs:
           sudo cp ops/ops/ovh/full.compose.yml /opt/liftorbit/full.compose.yml
           sudo docker compose -f /opt/liftorbit/full.compose.yml config --quiet
           echo 'INTEGRATION_RUNNER_RUNTIME_CONFIG_READY'
+      - name: Classify protected planner launcher bootstrap without printing code or secrets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import ast, json, pathlib, re
+          p=pathlib.Path('/opt/liftorbit/secrets/planner.json')
+          obj=json.loads(p.read_text())
+          launcher=obj.get('PP_GENERIC_RESTORE_LAUNCH_V2')
+          if not isinstance(launcher,str):
+              raise SystemExit('OVH_PLANNER_LAUNCHER_MISSING')
+          lines=launcher.splitlines()
+          print('OVH_LAUNCHER_LINE_COUNT',len(lines))
+          print('OVH_LAUNCHER_EXPECTED_POSTGRES_CLIENT',bool(re.search(r'postgresql-client',launcher)))
+          print('OVH_LAUNCHER_EXPECTED_APT_GET',bool(re.search(r'apt-get',launcher)))
+          tree=ast.parse(launcher)
+          methods=set()
+          for node in ast.walk(tree):
+              if isinstance(node,ast.Call):
+                  call=node.func
+                  if isinstance(call,ast.Attribute):
+                      kind=call.attr
+                      if kind in ('run','check_call','check_output','Popen','system','execv','execvp'):
+                          methods.add(kind)
+          print('OVH_LAUNCHER_SUBPROCESS_METHODS',','.join(sorted(methods)) or 'none')
+          for line_no in (565,568,570,571,572,573,575):
+              if line_no <= len(lines):
+                  row=lines[line_no-1].strip()
+                  terms=('apt-get','subprocess','check_call','check_output','pip','shell=True','os.system','postgresql-client')
+                  print('OVH_LAUNCHER_LINE_CLASS',line_no,','.join(t for t in terms if t in row) or 'other')
+          PY
       - name: Restore both PostgreSQL databases in disposable Docker volumes
         shell: bash
         run: |
