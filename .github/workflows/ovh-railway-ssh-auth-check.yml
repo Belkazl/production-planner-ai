@@ -1,4 +1,4 @@
-name: OVH migration - read-only Railway SSH gateway authentication
+name: OVH migration - Railway SSH from dedicated VPS account
 
 on:
   pull_request:
@@ -11,12 +11,11 @@ permissions:
 
 jobs:
   ssh-auth:
-    # Activate after account owner approves the dedicated public key in Railway.
-    if: false
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Verify SSH gateway key from dedicated OVH account
+      - name: Probe Railway SSH from OVH, keeping private key on OVH
         shell: bash
         env:
           OVH_HOST: ${{ vars.OVH_HOST }}
@@ -27,26 +26,44 @@ jobs:
           set -euo pipefail
           umask 077
           [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
-          dir="$RUNNER_TEMP/railway-ssh-verify"
+          dir="$RUNNER_TEMP/ovh-auth-probe"
           mkdir -p "$dir"
           trap 'rm -rf "$dir"' EXIT
           test -n "${OVH_SSH_PRIVATE_KEY:-}" && test -n "${OVH_SSH_KNOWN_HOSTS:-}" || exit 2
           printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/ovh.key"
           printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/ovh.hosts"
           chmod 600 "$dir/ovh.key" "$dir/ovh.hosts"
-          scp -q -i "$dir/ovh.key" -o IdentitiesOnly=yes \
-            -o BatchMode=yes -o ConnectTimeout=15 \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/ovh.hosts" \
-            "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/.ssh/liftorbit_railway_migration_ed25519" "$dir/rail.key"
-          chmod 600 "$dir/rail.key"
-          if timeout 25s ssh -T -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
-            -o UserKnownHostsFile="$dir/rail.hosts" -i "$dir/rail.key" \
-            production-planner-gateway-production.up.railway.app@ssh.railway.com \
-            'printf RAILWAY_GATEWAY_SSH_AUTH_OK' > "$dir/rail.out" 2> "$dir/rail.err"; then
-            grep -q RAILWAY_GATEWAY_SSH_AUTH_OK "$dir/rail.out"
-            echo 'RAILWAY_GATEWAY_READONLY_SSH_AUTH_CONFIRMED'
+          ssh -i "$dir/ovh.key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o ConnectTimeout=15 -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$dir/ovh.hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          key="$HOME/.ssh/liftorbit_railway_migration_ed25519"
+          test -s "$key" && test -s "$key.pub"
+          target='production-planner-gateway-production.up.railway.app@ssh.railway.com'
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          if timeout -k 2s 33s ssh -T -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile="$dir/hosts" "$target" \
+              'printf RAILWAY_GATEWAY_SSH_AUTH_OK' > "$dir/stdout" 2> "$dir/stderr"; then
+            if grep -q 'RAILWAY_GATEWAY_SSH_AUTH_OK' "$dir/stdout"; then
+              echo 'RAILWAY_GATEWAY_SSH_AUTH_CONFIRMED_FROM_OVH'
+            else
+              echo 'RAILWAY_GATEWAY_UNEXPECTED_OUTPUT_NO_SUCCESS_SENTINEL'
+              exit 5
+            fi
           else
-            echo 'RAILWAY_GATEWAY_SSH_ACCESS_NOT_READY (private diagnostics withheld)'
+            if grep -Eqi 'Permission denied|publickey|not authorized' "$dir/stderr"; then
+              echo 'RAILWAY_SSH_REJECTED_KEY_OR_AUTHORIZATION'
+            elif grep -Eqi 'Host key verification failed|host identification has changed' "$dir/stderr"; then
+              echo 'RAILWAY_SSH_HOST_KEY_MISMATCH'
+            elif grep -Eqi 'Connection timed out|Connection refused|Network is unreachable|No route to host' "$dir/stderr"; then
+              echo 'RAILWAY_SSH_NETWORK_BLOCKED'
+            else
+              echo 'RAILWAY_SSH_FAILED_OTHER_CAUSE'
+            fi
             exit 4
           fi
+          REMOTE
