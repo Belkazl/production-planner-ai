@@ -1,0 +1,47 @@
+name: OVH migration - Railway token capability preflight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-token-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-railway-token-preflight
+  cancel-in-progress: false
+
+jobs:
+  token-read-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli
+      - name: Validate Railway project token without showing values
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "${RAILWAY_TOKEN:-}" ]]; then
+            echo 'RAILWAY_TOKEN_MISSING'
+            exit 2
+          fi
+          # Never print the token, environment variables or raw CLI output.
+          if railway variable list \
+            --project 16a27a18-a727-4a65-b75d-4368159b0e3e \
+            --environment production \
+            --service 871cdaaf-0f30-4137-8d03-8ad7c97c039f \
+            --json > "$RUNNER_TEMP/railway-variables.private.json" 2> "$RUNNER_TEMP/railway-error.private.log"; then
+            node -e 'const fs=require("fs"); const p=process.argv[1]; const o=JSON.parse(fs.readFileSync(p,"utf8")); const count=Array.isArray(o)?o.length:Object.keys(o).length; if(count<30)process.exit(3); process.stdout.write("RAILWAY_TOKEN_CAN_READ_GATEWAY_VARIABLES count="+count+"\n")' "$RUNNER_TEMP/railway-variables.private.json"
+          else
+            echo 'RAILWAY_TOKEN_READ_FAILED (diagnostics withheld to protect secrets)'
+            exit 4
+          fi
+          # Files exist on an ephemeral runner only; do not upload any artifacts.
+          rm -f "$RUNNER_TEMP/railway-variables.private.json" "$RUNNER_TEMP/railway-error.private.log"
