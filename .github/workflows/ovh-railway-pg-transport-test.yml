@@ -1,0 +1,82 @@
+name: OVH migration - probe private Railway Postgres connections
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-pg-transport-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-transport:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Test two PostgreSQL SSL greetings over Railway SSH from OVH
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 3
+          dir="$RUNNER_TEMP/ovh-postgres-transport"
+          mkdir -p "$dir"
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          key="$HOME/.ssh/liftorbit_railway_migration_ed25519"
+          test -f "$key"
+          printf 'PG_DUMP_BINARY='
+          command -v pg_dump || echo unavailable
+          printf 'DOCKER_SOCKET_ACCESS='
+          if test -r /var/run/docker.sock -a -w /var/run/docker.sock; then echo yes; else echo no; fi
+          temp=$(mktemp -d)
+          tunnel_pid=''
+          cleanup() { if test -n "$tunnel_pid"; then kill "$tunnel_pid" 2>/dev/null || true; wait "$tunnel_pid" 2>/dev/null || true; fi; rm -rf "$temp"; }
+          trap cleanup EXIT
+          target='production-planner-gateway-production.up.railway.app@ssh.railway.com'
+          for pair in 'postgres:postgres.railway.internal:15432' 'postgres-me4i:postgres-me4i.railway.internal:15433'; do
+            IFS=: read -r name host local_port <<< "$pair"
+            ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o ExitOnForwardFailure=yes -o ConnectTimeout=15 \
+              -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$temp/hosts" \
+              -N -L "127.0.0.1:$local_port:$host:5432" "$target" \
+              > "$temp/$name.out" 2> "$temp/$name.err" &
+            tunnel_pid=$!
+            sleep 2
+            if ! kill -0 "$tunnel_pid" 2>/dev/null; then
+              echo "PRIVATE_TUNNEL_START_FAILED: $name"
+              exit 5
+            fi
+            if PG_TEST_PORT="$local_port" python3 - <<'PY'
+          import os, socket
+          with socket.create_connection(('127.0.0.1', int(os.environ['PG_TEST_PORT'])), timeout=12) as conn:
+              conn.settimeout(12)
+              conn.sendall(bytes.fromhex('0000000804d2162f'))
+              response=conn.recv(1)
+          assert response in (b'S', b'N'), 'Postgres did not answer SSL request'
+          PY
+            then
+              echo "RAILWAY_PRIVATE_POSTGRES_GREETING_OK: $name"
+            else
+              echo "RAILWAY_PRIVATE_POSTGRES_GREETING_FAILED: $name"
+              exit 6
+            fi
+            kill "$tunnel_pid" 2>/dev/null || true
+            wait "$tunnel_pid" 2>/dev/null || true
+            tunnel_pid=''
+          done
+          REMOTE
