@@ -103,7 +103,7 @@ jobs:
             db=$(sudo sed -n 's/^POSTGRES_DB=//p' "/opt/liftorbit/secrets/$service.env")
             docker cp "$path" "$cid:/tmp/restore.dump" > /dev/null
             docker exec -u 0 "$cid" chmod 0644 /tmp/restore.dump
-            docker exec -u postgres "$cid" pg_restore -q --exit-on-error \
+            docker exec -u postgres "$cid" pg_restore --exit-on-error \
               --no-owner --no-privileges -U postgres -d "$db" /tmp/restore.dump > /dev/null
             docker exec "$cid" rm -f /tmp/restore.dump
             tables=$(docker exec -u postgres "$cid" psql -U postgres -d "$db" -At -c \
