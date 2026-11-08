@@ -78,7 +78,7 @@ jobs:
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/ovh.hosts")
           target="$OVH_USER@$OVH_HOST"
           base="$HOME/liftorbit-migration/sources/ovh-app"
-          ssh "${opts[@]}" "$target" "umask 077; mkdir -p '\$HOME/liftorbit-migration/sources/ovh-app/incoming/$GITHUB_SHA' '\$HOME/liftorbit-migration/sources/ovh-app/releases'"
+          ssh "${opts[@]}" "$target" "umask 077; mkdir -p '/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/incoming/$GITHUB_SHA' '/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases'"
           dest="/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/incoming/$GITHUB_SHA"
           scp -q "${opts[@]}" "$work/app.tgz" "$work/SHA256SUMS.txt" "$target:$dest/"
           ssh "${opts[@]}" "$target" "RELEASE_SHA='$GITHUB_SHA' bash -se" <<'REMOTE'
