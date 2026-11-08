@@ -1,0 +1,26 @@
+#!/bin/sh
+# OVH staging-only compatibility shim for a legacy gateway bootstrap.
+# The PostgreSQL client was installed and verified while building this image.
+# Do not run apt against the network at runtime for this specific preinstalled dependency.
+set -eu
+if dpkg-query -W -f='${Status}' postgresql-client 2>/dev/null | grep -qx 'install ok installed'; then
+    if [ "$#" -eq 1 ] && [ "$1" = update ]; then
+        exit 0
+    fi
+    if [ "${1:-}" = install ]; then
+        allowed=yes
+        has_client=no
+        for item in "$@"; do
+            case "$item" in
+                install|-y|--yes|--no-install-recommends|-q|-qq) ;;
+                postgresql-client) has_client=yes ;;
+                *) allowed=no ;;
+            esac
+        done
+        if [ "$allowed" = yes ] && [ "$has_client" = yes ]; then
+            exit 0
+        fi
+    fi
+fi
+# Every other package operation uses the system package manager unchanged.
+exec /usr/bin/apt-get "$@"
