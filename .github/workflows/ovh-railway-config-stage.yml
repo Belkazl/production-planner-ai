@@ -21,8 +21,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Install Railway CLI
-        run: npm install --global @railway/cli
+      - name: Install Railway CLI with version fallback during GitHub release outage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for version in 5.70.0 5.69.0 5.68.0; do
+            echo "Trying Railway CLI $version"
+            if timeout 100s npm install --global "@railway/cli@$version"; then
+              railway --version
+              exit 0
+            fi
+          done
+          echo 'RAILWAY_CLI_INSTALL_UNAVAILABLE' >&2
+          exit 1
       - name: Export current service configuration to private runner directory
         shell: bash
         env:
