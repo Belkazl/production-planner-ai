@@ -28,8 +28,8 @@ jobs:
           result="$RUNNER_TEMP/private_tunnel_output.txt"
           # The CLI can print database credentials: NEVER write its output to CI logs.
           timeout -k 2s 25s railway connect Postgres --tunnel-only \
-            -P 15432 -p 16a27a18-a727-4a65-b75d-4368159b0e3e \
-            -e production > "$result" 2>&1 &
+            --port 15432 --project 16a27a18-a727-4a65-b75d-4368159b0e3e \
+            --environment production > "$result" 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true; rm -f "$result"' EXIT
           found=no
@@ -45,6 +45,17 @@ jobs:
             echo 'RAILWAY_PRIVATE_DB_TUNNEL_AVAILABLE'
           else
             echo 'RAILWAY_PRIVATE_DB_TUNNEL_UNAVAILABLE (credentials/diagnostics suppressed)'
+            if grep -Eqi 'SSH key|ssh key|public key|private key|identity file' "$result"; then
+              echo 'TUNNEL_DIAGNOSTIC=SSH_KEY_REQUIRED'
+            elif grep -Eqi 'invalid|unknown|unexpected argument|unrecognized option|USAGE:' "$result"; then
+              echo 'TUNNEL_DIAGNOSTIC=INVALID_CLI_ARGUMENT_OR_COMMAND'
+            elif grep -Eqi 'unauthorized|permission|forbidden|authentication|project token' "$result"; then
+              echo 'TUNNEL_DIAGNOSTIC=PERMISSION_OR_TOKEN'
+            elif grep -Eqi 'timed out|timeout|connection reset|unreachable|lookup|network' "$result"; then
+              echo 'TUNNEL_DIAGNOSTIC=NETWORK_FAILURE'
+            else
+              echo 'TUNNEL_DIAGNOSTIC=OTHER_OR_UNKNOWN'
+            fi
           fi
           kill "$pid" 2>/dev/null || true
           wait "$pid" 2>/dev/null || true
