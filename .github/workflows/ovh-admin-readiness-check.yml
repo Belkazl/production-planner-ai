@@ -50,3 +50,11 @@ jobs:
             echo 'OVH_COMPOSE_MISSING'
           fi
           REMOTE
+          # Read-only root key check; authentication errors are expected and printed as booleans.
+          if ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=9 -o UserKnownHostsFile="$tmp/hosts" "root@$OVH_HOST" \
+            'test "$(id -u)" -eq 0' </dev/null >/dev/null 2>&1; then
+            echo 'OVH_EXISTING_ROOT_SSH_KEY_AVAILABLE'
+          else
+            echo 'OVH_EXISTING_ROOT_SSH_KEY_UNAVAILABLE'
+          fi
