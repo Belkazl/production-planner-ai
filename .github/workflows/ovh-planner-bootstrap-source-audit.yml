@@ -125,7 +125,7 @@ jobs:
                          'prefix_tmp':str(target.startswith('/tmp/')).lower(),
                          'prefix_svc':str(target.startswith('/srv/')).lower(),
                          'prefix_app':str(target.startswith('/app/')).lower(),
-                         'prefix_env':str(target.startswith(')).lower(),
+                         'prefix_env':str(target.startswith(chr(36))).lower(),
                          'target_len':str(len(target)),
                          'quoted':str(target[:1] in ("'",'"')).lower()}
                   print('OVH_LEGACY_TEST_CLASS',n,*(k+'='+val for k,val in flags.items()))
