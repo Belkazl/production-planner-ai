@@ -1,26 +1,25 @@
 #!/bin/sh
-# OVH staging-only compatibility shim for a legacy gateway bootstrap.
-# The PostgreSQL client was installed and verified while building this image.
-# Do not run apt against the network at runtime for this specific preinstalled dependency.
+# OVH staging-only verified bootstrap compatibility shim.
+# The system PostgreSQL client was installed by the image build (not by this script).
+# Only repeat installations of this already-installed package are short-circuited.
 set -eu
+real=/usr/bin/apt-get.real
 if dpkg-query -W -f='${Status}' postgresql-client 2>/dev/null | grep -qx 'install ok installed'; then
-    if [ "$#" -eq 1 ] && [ "$1" = update ]; then
-        exit 0
-    fi
-    if [ "${1:-}" = install ]; then
-        allowed=yes
-        has_client=no
-        for item in "$@"; do
-            case "$item" in
-                install|-y|--yes|--no-install-recommends|-q|-qq) ;;
-                postgresql-client) has_client=yes ;;
-                *) allowed=no ;;
-            esac
-        done
-        if [ "$allowed" = yes ] && [ "$has_client" = yes ]; then
-            exit 0
-        fi
-    fi
+    allowed=yes
+    action=none
+    client=no
+    for item in "$@"; do
+        case "$item" in
+            update|install)
+                if [ "$action" != none ]; then allowed=no; fi
+                action=$item
+                ;;
+            postgresql-client) client=yes ;;
+            -y|--yes|-q|-qq|--no-install-recommends) ;;
+            *) allowed=no ;;
+        esac
+    done
+    if [ "$allowed" = yes ] && [ "$action" = update ] && [ "$client" = no ]; then exit 0; fi
+    if [ "$allowed" = yes ] && [ "$action" = install ] && [ "$client" = yes ]; then exit 0; fi
 fi
-# Every other package operation uses the system package manager unchanged.
-exec /usr/bin/apt-get "$@"
+exec "$real" "$@"
