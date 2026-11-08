@@ -1,0 +1,68 @@
+name: OVH migration - audit private service dependencies without secrets
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-network-dependency-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check mappings using protected OVH configuration only
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir="$RUNNER_TEMP/ovh-dependency-audit"
+          mkdir -p "$dir"
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
+            "$OVH_USER@$OVH_HOST" 'python3 -' <<'PY'
+          import json, pathlib, urllib.parse
+          root=pathlib.Path.home()/'liftorbit-migration/production/current'
+          names=['gateway','auth-gateway','auth-app','python-ga-app','ga-worker','postgres','postgres-me4i']
+          configs={name:json.loads((root/(name+'.json')).read_text()) for name in names}
+          def classify_url(value):
+              try:
+                  host=urllib.parse.urlsplit(value).hostname or ''
+              except Exception:
+                  return 'INVALID_ORIGIN'
+              if host == 'postgres.railway.internal': return 'DB_MAIN'
+              if host == 'postgres-me4i.railway.internal': return 'DB_ME4I'
+              if host.endswith('.railway.internal'):
+                  if 'auth' in host: return 'AUTH_PRIVATE'
+                  if 'ga-isolation' in host or 'ga-worker' in host: return 'GA_WORKER_PRIVATE'
+                  if 'gateway' in host: return 'GATEWAY_PRIVATE'
+                  return 'OTHER_RAILWAY_PRIVATE'
+              if host.endswith('.railway.app'): return 'RAILWAY_PUBLIC'
+              if host.endswith('liftorbit.app'): return 'LIFTORBIT_PUBLIC'
+              return 'UNRECOGNIZED'
+          for name in names:
+              d=configs[name]
+              keys=([k for k in ('DATABASE_URL','LEGACY_DATABASE_URL','PP_AUTH_GATEWAY_ORIGIN',
+                     'PP_AUTH_PUBLIC_ORIGIN','PP_PY_GA_STATE_ORIGIN','PP_PY_GA_WORKER_ORIGIN',
+                     'APS_UPSTREAM','GATEWAY_URL','BACKEND_URL') if k in d])
+              for key in keys:
+                  print('SERVICE_DEPENDENCY',name,key,classify_url(d[key]))
+              for key in ('PP_PY_GA_WORKERS_ENABLED','PP_PY_GA_PERSISTENCE_ENABLED','PP_QA_AUTH_ONLY'):
+                  if key in d:
+                      print('SERVICE_FLAG',name,key,'ENABLED' if str(d[key]).lower() in ('true','1') else 'DISABLED')
+          print('SERVICE_DEPENDENCY_AUDIT_COMPLETE',len(names))
+          PY
