@@ -64,4 +64,23 @@ jobs:
                       found.append((n.lineno,f))
           print('GATEWAY_NEARBY_CALL_SIGNATURES',','.join(str(n)+':'+f for n,f in sorted(found)[:24]))
           print('GATEWAY_LAUNCHER_AST_AUDIT_COMPLETE')
+          for key in ('PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
+              child=data.get(key,'')
+              print('GATEWAY_CHILD_SOURCE',key,'lines='+str(len(child.splitlines())),'length='+str(len(child)))
+              try:
+                  tree2=ast.parse(child)
+              except SyntaxError:
+                  print('GATEWAY_CHILD_AST_UNPARSEABLE',key)
+                  continue
+              refs=sorted(set(n.value for n in ast.walk(tree2)
+                  if isinstance(n,ast.Constant) and isinstance(n.value,str)
+                  and re.fullmatch(r'[A-Z][A-Z0-9_]{2,80}',n.value)))
+              print('GATEWAY_CHILD_REFERENCED_KEYS',key,','.join(refs[:40]))
+              near=[]
+              for n in ast.walk(tree2):
+                  if isinstance(n,ast.Call) and getattr(n,'lineno',0)>=540 and getattr(n,'lineno',0)<=600:
+                      call=ast.unparse(n.func)
+                      if re.fullmatch(r'[A-Za-z0-9_.]{1,80}',call):near.append((n.lineno,call))
+              print('GATEWAY_CHILD_NEAR_571_CALLS',key,','.join(str(i)+':'+n for i,n in sorted(near)[:30]))
+          print('GATEWAY_CHILD_SOURCE_AUDIT_COMPLETE')
           PY
