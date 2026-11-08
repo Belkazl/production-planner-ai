@@ -50,7 +50,7 @@ case "$action" in
     }
     # Source code is treated as untrusted data; Compose and this helper remain
     # root-owned and are never updated by the unprivileged CI account.
-    for pair in "app:$source_root/ovh-app/current" "auth:$source_root/current/auth" "ga:$source_root/current/ga"; do
+    for pair in "app:$source_root/ovh-app/current" "auth:$source_root/current/auth" "ga:$source_root/current/ga" "planner:$source_root/planner"; do
       name=${pair%%:*}
       src=${pair#*:}
       [[ -f "$src/Dockerfile" ]] || { echo "MISSING_DOCKERFILE $name"; exit 4; }
@@ -67,8 +67,8 @@ case "$action" in
       fi
       mv "$stage" "$dest"
     done
-    "${compose[@]}" build app auth-gateway ga-worker
-    "${compose[@]}" up -d --no-deps app auth-gateway ga-worker
+    "${compose[@]}" build planner-gateway app auth-gateway ga-worker
+    "${compose[@]}" up -d --no-deps planner-gateway auth-gateway ga-worker app
     report
     echo 'OVH_STAGING_RUNTIME_UPDATE_ATTEMPTED'
     ;;
