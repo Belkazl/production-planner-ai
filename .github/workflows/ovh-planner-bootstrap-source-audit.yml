@@ -119,7 +119,7 @@ jobs:
           import shlex
           v=data.get('D_START_GOOD','')
           if isinstance(v,str) and v:
-              for n,mat in enumerate(re.finditer(r'\\btest\\s+(-[A-Za-z]+)\\s+([^\\s;&|]+)',v),1):
+              for n,mat in enumerate(re.finditer(r'\btest\s+(-[A-Za-z]+)\s+([^\s;&|]+)',v),1):
                   flag,target=mat.group(1),mat.group(2)
                   flags={'flag':flag,'absolute':str(target.startswith('/')).lower(),
                          'prefix_tmp':str(target.startswith('/tmp/')).lower(),
@@ -129,7 +129,7 @@ jobs:
                          'target_len':str(len(target)),
                          'quoted':str(target[:1] in ("'",'"')).lower()}
                   print('OVH_LEGACY_TEST_CLASS',n,*(k+'='+val for k,val in flags.items()))
-              pattern=r'\\b(?:apt-get|test|python3|pip|sh|bash|&&|;|\\|\\|)\\b'
+              pattern=r'\b(?:apt-get|test|python3|pip|sh|bash|&&|;|\|\|)\b'
               first=v.splitlines()[0]
               print('OVH_LEGACY_PROGRAM_ORDER',','.join(re.findall(pattern,first)[:30]))
               print('OVH_LEGACY_FIRST_LINE_HAS_CONDITIONAL',str('||' in first).lower())
