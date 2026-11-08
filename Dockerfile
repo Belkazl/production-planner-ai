@@ -1,5 +1,5 @@
 FROM postgres:18
-RUN apt-get update && apt-get install -y --no-install-recommends python3-minimal \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 COPY migration_exporter/server.py /opt/migration_exporter/server.py
 RUN chmod 0444 /opt/migration_exporter/server.py
