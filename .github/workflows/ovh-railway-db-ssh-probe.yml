@@ -1,0 +1,41 @@
+name: OVH migration - Railway SSH read-only capability probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-db-ssh-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli
+      - name: Check read-only command transport to Railway Postgres
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RAILWAY_TOKEN:-}" || exit 2
+          file="$RUNNER_TEMP/railway-ssh-probe.private.log"
+          trap 'rm -f "$file"' EXIT
+          if timeout -k 2s 35s railway ssh \
+            --project 16a27a18-a727-4a65-b75d-4368159b0e3e \
+            --environment production \
+            --service 49ab352b-7b4c-4422-910d-3b1fefaa1e37 \
+            -- echo RAILWAY_DB_SSH_OK > "$file" 2>&1; then
+            if grep -q '^RAILWAY_DB_SSH_OK' "$file"; then
+              echo 'RAILWAY_DB_SSH_COMMAND_SUPPORTED'
+            else
+              echo 'RAILWAY_DB_SSH_COMMAND_INCOMPATIBLE_OUTPUT'
+            fi
+          else
+            echo 'RAILWAY_DB_SSH_COMMAND_UNAVAILABLE (details withheld)'
+          fi
