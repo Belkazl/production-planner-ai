@@ -116,6 +116,16 @@ jobs:
                   terms=('apt-get','subprocess','check_call','check_output','pip','shell=True','os.system','postgresql-client')
                   print('OVH_LAUNCHER_LINE_CLASS',line_no,','.join(t for t in terms if t in row) or 'other')
           PY
+      - name: Verify legacy planner package-command compatibility inside production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo docker compose -f /opt/liftorbit/full.compose.yml build planner-gateway > /dev/null
+          for args in "update" "update -qq" "install -y postgresql-client" "install -qq -y postgresql-client"; do
+            read -ra tokens <<< "$args"
+            sudo docker run --rm --entrypoint /usr/bin/apt-get liftorbit/planner:ovh-staging "${tokens[@]}" > /dev/null
+            echo "OVH_APT_WRAPPER_SAFE_PROBE_OK argc=${#tokens[@]}"
+          done
       - name: Restore both PostgreSQL databases in disposable Docker volumes
         shell: bash
         run: |
