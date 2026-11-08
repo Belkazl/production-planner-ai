@@ -37,6 +37,8 @@ jobs:
           services=(
             'gateway:871cdaaf-0f30-4137-8d03-8ad7c97c039f'
             'auth-app:2bf88ff3-774c-474f-a102-981452c23abd'
+            'auth-gateway:5ac4cb17-744f-46d5-a70e-99c8f3a4df2a'
+            'python-ga-app:ea7c565e-a530-43c1-aafe-da5d4009bd1d'
             'ga-worker:96d35be3-7c33-4fb7-85dd-8793c8b67b0f'
             'postgres:49ab352b-7b4c-4422-910d-3b1fefaa1e37'
             'postgres-me4i:aaf9a34e-78c2-476a-b53c-3629e78a98c8'
@@ -59,6 +61,8 @@ jobs:
           const base = process.env.OUTPUT;
           const specs = {gateway:['DATABASE_URL','PP_RUNTIME_SRC_01'],
             'auth-app':['PP_AUTH_GATEWAY_ORIGIN'],
+            'auth-gateway':['DATABASE_URL','PP_QA_STATE_TOKEN'],
+            'python-ga-app':['PP_AUTH_GATEWAY_ORIGIN'],
             'ga-worker':['PP_PY_GA_ADAPTER','PP_RUNTIME_SRC_01'],
             postgres:['DATABASE_URL'],
             'postgres-me4i':['DATABASE_URL'],
@@ -72,7 +76,7 @@ jobs:
           NODE
           (cd "$OUTPUT" && sha256sum ./*.json > manifest.sha256)
           tar -czf "$RUNNER_TEMP/railway-config-private.tgz" -C "$OUTPUT" \
-            gateway.json auth-app.json ga-worker.json postgres.json postgres-me4i.json gateway-v2.json manifest.sha256
+            gateway.json auth-app.json auth-gateway.json python-ga-app.json ga-worker.json postgres.json postgres-me4i.json gateway-v2.json manifest.sha256
           test -s "$RUNNER_TEMP/railway-config-private.tgz"
 
       - name: Secure transfer to OVH, stored under CI user only
@@ -117,11 +121,11 @@ jobs:
           python3 - "$release" <<'PY'
           import json, pathlib, sys
           p=pathlib.Path(sys.argv[1])
-          files=['gateway','auth-app','ga-worker','postgres','postgres-me4i','gateway-v2']
+          files=['gateway','auth-app','auth-gateway','python-ga-app','ga-worker','postgres','postgres-me4i','gateway-v2']
           for n in files:
               d=json.loads((p/(n+'.json')).read_text())
               if not isinstance(d,dict) or not d: raise SystemExit('invalid_json_'+n)
-          print('OVH_RAILWAY_CONFIG_STAGED_VALID service_count=6')
+          print('OVH_RAILWAY_CONFIG_STAGED_VALID service_count=8')
           PY
           ln -sfn "$release" "$home/current.next"
           mv -Tf "$home/current.next" "$home/current"
