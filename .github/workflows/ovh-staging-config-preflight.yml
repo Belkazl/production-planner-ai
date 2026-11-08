@@ -1,0 +1,69 @@
+name: OVH migration - validate private runtime secret transformation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-staging-config-preflight.yml
+      - ops/ovh/render-secrets.py
+      - ops/ovh/full.compose.yml
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile renderer and validate Compose syntax without requiring secrets
+        run: |
+          set -euo pipefail
+          python3 -m py_compile ops/ovh/render-secrets.py
+          docker compose -f ops/ovh/full.compose.yml config --no-env-resolution --quiet
+          echo 'OVH_STAGING_COMPOSE_STATIC_VALID'
+      - name: Verify secret transformations on OVH without disclosing values
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          work="$RUNNER_TEMP/ovh-config-preflight"
+          mkdir -p "$work"
+          trap 'rm -rf "$work"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 600 "$work/key" "$work/hosts"
+          opts=(-i "$work/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts")
+          target="$OVH_USER@$OVH_HOST"
+          scp -q "${opts[@]}" ops/ovh/render-secrets.py \
+            "$target:/home/liftorbit-ci/liftorbit-migration/render-secrets-preflight.py"
+          ssh "${opts[@]}" "$target" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          scratch=$(mktemp -d "$HOME/liftorbit-migration/config-check-XXXXXXXX")
+          trap 'rm -rf "$scratch" "$HOME/liftorbit-migration/render-secrets-preflight.py"' EXIT
+          python3 "$HOME/liftorbit-migration/render-secrets-preflight.py" \
+            --source "$HOME/liftorbit-migration/production/current" --output "$scratch"
+          python3 - "$scratch" <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          for name in ('planner','auth','ga','app'):
+              d=json.loads((p/(name+'.json')).read_text())
+              assert d.get('PORT')=='8080'
+              assert all(isinstance(v,str) for v in d.values())
+          assert (p/'postgres-main.env').stat().st_mode & 0o077 == 0
+          assert (p/'postgres-auth.env').stat().st_mode & 0o077 == 0
+          auth=json.loads((p/'auth.json').read_text())
+          assert 'RESEND_API_KEY' not in auth
+          assert auth['PP_PASSWORD_RESET_BOOTSTRAP']=='0'
+          print('OVH_STAGING_PRIVATE_CONFIG_PREFLIGHT_PASSED')
+          PY
+          REMOTE
