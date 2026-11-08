@@ -38,7 +38,7 @@ jobs:
             echo 'OVH_ONE_TIME_ADMIN_BOOTSTRAP_REQUIRED'
             exit 0
           fi
-          if ! sudo -n -l "$helper status" >/dev/null 2>&1; then
+          if ! sudo -n -l "$helper" status >/dev/null 2>&1; then
             echo 'OVH_RESTRICTED_SUDO_NOT_READY'
             exit 0
           fi
