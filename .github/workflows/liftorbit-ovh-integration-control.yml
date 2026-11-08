@@ -37,6 +37,13 @@ jobs:
           lines=source.splitlines()
           print('GATEWAY_LAUNCHER_LINE_COUNT',len(lines))
           tree=ast.parse(source)
+          vars_in_launcher=sorted(set(n.value for n in ast.walk(tree)
+              if isinstance(n,ast.Constant) and isinstance(n.value,str)
+              and re.fullmatch(r'[A-Z][A-Z0-9_]{2,80}',n.value)))
+          print('GATEWAY_LAUNCHER_REFERENCED_KEYS',','.join(vars_in_launcher))
+          funcs_in_launcher=sorted(set(ast.unparse(n.func) for n in ast.walk(tree) if isinstance(n,ast.Call)
+              and re.fullmatch(r'[A-Za-z0-9_.]{1,80}',ast.unparse(n.func))))
+          print('GATEWAY_LAUNCHER_CALLS',','.join(funcs_in_launcher))
           target=571
           funcs=[]
           for n in ast.walk(tree):
