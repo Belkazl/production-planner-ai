@@ -1,0 +1,38 @@
+name: OVH migration - verified backup of two Railway PostgreSQL databases
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-postgres-backup-execute.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-ovh-postgresql-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout migration scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preflight backup shell syntax
+        run: bash -n ops/ovh/backup-railway-postgres-via-ovh.sh
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli
+      - name: Create and verify Railway database backups on OVH (never print credentials)
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/backup-railway-postgres-via-ovh.sh
