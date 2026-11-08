@@ -1,4 +1,5 @@
 name: OVH migration - six-service integration on isolated GitHub runner
+# Runner executes only after the explicitly scoped migration workflow changes.
 on:
   push:
     branches:
