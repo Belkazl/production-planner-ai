@@ -103,10 +103,35 @@ services:
                             print('OVH_GATEWAY_APT_PACKAGE_NAMES',','.join(packages[:18]) or 'none',flush=True)
                         shape=('path=ABS' if '/usr/bin/apt-get' in raw_text else 'path=SEARCH')
                         shape+=' count='+str(min(raw_text.count('apt-get'),9))
-                        shape+=' update='+str(bool(_diag_re.search(r'apt-get\\s+update\\b',raw_text))).lower()
-                        shape+=' install='+str(bool(_diag_re.search(r'apt-get\\s+install\\b',raw_text))).lower()
+                        shape+=' update='+str(bool(_diag_re.search(r'apt-get\s+update\b',raw_text))).lower()
+                        shape+=' install='+str(bool(_diag_re.search(r'apt-get\s+install\b',raw_text))).lower()
                         shape+=' quiet='+str(('-qq' in raw_text) or ('-q' in raw_text)).lower()
                         print('OVH_GATEWAY_APT_COMMAND_SHAPE',shape,flush=True)
+                        shell_steps=_diag_re.split(r'\\s*(?:&&|;|\\|\\|)\\s*',raw_text)
+                        programs=[]
+                        for step in shell_steps[:14]:
+                            matched=_diag_re.search(r'(?:^|\\s)(apt-get|pip3?|python3?|curl|mkdir|cp|bash|sh|ls|pg_isready|psql|test|echo|grep|find|wget|git|dpkg|which|chmod|chown)(?:\\s|$)',step)
+                            programs.append(matched.group(1) if matched else 'OTHER')
+                        print('OVH_GATEWAY_SHELL_SEQUENCE',','.join(programs),flush=True)
+                        captured=getattr(e,'stderr',None) or getattr(e,'output',None) or b''
+                        if isinstance(captured,bytes):
+                            captured=captured.decode('utf-8',errors='replace')
+                        else:
+                            captured=str(captured)
+                        for label,pattern in [
+                            ('PERMISSION','permission denied'),
+                            ('MISSING_BINARY','not found'),
+                            ('MISSING_MODULE','no module named'),
+                            ('MISSING_FILE','no such file'),
+                            ('PIP','pip'),
+                            ('APT','apt-get'),
+                            ('DATABASE','connection refused'),
+                            ('DNS','could not resolve'),
+                            ('SHELL_SYNTAX','syntax error'),
+                            ('NO_SPACE','no space left'),
+                        ]:
+                            if pattern.lower() in captured.lower():
+                                print('OVH_GATEWAY_SHELL_ERROR_CLASS',label,flush=True)
             except BaseException as diag:
                 print('OVH_GATEWAY_SUBPROCESS_DIAG_ERROR',type(diag).__name__,flush=True)
             raise SystemExit(1)

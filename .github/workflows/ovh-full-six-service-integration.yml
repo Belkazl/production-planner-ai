@@ -204,6 +204,10 @@ jobs:
                   print('SAFE_PLANNER_CLASSIFICATION',line)
               if re.fullmatch(r'OVH_GATEWAY_APT_COMMAND_SHAPE (?:[a-zA-Z0-9_=]+ ){0,5}[a-zA-Z0-9_=]+',line):
                   print('SAFE_PLANNER_CLASSIFICATION',line)
+              if re.fullmatch(r'OVH_GATEWAY_SHELL_SEQUENCE [A-Za-z0-9_,.-]{1,180}',line):
+                  print('SAFE_PLANNER_CLASSIFICATION',line)
+              if re.fullmatch(r'OVH_GATEWAY_SHELL_ERROR_CLASS [A-Z_]{1,40}',line):
+                  print('SAFE_PLANNER_CLASSIFICATION',line)
               if line in ('OVH_COMPAT_APT_SKIP_UPDATE','OVH_COMPAT_APT_SKIP_INSTALL','OVH_COMPAT_APT_FALLBACK'):
                   print('SAFE_PLANNER_CLASSIFICATION',line)
           m=re.search(r"No module named '([a-zA-Z_][a-zA-Z0-9_.]{0,45})'",s)
