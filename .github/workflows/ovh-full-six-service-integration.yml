@@ -88,7 +88,7 @@ jobs:
       - name: Classify protected planner launcher bootstrap without printing code or secrets
         shell: bash
         run: |
-          python3 - <<'PY'
+          sudo python3 - <<'PY'
           import ast, json, pathlib, re
           p=pathlib.Path('/opt/liftorbit/secrets/planner.json')
           obj=json.loads(p.read_text())
