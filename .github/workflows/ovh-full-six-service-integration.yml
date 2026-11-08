@@ -1,0 +1,150 @@
+name: OVH migration - six-service integration on isolated GitHub runner
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-full-six-service-integration.yml
+      - ops/ovh/full.compose.yml
+      - ops/ovh/render-secrets.py
+      - ops/ovh/patch-runtime-origins.mjs
+permissions:
+  contents: read
+concurrency:
+  group: ovh-six-service-integration
+  cancel-in-progress: false
+
+jobs:
+  integrated-smoke:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ops
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: e0d0b7a5d4e625c4fe47acb2a26436ad3071c9e1
+          path: auth
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: ga
+          persist-credentials: false
+      - name: Retrieve encrypted-in-transit copies, never upload artifacts
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          [[ -n "$OVH_SSH_PRIVATE_KEY" && -n "$OVH_SSH_KNOWN_HOSTS" ]] || exit 2
+          work="$RUNNER_TEMP/liftorbit-integration"
+          mkdir -p "$work/config" "$work/backups"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 600 "$work/key" "$work/hosts"
+          opts=(-i "$work/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts")
+          host="$OVH_USER@$OVH_HOST"
+          # Stream protected JSON directly through the SSH connection, never logs.
+          ssh "${opts[@]}" "$host" 'tar -cf - -C "$HOME/liftorbit-migration/production/current" gateway.json auth-gateway.json auth-app.json ga-worker.json postgres.json postgres-me4i.json' | tar -xf - -C "$work/config"
+          remote="/home/liftorbit-ci/liftorbit-migration/backups/backup-42475681877-1"
+          for f in postgres.dump postgres-me4i.dump SHA256SUMS.txt; do
+            scp -q "${opts[@]}" "$host:$remote/$f" "$work/backups/$f"
+          done
+          (cd "$work/backups" && sha256sum --check --quiet SHA256SUMS.txt)
+          echo 'PRIVATE_PRODUCTION_SNAPSHOTS_DOWNLOADED_TO_EPHEMERAL_RUNNER'
+      - name: Prepare patched source trees, private runtime configs and Docker Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/ops/ovh/patch-runtime-origins.mjs app
+          sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
+          sudo cp -a app/. /opt/liftorbit/sources/app/
+          sudo cp -a auth/ga_python_workers/qa_auth/. /opt/liftorbit/sources/auth/
+          sudo cp -a ga/ga_python_workers/. /opt/liftorbit/sources/ga/
+          sudo python3 ops/ops/ovh/render-secrets.py \
+            --source "$RUNNER_TEMP/liftorbit-integration/config" \
+            --output /opt/liftorbit/secrets
+          sudo cp ops/ops/ovh/full.compose.yml /opt/liftorbit/full.compose.yml
+          docker compose -f /opt/liftorbit/full.compose.yml config --quiet
+          echo 'INTEGRATION_RUNNER_RUNTIME_CONFIG_READY'
+      - name: Restore both PostgreSQL databases in disposable Docker volumes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg=/opt/liftorbit/full.compose.yml
+          docker compose -f "$cfg" up -d postgres-main postgres-auth
+          for spec in postgres-main postgres-auth; do
+            cid=$(docker compose -f "$cfg" ps -q "$spec")
+            healthy=no
+            for i in {1..70}; do
+              if [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")" = healthy ]; then healthy=yes; break; fi
+              sleep 2
+            done
+            [ "$healthy" = yes ] || { echo "PG18_HEALTH_FAILED $spec"; exit 3; }
+          done
+          for spec in "postgres-main:postgres:12" "postgres-auth:postgres-me4i:6"; do
+            IFS=: read -r service source minimum <<< "$spec"
+            cid=$(docker compose -f "$cfg" ps -q "$service")
+            path="$RUNNER_TEMP/liftorbit-integration/backups/$source.dump"
+            db=$(sed -n 's/^POSTGRES_DB=//p' "/opt/liftorbit/secrets/$service.env")
+            docker cp "$path" "$cid:/tmp/restore.dump" > /dev/null
+            docker exec -u 0 "$cid" chmod 0644 /tmp/restore.dump
+            docker exec -u postgres "$cid" pg_restore -q --exit-on-error \
+              --no-owner --no-privileges -U postgres -d "$db" /tmp/restore.dump > /dev/null
+            docker exec "$cid" rm -f /tmp/restore.dump
+            tables=$(docker exec -u postgres "$cid" psql -U postgres -d "$db" -At -c \
+              "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+            test "$tables" -ge "$minimum"
+            echo "INTEGRATION_DB_RESTORED $service tables=$tables"
+          done
+      - name: Start production-pinned planner, auth, GA and application
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg=/opt/liftorbit/full.compose.yml
+          docker compose -f "$cfg" up -d --build planner-gateway auth-gateway ga-worker app
+          echo 'INTEGRATION_FULL_COMPOSE_UP_COMPLETED'
+          for name in planner-gateway auth-gateway ga-worker app; do
+            cid=$(docker compose -f "$cfg" ps -q "$name")
+            test -n "$cid"
+            state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")
+            echo "INTEGRATION_SERVICE_HEALTH $name=$state"
+            test "$state" = healthy
+          done
+          curl --fail --silent --max-time 12 http://127.0.0.1:18082/__bridge_health > /dev/null
+          status=$(curl -s -o /dev/null -w '%{http_code}' -m 12 http://127.0.0.1:18082/)
+          test "$status" = 200 || test "$status" = 302 || test "$status" = 303
+          echo "OVH_SIX_SERVICE_INTEGRATION_SMOKE_OK http_status=$status"
+      - name: Sanitize failure diagnostics (no raw user-data logs)
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          cfg=/opt/liftorbit/full.compose.yml
+          for name in postgres-main postgres-auth planner-gateway auth-gateway ga-worker app; do
+            cid=$(docker compose -f "$cfg" ps -q "$name" 2>/dev/null)
+            if test -n "$cid"; then
+              docker inspect --format 'SERVICE_HEALTH_CHECK {{.Name}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} OOM={{.State.OOMKilled}} ExitCode={{.State.ExitCode}}' "$cid"
+            else
+              echo "SERVICE_HEALTH_CHECK $name MISSING"
+            fi
+          done
+      - name: Remove ephemeral databases and secrets
+        if: always()
+        run: |
+          docker compose -f /opt/liftorbit/full.compose.yml down --volumes --remove-orphans > /dev/null 2>&1 || true
+          sudo rm -rf /opt/liftorbit "$RUNNER_TEMP/liftorbit-integration"
