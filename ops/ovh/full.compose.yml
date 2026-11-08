@@ -54,7 +54,9 @@ services:
     logging: *log
 
   planner-gateway:
-    image: python:3.12-slim
+    build:
+      context: /opt/liftorbit/sources/planner
+    image: liftorbit/planner:ovh-staging
     restart: unless-stopped
     working_dir: /srv
     environment:
