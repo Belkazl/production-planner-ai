@@ -1,4 +1,5 @@
-name: LiftOrbit OVH gateway bootstrap - safe static launcher audit
+name: LiftOrbit OVH gateway only - fast isolated diagnostic
+# Runner executes only after the explicitly scoped migration workflow changes.
 on:
   pull_request:
     branches: [main]
@@ -6,13 +7,37 @@ on:
       - .github/workflows/liftorbit-ovh-integration-control.yml
 permissions:
   contents: read
+concurrency:
+  group: ovh-six-service-integration
+  cancel-in-progress: false
+
 jobs:
-  audit:
+  integrated-smoke:
     if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/ovh-gateway-debug-20261108'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 38
     steps:
-      - name: Examine only the gateway launcher's AST on OVH
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/railway-migration-20261108
+          path: ops
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: e0d0b7a5d4e625c4fe47acb2a26436ad3071c9e1
+          path: auth
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: ga
+          persist-credentials: false
+      - name: Retrieve encrypted-in-transit copies, never upload artifacts
         shell: bash
         env:
           OVH_HOST: ${{ vars.OVH_HOST }}
@@ -22,65 +47,146 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
-          temp=$(mktemp -d)
-          trap 'rm -rf "$temp"' EXIT
-          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$temp/key"
-          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$temp/hosts"
-          chmod 600 "$temp/key" "$temp/hosts"
-          ssh -i "$temp/key" -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$temp/hosts" \
-            "$OVH_USER@$OVH_HOST" 'python3 -' <<'PY'
-          import ast, json, pathlib, re
-          data=json.loads((pathlib.Path.home()/'liftorbit-migration/production/current/gateway.json').read_text())
-          source=data['PP_GENERIC_RESTORE_LAUNCH_V2']
-          lines=source.splitlines()
-          print('GATEWAY_LAUNCHER_LINE_COUNT',len(lines))
-          tree=ast.parse(source)
-          vars_in_launcher=sorted(set(n.value for n in ast.walk(tree)
-              if isinstance(n,ast.Constant) and isinstance(n.value,str)
-              and re.fullmatch(r'[A-Z][A-Z0-9_]{2,80}',n.value)))
-          print('GATEWAY_LAUNCHER_REFERENCED_KEYS',','.join(vars_in_launcher))
-          funcs_in_launcher=sorted(set(ast.unparse(n.func) for n in ast.walk(tree) if isinstance(n,ast.Call)
-              and re.fullmatch(r'[A-Za-z0-9_.]{1,80}',ast.unparse(n.func))))
-          print('GATEWAY_LAUNCHER_CALLS',','.join(funcs_in_launcher))
-          target=571
-          funcs=[]
-          for n in ast.walk(tree):
-              if not isinstance(n,ast.Call) or not hasattr(n,'lineno'):
-                  continue
-              if n.lineno <= target <= getattr(n,'end_lineno',n.lineno):
-                  f=ast.unparse(n.func)
-                  if re.fullmatch(r'[a-zA-Z0-9_.]{1,70}',f):funcs.append(f)
-          print('GATEWAY_LINE_571_CALLS',','.join(dict.fromkeys(funcs)) or 'NONE')
-          tokens=set(re.findall(r'[A-Za-z_][A-Za-z0-9_]*',lines[target-1] if target<=len(lines) else ''))
-          allowed={'subprocess','run','check_call','check_output','Popen','pip','install','python','python3','bash','sh','curl','wget','apt','git','exec','raise','RuntimeError','CalledProcessError','timeout','check','env','shell','source','compile','restore','import','get','set','default','flush','open','json'}
-          print('GATEWAY_LINE_571_ALLOWED_TOKENS',','.join(sorted(tokens&allowed)) or 'NONE')
-          found=[]
-          for n in ast.walk(tree):
-              if isinstance(n,ast.Call) and hasattr(n,'lineno') and abs(n.lineno-target)<=25:
-                  f=ast.unparse(n.func)
-                  if re.fullmatch(r'[a-zA-Z0-9_.]{1,70}',f):
-                      found.append((n.lineno,f))
-          print('GATEWAY_NEARBY_CALL_SIGNATURES',','.join(str(n)+':'+f for n,f in sorted(found)[:24]))
-          print('GATEWAY_LAUNCHER_AST_AUDIT_COMPLETE')
-          for key in ('PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
-              child=data.get(key,'')
-              print('GATEWAY_CHILD_SOURCE',key,'lines='+str(len(child.splitlines())),'length='+str(len(child)))
-              try:
-                  tree2=ast.parse(child)
-              except SyntaxError:
-                  print('GATEWAY_CHILD_AST_UNPARSEABLE',key)
-                  continue
-              refs=sorted(set(n.value for n in ast.walk(tree2)
-                  if isinstance(n,ast.Constant) and isinstance(n.value,str)
-                  and re.fullmatch(r'[A-Z][A-Z0-9_]{2,80}',n.value)))
-              print('GATEWAY_CHILD_REFERENCED_KEYS',key,','.join(refs[:40]))
-              near=[]
-              for n in ast.walk(tree2):
-                  if isinstance(n,ast.Call) and getattr(n,'lineno',0)>=540 and getattr(n,'lineno',0)<=600:
-                      call=ast.unparse(n.func)
-                      if re.fullmatch(r'[A-Za-z0-9_.]{1,80}',call):near.append((n.lineno,call))
-              print('GATEWAY_CHILD_NEAR_571_CALLS',key,','.join(str(i)+':'+n for i,n in sorted(near)[:30]))
-          print('GATEWAY_CHILD_SOURCE_AUDIT_COMPLETE')
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          [[ -n "$OVH_SSH_PRIVATE_KEY" && -n "$OVH_SSH_KNOWN_HOSTS" ]] || exit 2
+          work="$RUNNER_TEMP/liftorbit-integration"
+          mkdir -p "$work/config" "$work/backups"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 600 "$work/key" "$work/hosts"
+          opts=(-i "$work/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts")
+          host="$OVH_USER@$OVH_HOST"
+          # Stream protected JSON directly through the SSH connection, never logs.
+          ssh "${opts[@]}" "$host" 'tar -cf - -C "$HOME/liftorbit-migration/production/current" gateway.json auth-gateway.json auth-app.json ga-worker.json postgres.json postgres-me4i.json' | tar -xf - -C "$work/config"
+          remote="/home/liftorbit-ci/liftorbit-migration/backups/backup-42475681877-1"
+          for f in postgres.dump postgres-me4i.dump SHA256SUMS.txt; do
+            scp -q "${opts[@]}" "$host:$remote/$f" "$work/backups/$f"
+          done
+          (cd "$work/backups" && sha256sum --check --quiet SHA256SUMS.txt)
+          echo 'PRIVATE_PRODUCTION_SNAPSHOTS_DOWNLOADED_TO_EPHEMERAL_RUNNER'
+      - name: Prepare patched source trees, private runtime configs and Docker Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/ops/ovh/patch-runtime-origins.mjs app
+          sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
+          sudo cp -a app/. /opt/liftorbit/sources/app/
+          sudo cp -a auth/ga_python_workers/qa_auth/. /opt/liftorbit/sources/auth/
+          sudo cp -a ga/ga_python_workers/. /opt/liftorbit/sources/ga/
+          sudo python3 ops/ops/ovh/render-secrets.py \
+            --source "$RUNNER_TEMP/liftorbit-integration/config" \
+            --output /opt/liftorbit/secrets
+          sudo cp ops/ops/ovh/full.compose.yml /opt/liftorbit/full.compose.yml
+          sudo docker compose -f /opt/liftorbit/full.compose.yml config --quiet
+          echo 'INTEGRATION_RUNNER_RUNTIME_CONFIG_READY'
+      - name: Restore both PostgreSQL databases in disposable Docker volumes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg=/opt/liftorbit/full.compose.yml
+          sudo docker compose -f "$cfg" up -d postgres-main postgres-auth
+          for spec in postgres-main postgres-auth; do
+            cid=$(sudo docker compose -f "$cfg" ps -q "$spec")
+            healthy=no
+            for i in {1..70}; do
+              if [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")" = healthy ]; then healthy=yes; break; fi
+              sleep 2
+            done
+            [ "$healthy" = yes ] || { echo "PG18_HEALTH_FAILED $spec"; exit 3; }
+          done
+          for spec in "postgres-main:postgres:12" "postgres-auth:postgres-me4i:6"; do
+            IFS=: read -r service source minimum <<< "$spec"
+            cid=$(sudo docker compose -f "$cfg" ps -q "$service")
+            path="$RUNNER_TEMP/liftorbit-integration/backups/$source.dump"
+            db=$(sudo sed -n 's/^POSTGRES_DB=//p' "/opt/liftorbit/secrets/$service.env")
+            docker cp "$path" "$cid:/tmp/restore.dump" > /dev/null
+            docker exec -u 0 "$cid" chmod 0644 /tmp/restore.dump
+            docker exec -u postgres "$cid" pg_restore --exit-on-error \
+              --no-owner --no-privileges -U postgres -d "$db" /tmp/restore.dump > /dev/null
+            docker exec "$cid" rm -f /tmp/restore.dump
+            tables=$(docker exec -u postgres "$cid" psql -U postgres -d "$db" -At -c \
+              "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+            test "$tables" -ge "$minimum"
+            echo "INTEGRATION_DB_RESTORED $service tables=$tables"
+          done
+      - name: Start planner only; diagnose gateway bootstrap without building app and GA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg=/opt/liftorbit/full.compose.yml
+          sudo docker compose -f "$cfg" up -d planner-gateway
+          echo 'OVH_GATEWAY_TARGETED_REPRODUCER_STARTED'
+          ready=no
+          for i in {1..30}; do
+            cid=$(sudo docker compose -f "$cfg" ps -q planner-gateway)
+            test -n "$cid" || exit 2
+            state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")
+            if test "$state" = healthy; then ready=yes; break; fi
+            sleep 1
+          done
+          if test "$ready" = yes; then
+            echo 'OVH_GATEWAY_REPLICA_BOOT_SUCCESS'
+          else
+            echo 'OVH_GATEWAY_REPLICA_BOOT_FAILED_USE_CLASSIFIED_DIAGNOSTICS'
+            exit 7
+          fi
+      - name: Sanitize failure diagnostics (no raw user-data logs)
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          cfg=/opt/liftorbit/full.compose.yml
+          for name in postgres-main postgres-auth planner-gateway auth-gateway ga-worker app; do
+            cid=$(sudo docker compose -f "$cfg" ps -q "$name" 2>/dev/null)
+            if test -n "$cid"; then
+              docker inspect --format 'SERVICE_HEALTH_CHECK {{.Name}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} OOM={{.State.OOMKilled}} ExitCode={{.State.ExitCode}}' "$cid"
+            else
+              echo "SERVICE_HEALTH_CHECK $name MISSING"
+            fi
+          done
+      - name: Classify container startup errors without exposing logs
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          root=/opt/liftorbit/full.compose.yml
+          for service in planner-gateway auth-gateway ga-worker app; do
+            cid=$(sudo docker compose -f "$root" ps -q "$service" 2>/dev/null)
+            if test -z "$cid"; then continue; fi
+            log="$RUNNER_TEMP/staging-private-$service.log"
+            docker logs --tail 150 "$cid" > "$log" 2>&1
+            python3 - "$service" "$log" <<'PY'
+          import re,sys,pathlib,collections
+          name=sys.argv[1]
+          s=pathlib.Path(sys.argv[2]).read_text(errors='replace')
+          matches=re.findall(r'(?m)^([A-Za-z_][A-Za-z_0-9]*(?:Error|Exception))(?::|$)',s)
+          print('SAFE_RUNTIME_ERROR_CLASS',name,','.join(dict.fromkeys(matches)) or 'UNKNOWN')
+          for line in s.splitlines():
+              if re.fullmatch(r'OVH_GATEWAY_BOOT_(?:EXCEPTION|MISSING_KEY|MISSING_MODULE|SYSTEM_EXIT_CODE|SUBPROCESS_FAILED)(?: [A-Za-z0-9_.=-]{1,72}){1,3}',line):
+                  print('SAFE_PLANNER_CLASSIFICATION',line)
+              if re.fullmatch(r'OVH_GATEWAY_SUBPROCESS_(?:FAILED|DIAG_ERROR)(?: [A-Za-z0-9_.=-]{1,72}){1,3}',line):
+                  print('SAFE_PLANNER_CLASSIFICATION',line)
+          m=re.search(r"No module named '([a-zA-Z_][a-zA-Z0-9_.]{0,45})'",s)
+          if m: print('SAFE_MISSING_IMPORT',name,m.group(1))
+          for label,pattern in [
+              ('POSTGRES_AUTH','password authentication failed'),
+              ('DATABASE_DNS','could not translate host name'),
+              ('DATABASE_CONNECT','connection refused'),
+              ('MISSING_ENV','KeyError:'),
+              ('SOURCE_HASH','sha256 mismatch'),
+              ('SOURCE_BOOTSTRAP','PP_GENERIC'),
+              ('INVALID_JSON','JSONDecodeError'),
+              ('SYNTAX','SyntaxError'),
+              ('MEMORY','MemoryError'),
+              ('LIBRARY','ModuleNotFoundError'),
+          ]:
+              if pattern.lower() in s.lower(): print('SAFE_STARTUP_DIAG',name,label)
           PY
+            rm -f "$log"
+          done
+      - name: Remove ephemeral databases and secrets
+        if: always()
+        run: |
+          sudo docker compose -f /opt/liftorbit/full.compose.yml down --volumes --remove-orphans > /dev/null 2>&1 || true
+          sudo rm -rf /opt/liftorbit "$RUNNER_TEMP/liftorbit-integration"
