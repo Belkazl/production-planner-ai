@@ -58,4 +58,11 @@ jobs:
                   'pip='+str('pip install' in text or '-m pip' in text).lower(),
               ]
               print('OVH_PRIVATE_CODE_SHAPE',key,*stats)
+          for key,v in data.items():
+              if not re.fullmatch(r'[A-Z_][A-Z0-9_]{1,90}',key) or not isinstance(v,str):
+                  continue
+              if 'apt-get' in v or 'subprocess.run' in v or 'subprocess.check_call' in v:
+                  print('OVH_PRIVATE_BOOT_SOURCE_MATCH',key,'apt='+str('apt-get' in v).lower(),
+                        'run='+str('subprocess.run' in v).lower(),
+                        'check_call='+str('subprocess.check_call' in v).lower())
           PY
