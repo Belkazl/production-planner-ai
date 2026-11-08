@@ -79,6 +79,21 @@ services:
                 print('OVH_GATEWAY_BOOT_MISSING_MODULE',e.name,flush=True)
             if isinstance(e,SystemExit):
                 print('OVH_GATEWAY_BOOT_SYSTEM_EXIT_CODE',str(e.code) if isinstance(e.code,int) else 'noninteger',flush=True)
+            try:
+                import subprocess,shlex
+                if isinstance(e,subprocess.CalledProcessError):
+                    cmd=e.cmd
+                    cmd=cmd if isinstance(cmd,(list,tuple)) else shlex.split(str(cmd))
+                    p=os.path.basename(str(cmd[0])) if cmd else 'unknown'
+                    if not re.fullmatch(r'[a-zA-Z0-9_.-]{1,45}',p): p='unknown'
+                    info=' '.join(str(v) for v in cmd[:4]).lower()
+                    kind=('PIP_INSTALL' if 'pip' in info else
+                          'PYTHON_MODULE' if 'python' in info else
+                          'SHELL' if p in ('bash','sh') else
+                          'CURL' if p=='curl' else 'OTHER')
+                    print('OVH_GATEWAY_SUBPROCESS_FAILED',p,kind,'exit='+str(e.returncode),flush=True)
+            except Exception:
+                pass
             raise SystemExit(1)
     volumes:
       - /opt/liftorbit/secrets/planner.json:/run/liftorbit/config.json:ro
