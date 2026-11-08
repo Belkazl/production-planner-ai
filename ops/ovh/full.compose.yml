@@ -88,11 +88,19 @@ services:
                     program=str(parts[0]).rsplit('/',1)[-1] if parts else 'unknown'
                     program=''.join(c for c in program if c.isalnum() or c in '._-')[:45] or 'unknown'
                     prefix=' '.join(str(v).lower() for v in parts[:5])
-                    kind=('PIP_INSTALL' if 'pip' in prefix else
+                    kind=('APT_GET' if 'apt-get' in prefix else
+                          'PIP_INSTALL' if 'pip' in prefix else
                           'PYTHON_MODULE' if 'python' in prefix else
                           'SHELL' if program in ('sh','bash') else
                           'CURL' if program=='curl' else 'OTHER')
                     print('OVH_GATEWAY_SUBPROCESS_FAILED',program,kind,'exit='+str(getattr(e,'returncode','unknown')),flush=True)
+                    if kind=='APT_GET':
+                        import re as _diag_re
+                        raw_text=' '.join(str(v) for v in parts)
+                        match=_diag_re.search(r'apt-get\s+install\s+(?:-y\s+)?(?:--no-install-recommends\s+)?([a-zA-Z0-9+_.\- ]{1,130})',raw_text)
+                        if match:
+                            packages=[x for x in match.group(1).split() if _diag_re.fullmatch(r'[a-z][a-z0-9+_.-]{1,45}',x)]
+                            print('OVH_GATEWAY_APT_PACKAGE_NAMES',','.join(packages[:18]) or 'none',flush=True)
             except BaseException as diag:
                 print('OVH_GATEWAY_SUBPROCESS_DIAG_ERROR',type(diag).__name__,flush=True)
             raise SystemExit(1)
