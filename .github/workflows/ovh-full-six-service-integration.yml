@@ -9,6 +9,7 @@ on:
       - ops/ovh/full.compose.yml
       - ops/ovh/render-secrets.py
       - ops/ovh/patch-runtime-origins.mjs
+      - ops/ovh/planner/Dockerfile
 permissions:
   contents: read
 concurrency:
