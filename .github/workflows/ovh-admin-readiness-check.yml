@@ -1,0 +1,52 @@
+name: OVH read-only administrator readiness check
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-admin-readiness-check.yml]
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Check existing SSH scope and installed bootstrap (no mutations)
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$tmp/hosts"
+          chmod 600 "$tmp/key" "$tmp/hosts"
+          ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$tmp/hosts" "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          if sudo -n true 2>/dev/null; then
+            echo 'OVH_UNATTENDED_ADMIN_POSSIBLE'
+          else
+            echo 'OVH_UNATTENDED_ADMIN_NOT_AVAILABLE'
+          fi
+          if [[ -x /usr/local/sbin/liftorbit-ops ]]; then
+            echo 'OVH_STAGING_HELPER_PRESENT'
+            if sudo -n -l /usr/local/sbin/liftorbit-ops status >/dev/null 2>&1; then
+              echo 'OVH_RESTRICTED_HELPER_AVAILABLE'
+            else
+              echo 'OVH_RESTRICTED_HELPER_NOT_AUTHORIZED'
+            fi
+          else
+            echo 'OVH_BOOTSTRAP_REQUIRED'
+          fi
+          if test -f /opt/liftorbit/full.compose.yml; then
+            echo 'OVH_COMPOSE_PRESENT'
+          else
+            echo 'OVH_COMPOSE_MISSING'
+          fi
+          REMOTE
