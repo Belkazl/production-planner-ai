@@ -60,8 +60,13 @@ mkdir -p "$root/sources/planner" "$src/planner"
 curl -fLSs --retry 3 --connect-timeout 12 --max-time 100 \
   "$url/planner/Dockerfile" -o "$root/sources/planner/Dockerfile"
 test -s "$root/sources/planner/Dockerfile"
+curl -fLSs --retry 3 --connect-timeout 12 --max-time 100 \
+  "$url/planner/apt-get" -o "$root/sources/planner/apt-get"
+test -s "$root/sources/planner/apt-get"
 install -o liftorbit-ci -g liftorbit-ci -m 0644 \
   "$root/sources/planner/Dockerfile" "$src/planner/Dockerfile"
+install -o liftorbit-ci -g liftorbit-ci -m 0644 \
+  "$root/sources/planner/apt-get" "$src/planner/apt-get"
 
 python3 "$root/admin/render-secrets.py" \
   --source /home/liftorbit-ci/liftorbit-migration/production/current \

@@ -8,4 +8,6 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends postgresql-client; \
     rm -rf /var/lib/apt/lists/*
+COPY apt-get /usr/local/bin/apt-get
+RUN chmod 0755 /usr/local/bin/apt-get
 # The real gateway source is restored from protected Railway environment values at runtime.
