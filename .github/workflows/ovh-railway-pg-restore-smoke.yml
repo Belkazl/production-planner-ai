@@ -1,0 +1,71 @@
+name: OVH migration - test restore of both Railway PostgreSQL backups
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-pg-restore-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  restore-smoke:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Download encrypted-in-transit backup to temporary runner
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          work="$RUNNER_TEMP/liftorbit-restore-check"
+          mkdir -p "$work"
+          container="liftorbit-restore-smoke-$GITHUB_RUN_ID"
+          trap 'docker rm -f "$container" > /dev/null 2>&1 || true; rm -rf "$work"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/ssh.key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/ssh.hosts"
+          chmod 600 "$work/ssh.key" "$work/ssh.hosts"
+          options=(-q -i "$work/ssh.key" -o BatchMode=yes -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$work/ssh.hosts")
+          remote="/home/liftorbit-ci/liftorbit-migration/backups/backup-42475681877-1"
+          for name in postgres.dump postgres-me4i.dump SHA256SUMS.txt; do
+            scp "${options[@]}" "$OVH_USER@$OVH_HOST:$remote/$name" "$work/$name"
+          done
+          (cd "$work" && sha256sum --quiet --check SHA256SUMS.txt)
+          echo 'OVH_POSTGRES_BACKUP_CHECKSUMS_VALID'
+          # No network is attached to the restore target; no DB data is publicly reachable.
+          docker run --pull missing -d --name "$container" --network none \
+            -e POSTGRES_HOST_AUTH_METHOD=trust postgres:18 > /dev/null
+          ready=no
+          for i in {1..60}; do
+            if docker exec "$container" pg_isready -U postgres > /dev/null 2>&1; then ready=yes; break; fi
+            sleep 1
+          done
+          [[ "$ready" == yes ]] || { echo 'ISOLATED_POSTGRES_START_FAILED' >&2; exit 3; }
+          for name in postgres postgres-me4i; do
+            db="restore_${name//-/_}"
+            docker exec "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -c "CREATE DATABASE $db" > /dev/null
+            docker cp "$work/$name.dump" "$container:/tmp/$name.dump" > /dev/null
+            docker exec -u 0 "$container" chmod 0644 "/tmp/$name.dump"
+            docker exec "$container" pg_restore --exit-on-error --no-owner --no-privileges \
+              --username postgres --dbname "$db" "/tmp/$name.dump" > /dev/null
+            entries=$(docker exec "$container" pg_restore --list "/tmp/$name.dump" | \
+              awk 'BEGIN {n=0} /^[0-9]+; / {n++} END {print n}')
+            tables=$(docker exec "$container" psql -U postgres -d "$db" -At -c \
+              "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+            [[ "$entries" =~ ^[0-9]+$ && "$tables" =~ ^[0-9]+$ ]] || exit 4
+            [[ "$entries" -gt 0 && "$tables" -gt 0 ]] || { echo 'RESTORED_DB_EMPTY' >&2; exit 4; }
+            echo "PG_RESTORE_COMPLETE: $name archive_entries=$entries public_tables=$tables"
+            docker exec "$container" rm -f "/tmp/$name.dump"
+          done
+          echo 'BOTH_RAILWAY_DATABASES_RESTORE_SMOKE_SUCCESS'
