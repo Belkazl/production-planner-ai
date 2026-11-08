@@ -1,0 +1,204 @@
+name: liftorbit-ovh-staging
+
+x-logging: &log
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "2"
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres-main:
+    image: postgres:18
+    restart: unless-stopped
+    shm_size: "64m"
+    env_file:
+      - /opt/liftorbit/secrets/postgres-main.env
+    volumes:
+      - postgres_main:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d railway"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 400m
+    pids_limit: 100
+    logging: *log
+
+  postgres-auth:
+    image: postgres:18
+    restart: unless-stopped
+    shm_size: "64m"
+    env_file:
+      - /opt/liftorbit/secrets/postgres-auth.env
+    volumes:
+      - postgres_auth:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d railway"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 400m
+    pids_limit: 100
+    logging: *log
+
+  planner-gateway:
+    image: python:3.12-slim
+    restart: unless-stopped
+    working_dir: /srv
+    environment:
+      PYTHONUNBUFFERED: "1"
+    command:
+      - python3
+      - -c
+      - |
+        import json, os
+        with open('/run/liftorbit/config.json', encoding='utf-8') as f:
+            os.environ.update(json.load(f))
+        exec(os.environ['PP_GENERIC_RESTORE_LAUNCH_V2'])
+    volumes:
+      - /opt/liftorbit/secrets/planner.json:/run/liftorbit/config.json:ro
+    depends_on:
+      postgres-main:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/db_health',timeout=4).read()"
+      interval: 20s
+      timeout: 6s
+      retries: 8
+      start_period: 90s
+    mem_limit: 600m
+    pids_limit: 160
+    logging: *log
+    <<: *security
+
+  auth-gateway:
+    build:
+      context: /opt/liftorbit/sources/auth
+    image: liftorbit/qa-auth:ovh-staging
+    restart: unless-stopped
+    command:
+      - bun
+      - -e
+      - "Object.assign(Bun.env, await Bun.file('/run/liftorbit/config.json').json()); await import('/app/index.ts')"
+    volumes:
+      - /opt/liftorbit/secrets/auth.json:/run/liftorbit/config.json:ro
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      postgres-main:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "let r=await fetch('http://127.0.0.1:8080/health');process.exit(r.ok?0:1)"
+      interval: 20s
+      timeout: 6s
+      retries: 8
+      start_period: 50s
+    mem_limit: 350m
+    pids_limit: 128
+    logging: *log
+    <<: *security
+
+  ga-worker:
+    build:
+      context: /opt/liftorbit/sources/ga
+    image: liftorbit/ga:ovh-staging
+    restart: unless-stopped
+    command:
+      - python
+      - -c
+      - |
+        import json, os, runpy
+        with open('/run/liftorbit/config.json', encoding='utf-8') as f:
+            os.environ.update(json.load(f))
+        runpy.run_module('ga_workers.compile_legacy_ga',run_name='__main__')
+        runpy.run_module('ga_workers.server',run_name='__main__')
+    volumes:
+      - /opt/liftorbit/secrets/ga.json:/run/liftorbit/config.json:ro
+    depends_on:
+      auth-gateway:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=4).read()"
+      interval: 20s
+      timeout: 6s
+      retries: 8
+      start_period: 100s
+    mem_limit: 1100m
+    pids_limit: 160
+    logging: *log
+    <<: *security
+
+  app:
+    build:
+      context: /opt/liftorbit/sources/app
+    image: liftorbit/app:ovh-staging
+    restart: unless-stopped
+    command:
+      - bun
+      - -e
+      - "Object.assign(Bun.env, await Bun.file('/run/liftorbit/config.json').json()); await import('/app/index.ts')"
+    volumes:
+      - /opt/liftorbit/secrets/app.json:/run/liftorbit/config.json:ro
+    depends_on:
+      auth-gateway:
+        condition: service_healthy
+      ga-worker:
+        condition: service_healthy
+      planner-gateway:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:18082:8080"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "let r=await fetch('http://127.0.0.1:8080/__bridge_health');process.exit(r.ok?0:1)"
+      interval: 20s
+      timeout: 6s
+      retries: 8
+      start_period: 75s
+    mem_limit: 650m
+    pids_limit: 160
+    logging: *log
+    <<: *security
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_main:
+  postgres_auth:
