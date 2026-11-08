@@ -1,0 +1,61 @@
+name: OVH planner bootstrap source audit (redacted read-only)
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-planner-bootstrap-source-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect structure of protected launcher without disclosing source or values
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$tmp/hosts"
+          chmod 600 "$tmp/key" "$tmp/hosts"
+          ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/hosts" \
+             "$OVH_USER@$OVH_HOST" \
+             'cat "$HOME/liftorbit-migration/production/current/gateway.json"' > "$tmp/gateway-private.json"
+          python3 - "$tmp/gateway-private.json" <<'PY'
+          import base64, json, re, sys
+          from pathlib import Path
+          data=json.loads(Path(sys.argv[1]).read_text())
+          keys=('PP_GENERIC_RESTORE_LAUNCH_V2','PP_GENERIC_RESTORE_BOOT_V1',
+                'PP_RESTORE_ETALON_BOOT_V1','PP_GENERIC_CORE_B64',
+                'PP_GENERIC_CORE_DIAG_B64','GATEWAY_WRAPPER')
+          for key in keys:
+              v=data.get(key,'')
+              if not isinstance(v,str) or not v:
+                  print('OVH_PRIVATE_CODE_SHAPE',key,'MISSING')
+                  continue
+              text=v
+              if key.endswith('_B64'):
+                  try:
+                      text=base64.b64decode(v,validate=True).decode('utf-8')
+                  except Exception:
+                      text=''
+              stats=[
+                  'lines='+str(min(text.count(chr(10))+1,999999)),
+                  'apt='+str('apt-get' in text).lower(),
+                  'subprocess='+str('subprocess' in text).lower(),
+                  'shell='+str('sh -c' in text or 'sh","-c' in text).lower(),
+                  'python='+str('python3' in text).lower(),
+                  'test='+str('test -' in text).lower(),
+                  'pip='+str('pip install' in text or '-m pip' in text).lower(),
+              ]
+              print('OVH_PRIVATE_CODE_SHAPE',key,*stats)
+          PY
