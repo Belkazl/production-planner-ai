@@ -1,0 +1,150 @@
+name: OVH migration - private SSH two-Postgres dumps
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-pg-dump-private-ssh.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-railway-production-pg-dump
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # Activate only after the dedicated public SSH key is approved in Railway.
+    if: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli
+      - name: Snapshot both databases over private SSH without public DB ports
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${RAILWAY_TOKEN:-}" && test -n "${OVH_SSH_PRIVATE_KEY:-}" && test -n "${OVH_SSH_KNOWN_HOSTS:-}" || exit 2
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          work="$RUNNER_TEMP/liftorbit-private-pgdump"
+          mkdir -p "$work" "$HOME/.ssh"
+          ovhkey="$work/ovh.key"
+          ovhhosts="$work/ovh.hosts"
+          railkey="$work/railway.key"
+          railhosts="$work/railway.known_hosts"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$ovhkey"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$ovhhosts"
+          chmod 600 "$ovhkey" "$ovhhosts"
+          touch "$railhosts" && chmod 600 "$railhosts"
+          tunnel_pid=''
+          cleanup() {
+            if [[ -n "$tunnel_pid" ]]; then kill "$tunnel_pid" 2>/dev/null || true; wait "$tunnel_pid" 2>/dev/null || true; fi
+            rm -rf "$work"
+          }
+          trap cleanup EXIT
+          ovh_opts=(-i "$ovhkey" -o BatchMode=yes -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ovhhosts")
+          target="$OVH_USER@$OVH_HOST"
+          scp -q "${ovh_opts[@]}" "$target:/home/liftorbit-ci/.ssh/liftorbit_railway_migration_ed25519" "$railkey"
+          chmod 600 "$railkey"
+          rail_opts=(-i "$railkey" -o BatchMode=yes -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$railhosts" -o ServerAliveInterval=20 -o ServerAliveCountMax=3)
+          gateway='production-planner-gateway-production.up.railway.app@ssh.railway.com'
+          if ! timeout 30s ssh "${rail_opts[@]}" "$gateway" 'printf RAILWAY_SSH_OK' > "$work/railway_probe.out" 2> "$work/railway_probe.err"; then
+            echo 'RAILWAY_SSH_PUBLIC_KEY_NOT_AUTHORIZED_OR_CONNECTION_FAILED' >&2
+            exit 4
+          fi
+          grep -q 'RAILWAY_SSH_OK' "$work/railway_probe.out" || exit 4
+          echo 'RAILWAY_GATEWAY_SSH_AUTH_OK'
+          specs=(
+            'postgres:49ab352b-7b4c-4422-910d-3b1fefaa1e37'
+            'postgres-me4i:aaf9a34e-78c2-476a-b53c-3629e78a98c8'
+          )
+          for spec in "${specs[@]}"; do
+            name=${spec%%:*}
+            service=${spec#*:}
+            if ! railway variable list --project 16a27a18-a727-4a65-b75d-4368159b0e3e \
+              --environment production --service "$service" --json \
+              > "$work/$name.variables.json" 2> "$work/$name.variables-error"; then
+              echo "DATABASE_VARIABLE_READ_FAILED: $name" >&2; exit 5
+            fi
+            node - "$work/$name.variables.json" "$work/$name.env" "$work/$name.endpoint" <<'NODE'
+          const fs = require('fs');
+          const data=JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const d=data.DATABASE_URL;
+          if(typeof d !== 'string' || !d.startsWith('postgres')) throw Error('database_url_missing');
+          const u=new URL(d);
+          if(!/^[a-z0-9-]+[.]railway[.]internal$/.test(u.hostname)) throw Error('not_private_railway_pg_host');
+          const port=u.port||'5432';
+          if(!/^[0-9]{2,5}$/.test(port)) throw Error('invalid_pg_port');
+          for(const s of [u.username,u.password,u.pathname.substring(1)]) if(!s || /[\r\n]/.test(decodeURIComponent(s))) throw Error('invalid_pg_credential_field');
+          const env=[
+            'PGHOST=127.0.0.1', 'PGPORT=15432',
+            'PGUSER='+decodeURIComponent(u.username),
+            'PGPASSWORD='+decodeURIComponent(u.password),
+            'PGDATABASE='+decodeURIComponent(u.pathname.slice(1)),
+            'PGSSLMODE=prefer', 'PGCONNECT_TIMEOUT=20'
+          ].join('\n')+'\n';
+          fs.writeFileSync(process.argv[3],env,{mode:0o600});
+          fs.writeFileSync(process.argv[4],`${u.hostname} ${port}\n`,{mode:0o600});
+          NODE
+            read -r dbhost dbport < "$work/$name.endpoint"
+            # SSH gateway forwards into the Railway private network.
+            ssh "${rail_opts[@]}" -o ExitOnForwardFailure=yes -N \
+              -L "127.0.0.1:15432:$dbhost:$dbport" "$gateway" \
+              > "$work/$name.tunnel.out" 2>&1 &
+            tunnel_pid=$!
+            ready=no
+            for i in {1..35}; do
+              if (echo > /dev/tcp/127.0.0.1/15432) 2>/dev/null; then ready=yes; break; fi
+              if ! kill -0 "$tunnel_pid" 2>/dev/null; then break; fi
+              sleep 1
+            done
+            [[ "$ready" == yes ]] || { echo "RAILWAY_PRIVATE_TUNNEL_FAILED: $name" >&2; exit 6; }
+            mkdir -p "$work/backups"
+            # Postgres 18 client reads database metadata via localhost tunnel; custom format
+            # uses an internally consistent pg_dump snapshot, without DB writes.
+            docker run --rm --network host --env-file "$work/$name.env" \
+              -v "$work/backups:/backups" postgres:18 \
+              pg_dump --format=custom --compress=6 --no-owner --no-privileges \
+              --file="/backups/$name.dump"
+            kill "$tunnel_pid" 2>/dev/null || true
+            wait "$tunnel_pid" 2>/dev/null || true
+            tunnel_pid=''
+            test -s "$work/backups/$name.dump"
+            test "$(head -c 5 "$work/backups/$name.dump")" = PGDMP
+            docker run --rm --network none \
+              -v "$work/backups:/backups:ro" postgres:18 \
+              pg_restore --list "/backups/$name.dump" > /dev/null
+            echo "VERIFIED_CONSISTENT_PG_DUMP: $name"
+            rm -f "$work/$name.variables.json" "$work/$name.variables-error" "$work/$name.env" "$work/$name.endpoint" "$work/$name.tunnel.out"
+          done
+          (cd "$work/backups" && sha256sum *.dump > SHA256SUMS.txt)
+          dir="backup-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$dir" =~ ^backup-[0-9]+-[0-9]+$ ]] || exit 8
+          remote="/home/liftorbit-ci/liftorbit-migration/backups/$dir"
+          ssh "${ovh_opts[@]}" "$target" "umask 077; mkdir -p '$remote'; chmod 700 '$remote'"
+          scp -q "${ovh_opts[@]}" "$work/backups/postgres.dump" \
+            "$work/backups/postgres-me4i.dump" "$work/backups/SHA256SUMS.txt" "$target:$remote/"
+          ssh "${ovh_opts[@]}" "$target" "BACKUP_NAME='$dir' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$BACKUP_NAME" =~ ^backup-[0-9]+-[0-9]+$ ]] || exit 8
+          path="$HOME/liftorbit-migration/backups/$BACKUP_NAME"
+          chmod 600 "$path"/*.dump "$path/SHA256SUMS.txt"
+          (cd "$path" && sha256sum --check --quiet SHA256SUMS.txt)
+          test "$(head -c 5 "$path/postgres.dump")" = PGDMP
+          test "$(head -c 5 "$path/postgres-me4i.dump")" = PGDMP
+          echo 'OVH_TWO_DATABASE_SNAPSHOTS_CHECKSUM_VERIFIED'
+          REMOTE
+          echo 'OVH_PG_BACKUP_TRANSFER_SUCCESS'
