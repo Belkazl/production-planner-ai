@@ -1,0 +1,49 @@
+name: OVH migration - bootstrap shell and compose review
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ops/ovh/bootstrap-vps.sh
+      - ops/ovh/liftorbit-ops
+      - ops/ovh/full.compose.yml
+      - ops/ovh/render-secrets.py
+      - .github/workflows/ovh-bootstrap-lint.yml
+permissions:
+  contents: read
+jobs:
+  lint:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify executable shell and Python syntax
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/bootstrap-vps.sh ops/ovh/liftorbit-ops
+          python3 -m py_compile ops/ovh/render-secrets.py
+          echo 'OVH_BOOTSTRAP_SHELL_PYTHON_SYNTAX_OK'
+      - name: Shellcheck for unexpected shell hazards
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=error ops/ovh/bootstrap-vps.sh ops/ovh/liftorbit-ops
+          echo 'OVH_BOOTSTRAP_SHELLCHECK_OK'
+      - name: Compose is structurally valid and all private services unexposed
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /opt/liftorbit/secrets
+          printf 'POSTGRES_USER=postgres\nPOSTGRES_DB=railway\nPOSTGRES_PASSWORD=ci-placeholder\n' | sudo tee /opt/liftorbit/secrets/postgres-main.env >/dev/null
+          printf 'POSTGRES_USER=postgres\nPOSTGRES_DB=railway\nPOSTGRES_PASSWORD=ci-placeholder\n' | sudo tee /opt/liftorbit/secrets/postgres-auth.env >/dev/null
+          docker compose -f ops/ovh/full.compose.yml config --no-env-resolution --quiet
+          python3 - <<'PY'
+          import subprocess,json
+          s=subprocess.check_output(['docker','compose','-f','ops/ovh/full.compose.yml','config','--no-env-resolution','--format','json'],text=True)
+          c=json.loads(s)
+          assert set(c['services'])=={'postgres-main','postgres-auth','planner-gateway','auth-gateway','ga-worker','app'}
+          assert c['services']['app'].get('ports')[0]['host_ip']=='127.0.0.1'
+          for name in set(c['services'])-{'app'}:
+              assert not c['services'][name].get('ports')
+          assert c['services']['app']['ports'][0]['published']=='18082'
+          print('OVH_COMPOSE_SIX_SERVICES_PRIVATE_PORTS_OK')
+          PY
