@@ -143,6 +143,41 @@ jobs:
               echo "SERVICE_HEALTH_CHECK $name MISSING"
             fi
           done
+      - name: Classify container startup errors without exposing logs
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          root=/opt/liftorbit/full.compose.yml
+          for service in planner-gateway auth-gateway ga-worker app; do
+            cid=$(sudo docker compose -f "$root" ps -q "$service" 2>/dev/null)
+            if test -z "$cid"; then continue; fi
+            log="$RUNNER_TEMP/staging-private-$service.log"
+            docker logs --tail 150 "$cid" > "$log" 2>&1
+            python3 - "$service" "$log" <<'PY'
+          import re,sys,pathlib,collections
+          name=sys.argv[1]
+          s=pathlib.Path(sys.argv[2]).read_text(errors='replace')
+          matches=re.findall(r'(?m)^([A-Za-z_][A-Za-z_0-9]*(?:Error|Exception))(?::|$)',s)
+          print('SAFE_RUNTIME_ERROR_CLASS',name,','.join(dict.fromkeys(matches)) or 'UNKNOWN')
+          m=re.search(r"No module named '([a-zA-Z_][a-zA-Z0-9_.]{0,45})'",s)
+          if m: print('SAFE_MISSING_IMPORT',name,m.group(1))
+          for label,pattern in [
+              ('POSTGRES_AUTH','password authentication failed'),
+              ('DATABASE_DNS','could not translate host name'),
+              ('DATABASE_CONNECT','connection refused'),
+              ('MISSING_ENV','KeyError:'),
+              ('SOURCE_HASH','sha256 mismatch'),
+              ('SOURCE_BOOTSTRAP','PP_GENERIC'),
+              ('INVALID_JSON','JSONDecodeError'),
+              ('SYNTAX','SyntaxError'),
+              ('MEMORY','MemoryError'),
+              ('LIBRARY','ModuleNotFoundError'),
+          ]:
+              if pattern.lower() in s.lower(): print('SAFE_STARTUP_DIAG',name,label)
+          PY
+            rm -f "$log"
+          done
       - name: Remove ephemeral databases and secrets
         if: always()
         run: |
