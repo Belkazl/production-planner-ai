@@ -1,0 +1,52 @@
+name: OVH migration - read-only Railway SSH gateway authentication
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-ssh-auth-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ssh-auth:
+    # Activate after account owner approves the dedicated public key in Railway.
+    if: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify SSH gateway key from dedicated OVH account
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir="$RUNNER_TEMP/railway-ssh-verify"
+          mkdir -p "$dir"
+          trap 'rm -rf "$dir"' EXIT
+          test -n "${OVH_SSH_PRIVATE_KEY:-}" && test -n "${OVH_SSH_KNOWN_HOSTS:-}" || exit 2
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/ovh.key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/ovh.hosts"
+          chmod 600 "$dir/ovh.key" "$dir/ovh.hosts"
+          scp -q -i "$dir/ovh.key" -o IdentitiesOnly=yes \
+            -o BatchMode=yes -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/ovh.hosts" \
+            "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/.ssh/liftorbit_railway_migration_ed25519" "$dir/rail.key"
+          chmod 600 "$dir/rail.key"
+          if timeout 25s ssh -T -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$dir/rail.hosts" -i "$dir/rail.key" \
+            production-planner-gateway-production.up.railway.app@ssh.railway.com \
+            'printf RAILWAY_GATEWAY_SSH_AUTH_OK' > "$dir/rail.out" 2> "$dir/rail.err"; then
+            grep -q RAILWAY_GATEWAY_SSH_AUTH_OK "$dir/rail.out"
+            echo 'RAILWAY_GATEWAY_READONLY_SSH_AUTH_CONFIRMED'
+          else
+            echo 'RAILWAY_GATEWAY_SSH_ACCESS_NOT_READY (private diagnostics withheld)'
+            exit 4
+          fi
