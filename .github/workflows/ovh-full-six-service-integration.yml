@@ -79,16 +79,16 @@ jobs:
             --source "$RUNNER_TEMP/liftorbit-integration/config" \
             --output /opt/liftorbit/secrets
           sudo cp ops/ops/ovh/full.compose.yml /opt/liftorbit/full.compose.yml
-          docker compose -f /opt/liftorbit/full.compose.yml config --quiet
+          sudo docker compose -f /opt/liftorbit/full.compose.yml config --quiet
           echo 'INTEGRATION_RUNNER_RUNTIME_CONFIG_READY'
       - name: Restore both PostgreSQL databases in disposable Docker volumes
         shell: bash
         run: |
           set -euo pipefail
           cfg=/opt/liftorbit/full.compose.yml
-          docker compose -f "$cfg" up -d postgres-main postgres-auth
+          sudo docker compose -f "$cfg" up -d postgres-main postgres-auth
           for spec in postgres-main postgres-auth; do
-            cid=$(docker compose -f "$cfg" ps -q "$spec")
+            cid=$(sudo docker compose -f "$cfg" ps -q "$spec")
             healthy=no
             for i in {1..70}; do
               if [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")" = healthy ]; then healthy=yes; break; fi
@@ -98,9 +98,9 @@ jobs:
           done
           for spec in "postgres-main:postgres:12" "postgres-auth:postgres-me4i:6"; do
             IFS=: read -r service source minimum <<< "$spec"
-            cid=$(docker compose -f "$cfg" ps -q "$service")
+            cid=$(sudo docker compose -f "$cfg" ps -q "$service")
             path="$RUNNER_TEMP/liftorbit-integration/backups/$source.dump"
-            db=$(sed -n 's/^POSTGRES_DB=//p' "/opt/liftorbit/secrets/$service.env")
+            db=$(sudo sed -n 's/^POSTGRES_DB=//p' "/opt/liftorbit/secrets/$service.env")
             docker cp "$path" "$cid:/tmp/restore.dump" > /dev/null
             docker exec -u 0 "$cid" chmod 0644 /tmp/restore.dump
             docker exec -u postgres "$cid" pg_restore -q --exit-on-error \
@@ -116,10 +116,10 @@ jobs:
         run: |
           set -euo pipefail
           cfg=/opt/liftorbit/full.compose.yml
-          docker compose -f "$cfg" up -d --build planner-gateway auth-gateway ga-worker app
+          sudo docker compose -f "$cfg" up -d --build planner-gateway auth-gateway ga-worker app
           echo 'INTEGRATION_FULL_COMPOSE_UP_COMPLETED'
           for name in planner-gateway auth-gateway ga-worker app; do
-            cid=$(docker compose -f "$cfg" ps -q "$name")
+            cid=$(sudo docker compose -f "$cfg" ps -q "$name")
             test -n "$cid"
             state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")
             echo "INTEGRATION_SERVICE_HEALTH $name=$state"
@@ -136,7 +136,7 @@ jobs:
           set +e
           cfg=/opt/liftorbit/full.compose.yml
           for name in postgres-main postgres-auth planner-gateway auth-gateway ga-worker app; do
-            cid=$(docker compose -f "$cfg" ps -q "$name" 2>/dev/null)
+            cid=$(sudo docker compose -f "$cfg" ps -q "$name" 2>/dev/null)
             if test -n "$cid"; then
               docker inspect --format 'SERVICE_HEALTH_CHECK {{.Name}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} OOM={{.State.OOMKilled}} ExitCode={{.State.ExitCode}}' "$cid"
             else
@@ -146,5 +146,5 @@ jobs:
       - name: Remove ephemeral databases and secrets
         if: always()
         run: |
-          docker compose -f /opt/liftorbit/full.compose.yml down --volumes --remove-orphans > /dev/null 2>&1 || true
+          sudo docker compose -f /opt/liftorbit/full.compose.yml down --volumes --remove-orphans > /dev/null 2>&1 || true
           sudo rm -rf /opt/liftorbit "$RUNNER_TEMP/liftorbit-integration"
