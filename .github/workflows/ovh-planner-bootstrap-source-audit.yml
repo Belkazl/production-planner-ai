@@ -102,4 +102,16 @@ jobs:
                         'tests='+(','.join(tests[:8]) or 'none'),
                         'apt_flags='+(','.join(apt_flags[:8]) or 'none'),
                         'size='+str(len(part)))
+          if isinstance(v,str) and v:
+              for idx, row in enumerate(v.splitlines(),1):
+                  categories=[k for k,tok in [
+                    ('APT','apt-get'),('TEST','test -'),('PYTHON','python3'),
+                    ('PIP','pip'),('SHELL','sh -c'),('CURL','curl'),
+                    ('PG','pg_dump'),('INSTALL','install'),('PATH','PATH='),
+                    ('SOURCE','source '),('EXPORT','export '),
+                    ('IF','if '),('FI','fi'),('SET','set -') ] if tok in row]
+                  print('OVH_LEGACY_LINE_CLASS',idx,','.join(categories) or 'other',
+                        'length='+str(len(row)))
+              for program in ('apt-get','test -','python3','pg_dump','pg_isready'):
+                  print('OVH_LEGACY_PROGRAM_OCCURRENCES',program.replace(' ','_'),v.count(program))
           PY
