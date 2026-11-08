@@ -68,6 +68,7 @@ printf '%s\n' "$pid" > "$dir/$RUN_ID.pid"
 for i in {1..18}; do
   if ! kill -0 "$pid" 2>/dev/null; then
     echo 'RAILWAY_REMOTE_TUNNEL_PROCESS_EXITED' >&2
+    rm -f "$dir/$RUN_ID.pid"
     exit 3
   fi
   if python3 - <<'PY'
@@ -85,14 +86,16 @@ PY
   sleep 1
 done
 echo 'RAILWAY_REMOTE_BOTH_DB_TUNNELS_FAILED' >&2
+kill "$pid" 2>/dev/null || true
+rm -f "$dir/$RUN_ID.pid"
 exit 3
 OPEN_REMOTE
 remote_started=yes
-ssh "${opts[@]}" "$target" -T -N \
+ssh "${opts[@]}" -T -N \
   -o ExitOnForwardFailure=yes \
   -L 127.0.0.1:15432:127.0.0.1:25432 \
   -L 127.0.0.1:15433:127.0.0.1:25433 \
-  > "$work/ovh-tunnel-private.log" 2>&1 &
+  "$target" > "$work/ovh-tunnel-private.log" 2>&1 &
 forward_pid=$!
 ready=no
 for i in {1..24}; do
