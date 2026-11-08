@@ -65,4 +65,27 @@ jobs:
                   print('OVH_PRIVATE_BOOT_SOURCE_MATCH',key,'apt='+str('apt-get' in v).lower(),
                         'run='+str('subprocess.run' in v).lower(),
                         'check_call='+str('subprocess.check_call' in v).lower())
+          v=data.get('D_START_GOOD','')
+          if isinstance(v,str) and v:
+              import ast, hashlib
+              print('OVH_LEGACY_SOURCE_STATS',
+                    'lines='+str(v.count(chr(10))+1),
+                    'chars='+str(len(v)),
+                    'sha_prefix='+hashlib.sha256(v.encode()).hexdigest()[:12])
+              try:
+                  tree=ast.parse(v)
+                  print('OVH_LEGACY_SOURCE_PARSE','PYTHON')
+                  kinds=sorted(set(type(n).__name__ for n in ast.walk(tree) if getattr(n,'lineno',0) in range(566,579)))
+                  print('OVH_LEGACY_SOURCE_NEAR_571',','.join(kinds[:14]) or 'none')
+              except SyntaxError:
+                  print('OVH_LEGACY_SOURCE_PARSE','NON_PYTHON')
+              found=[]
+              for i,row in enumerate(v.splitlines(),1):
+                  if any(x in row for x in ('apt-get','python3','test -','subprocess.run','check_call')):
+                      labels=[tag for tag,tok in [
+                          ('APT','apt-get'),('PYTHON','python3'),('TEST','test -'),
+                          ('RUN','subprocess.run'),('CHECK','check_call'),
+                          ('SHELL','sh -c'),('PIP','pip install')] if tok in row]
+                      found.append(str(i)+':'+'/'.join(labels))
+              print('OVH_LEGACY_SOURCE_CALL_SITES',','.join(found[:40]) or 'none')
           PY
