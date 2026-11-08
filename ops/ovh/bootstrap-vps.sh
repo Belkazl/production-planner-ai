@@ -56,6 +56,12 @@ src=/home/liftorbit-ci/liftorbit-migration/sources
 copy_source app "$src/ovh-app/current"
 copy_source auth "$src/current/auth"
 copy_source ga "$src/current/ga"
+mkdir -p "$root/sources/planner" "$src/planner"
+curl -fLSs --retry 3 --connect-timeout 12 --max-time 100 \
+  "$url/planner/Dockerfile" -o "$root/sources/planner/Dockerfile"
+test -s "$root/sources/planner/Dockerfile"
+install -o liftorbit-ci -g liftorbit-ci -m 0644 \
+  "$root/sources/planner/Dockerfile" "$src/planner/Dockerfile"
 
 python3 "$root/admin/render-secrets.py" \
   --source /home/liftorbit-ci/liftorbit-migration/production/current \
