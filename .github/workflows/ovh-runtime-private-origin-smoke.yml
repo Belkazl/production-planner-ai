@@ -1,0 +1,97 @@
+name: OVH migration - smoke test patched private Docker service origins
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-runtime-private-origin-smoke.yml
+      - ops/ovh/patch-runtime-origins.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  patched-app:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ops
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: app
+          persist-credentials: false
+      - name: Patch only checked-out OVH app copy
+        run: node ops/ops/ovh/patch-runtime-origins.mjs app
+      - name: Compile and execute app contract suite under Docker
+        run: docker build --pull -t liftorbit-app:ovh-origin-smoke app
+      - name: Accept only explicit OVH internal origins with flag enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none -e PP_OVH_STAGING=1 \
+            --entrypoint bun liftorbit-app:ovh-origin-smoke -e \
+            'const {createGAStateStore}=await import("./ga-python-state-store.mjs");
+             const {createPythonGAUpstream}=await import("./python-ga-upstream.mjs");
+             const token="t".repeat(40);
+             const state=createGAStateStore({enabled:true,origin:"http://auth-gateway:8080",token});
+             if(!state)throw Error("state_origin_rejected");
+             const noop=()=>true;
+             const worker=createPythonGAUpstream({enabled:true,origin:"http://ga-worker:8080",token,
+               upstreamUrl:noop,sessionKey:noop,verifyLogin:noop,readAccountModel:noop,hashModel:noop,checkPlan:noop});
+             if(!worker)throw Error("worker_origin_rejected");
+             for(const origin of ["http://example.invalid:8080","http://host.docker.internal:8080"]){
+               let stateDenied=false,workerDenied=false;
+               try{createGAStateStore({enabled:true,origin,token})}catch{stateDenied=true}
+               try{createPythonGAUpstream({enabled:true,origin,token,upstreamUrl:noop,sessionKey:noop,verifyLogin:noop,readAccountModel:noop,hashModel:noop,checkPlan:noop})}catch{workerDenied=true}
+               if(!stateDenied||!workerDenied)throw Error("non_private_origin_allowed")
+             }
+             console.log("OVH_RESTRICTED_PRIVATE_ORIGIN_SMOKE_OK");'
+      - name: Bundle OVH-only patched app with the original SHA recorded
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ovh-runtime-patched"
+          tar -czf "$RUNNER_TEMP/ovh-runtime-patched/app.tgz" --exclude=.git -C app .
+          (cd "$RUNNER_TEMP/ovh-runtime-patched" && sha256sum app.tgz > SHA256SUMS.txt)
+      - name: Stage patched app on OVH without altering running containers
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          work="$RUNNER_TEMP/ovh-runtime-patched"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/ovh.key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/ovh.hosts"
+          chmod 600 "$work/ovh.key" "$work/ovh.hosts"
+          opts=(-i "$work/ovh.key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/ovh.hosts")
+          target="$OVH_USER@$OVH_HOST"
+          base="$HOME/liftorbit-migration/sources/ovh-app"
+          ssh "${opts[@]}" "$target" "umask 077; mkdir -p '\$HOME/liftorbit-migration/sources/ovh-app/incoming/$GITHUB_SHA' '\$HOME/liftorbit-migration/sources/ovh-app/releases'"
+          dest="/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/incoming/$GITHUB_SHA"
+          scp -q "${opts[@]}" "$work/app.tgz" "$work/SHA256SUMS.txt" "$target:$dest/"
+          ssh "${opts[@]}" "$target" "RELEASE_SHA='$GITHUB_SHA' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          root="$HOME/liftorbit-migration/sources/ovh-app"
+          (cd "$root/incoming/$RELEASE_SHA" && sha256sum --check --quiet SHA256SUMS.txt)
+          mkdir -p "$root/releases/$RELEASE_SHA"
+          tar -xzf "$root/incoming/$RELEASE_SHA/app.tgz" -C "$root/releases/$RELEASE_SHA"
+          test -f "$root/releases/$RELEASE_SHA/Dockerfile"
+          ln -sfn "$root/releases/$RELEASE_SHA" "$root/current.next"
+          mv -Tf "$root/current.next" "$root/current"
+          rm -rf "$root/incoming/$RELEASE_SHA"
+          echo 'OVH_PATCHED_APP_SOURCE_STAGED_NO_LIVE_CHANGES'
+          REMOTE
