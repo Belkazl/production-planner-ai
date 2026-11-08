@@ -1,0 +1,47 @@
+name: OVH migration - remote six-service status
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-vps-staging-status.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  remote-health:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify narrow administrative command and full-stack health
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$tmp/hosts"
+          chmod 600 "$tmp/key" "$tmp/hosts"
+          ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          helper=/usr/local/sbin/liftorbit-ops
+          if [[ ! -x "$helper" ]]; then
+            echo 'OVH_ONE_TIME_ADMIN_BOOTSTRAP_REQUIRED'
+            exit 0
+          fi
+          if ! sudo -n -l "$helper status" >/dev/null 2>&1; then
+            echo 'OVH_RESTRICTED_SUDO_NOT_READY'
+            exit 0
+          fi
+          sudo -n "$helper" status
+          sudo -n "$helper" smoke
+          REMOTE
