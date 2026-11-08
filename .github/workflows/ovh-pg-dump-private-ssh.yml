@@ -114,7 +114,7 @@ jobs:
             mkdir -p "$work/backups"
             # Postgres 18 client reads database metadata via localhost tunnel; custom format
             # uses an internally consistent pg_dump snapshot, without DB writes.
-            docker run --rm --network host --env-file "$work/$name.env" \
+            docker run --rm --network host --user "$(id -u):$(id -g)" --env-file "$work/$name.env" \
               -v "$work/backups:/backups" postgres:18 \
               pg_dump --format=custom --compress=6 --no-owner --no-privileges \
               --file="/backups/$name.dump"
