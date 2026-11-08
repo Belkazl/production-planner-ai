@@ -1,0 +1,129 @@
+name: OVH migration - PostgreSQL verified backups
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ovh-railway-pg-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli
+      - name: Backup two Railway PostgreSQL databases via temporary authenticated exporter
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          project=16a27a18-a727-4a65-b75d-4368159b0e3e
+          service=6f874fef-606e-49ca-ab2d-8108b8213ea3
+          origin=https://liftorbit-migration-exporter-temp-20261108-production.up.railway.app
+          backup_dir="$RUNNER_TEMP/ovh-postgres-backup"
+          mkdir -p "$backup_dir" "$HOME/.ssh"
+          keyfile="$HOME/.ssh/ovh_backup_key"
+          hostfile="$HOME/.ssh/ovh_backup_hosts"
+          cleanup() {
+            unset bearer || true
+            rm -rf "$backup_dir" "$keyfile" "$hostfile"
+          }
+          trap cleanup EXIT
+          for variable in RAILWAY_TOKEN OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            [[ -n "${!variable:-}" ]] || { echo "Missing required $variable" >&2; exit 2; }
+          done
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          # The export bearer never enters the GitHub repository, logs, artifacts, or OVH.
+          bearer=$(openssl rand -hex 48)
+          if ! printf '%s' "$bearer" | railway variable set MIGRATION_EXPORT_TOKEN --stdin \
+            --project "$project" --environment production --service "$service" \
+            > "$RUNNER_TEMP/railway-set-private.log" 2>&1; then
+            echo 'Unable to configure temporary Railway exporter token (diagnostics suppressed)' >&2
+            exit 3
+          fi
+          echo 'TEMPORARY_EXPORTER_TOKEN_CONFIGURED'
+          # Allow Railway to finish its isolated exporter deployment.
+          ready=no
+          for i in {1..90}; do
+            if curl --fail --silent --max-time 5 "$origin/health" > /dev/null; then
+              ready=yes
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$ready" != yes ]]; then
+            echo 'EXPORTER_HEALTH_UNAVAILABLE_NO_BACKUPS_TAKEN' >&2
+            exit 4
+          fi
+          echo 'TEMPORARY_EXPORTER_HEALTH_OK'
+          for name in postgres postgres-me4i; do
+            echo "EXPORTING_DATABASE: $name"
+            curl --fail --silent --show-error --location --retry 2 --retry-delay 2 \
+              --connect-timeout 20 --max-time 900 --remove-on-error \
+              -H "Authorization: Bearer $bearer" \
+              "$origin/backup/$name" --output "$backup_dir/$name.dump"
+            test -s "$backup_dir/$name.dump"
+            test "$(head -c 5 "$backup_dir/$name.dump")" = PGDMP
+            docker run --rm --network none --mount \
+              "type=bind,source=$backup_dir,target=/backup,readonly" \
+              postgres:18 pg_restore --list "/backup/$name.dump" > /dev/null
+            echo "VERIFIED_POSTGRES18_CUSTOM_DUMP: $name"
+          done
+          (cd "$backup_dir" && sha256sum *.dump > manifest.sha256)
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$keyfile"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$hostfile"
+          chmod 600 "$keyfile" "$hostfile"
+          opts=(-i "$keyfile" -o BatchMode=yes -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$hostfile")
+          target="$OVH_USER@$OVH_HOST"
+          ident="backup-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$ident" =~ ^backup-[0-9]+-[0-9]+$ ]] || exit 5
+          remote="/home/liftorbit-ci/liftorbit-migration/backups/$ident"
+          ssh "${opts[@]}" "$target" "umask 077; mkdir -p '$remote'; chmod 700 '$remote'"
+          scp -q "${opts[@]}" "$backup_dir/postgres.dump" \
+            "$backup_dir/postgres-me4i.dump" "$backup_dir/manifest.sha256" \
+            "$target:$remote/"
+          ssh "${opts[@]}" "$target" "BACKUP_ID='$ident' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$BACKUP_ID" =~ ^backup-[0-9]+-[0-9]+$ ]] || exit 5
+          dir="$HOME/liftorbit-migration/backups/$BACKUP_ID"
+          chmod 600 "$dir"/*.dump "$dir/manifest.sha256"
+          (cd "$dir" && sha256sum --check --quiet manifest.sha256)
+          for name in postgres postgres-me4i; do
+            [[ "$(head -c 5 "$dir/$name.dump")" == PGDMP ]] || exit 6
+          done
+          echo 'OVH_TWO_DB_BACKUPS_VERIFIED_CHECKSUMS'
+          REMOTE
+          echo 'TWO_PRODUCTION_DB_BACKUPS_STORED_ON_OVH'
+
+      - name: Disable temporary exporter bearer after backup attempt
+        if: always()
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RAILWAY_TOKEN:-}" || exit 0
+          # Zero length removes usable authentication even before exporter is retired.
+          railway variable set MIGRATION_EXPORT_TOKEN= \
+            --project 16a27a18-a727-4a65-b75d-4368159b0e3e \
+            --environment production \
+            --service 6f874fef-606e-49ca-ab2d-8108b8213ea3 \
+            > "$RUNNER_TEMP/railway-disable-private.log" 2>&1 || {
+              echo 'WARNING: exporter token cleanup failed; manual service removal required' >&2
+              exit 1
+            }
+          echo 'EXPORTER_TOKEN_DISABLED'
