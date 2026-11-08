@@ -64,5 +64,9 @@ jobs:
               for key in ('PP_PY_GA_WORKERS_ENABLED','PP_PY_GA_PERSISTENCE_ENABLED','PP_QA_AUTH_ONLY'):
                   if key in d:
                       print('SERVICE_FLAG',name,key,'ENABLED' if str(d[key]).lower() in ('true','1') else 'DISABLED')
+          for app in ('auth-app','python-ga-app'):
+              state_ok=configs[app].get('PP_PY_GA_STATE_TOKEN') == configs['auth-gateway'].get('PP_QA_STATE_TOKEN')
+              worker_ok=configs[app].get('PP_PY_GA_WORKER_TOKEN') == configs['ga-worker'].get('PP_WORKER_INTERNAL_TOKEN')
+              print('PRIVATE_INTERNAL_TOKEN_MATCH',app,'state='+str(state_ok),'worker='+str(worker_ok))
           print('SERVICE_DEPENDENCY_AUDIT_COMPLETE',len(names))
           PY
