@@ -24,7 +24,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d railway"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d "$POSTGRES_DB""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -44,7 +44,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d railway"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d "$POSTGRES_DB""]
       interval: 10s
       timeout: 5s
       retries: 10
