@@ -1,0 +1,50 @@
+name: OVH migration - Railway private database tunnel probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-db-tunnel-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli
+      - name: Try private database tunnel without public TCP exposure
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${RAILWAY_TOKEN:-}" || exit 2
+          result="$RUNNER_TEMP/private_tunnel_output.txt"
+          # The CLI can print database credentials: NEVER write its output to CI logs.
+          timeout -k 2s 25s railway connect Postgres --tunnel-only \
+            -P 15432 -p 16a27a18-a727-4a65-b75d-4368159b0e3e \
+            -e production > "$result" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; rm -f "$result"' EXIT
+          found=no
+          for i in {1..24}; do
+            if (echo > /dev/tcp/127.0.0.1/15432) 2>/dev/null; then
+              found=yes
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [[ "$found" == yes ]]; then
+            echo 'RAILWAY_PRIVATE_DB_TUNNEL_AVAILABLE'
+          else
+            echo 'RAILWAY_PRIVATE_DB_TUNNEL_UNAVAILABLE (credentials/diagnostics suppressed)'
+          fi
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
