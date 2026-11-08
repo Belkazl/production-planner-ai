@@ -88,4 +88,18 @@ jobs:
                           ('SHELL','sh -c'),('PIP','pip install')] if tok in row]
                       found.append(str(i)+':'+'/'.join(labels))
               print('OVH_LEGACY_SOURCE_CALL_SITES',','.join(found[:40]) or 'none')
+          if isinstance(v,str) and v:
+              head=v.splitlines()[0]
+              chunks=re.split(r'\\s*(?:&&|;|\\|\\|)\\s*',head)
+              print('OVH_LEGACY_FIRST_LINE', 'chars='+str(len(head)), 'shell_segments='+str(len(chunks)),
+                    'single_quotes='+str(head.count("'")), 'double_quotes='+str(head.count('"')))
+              for i, part in enumerate(chunks[:18],1):
+                  names=re.findall(r'\\b(?:apt-get|test|python3?|pip3?|mkdir|chmod|cat|ls|echo|psql|pg_isready|which|grep|sh|bash|curl|sleep|export|touch|cd)\\b',part)
+                  tests=re.findall(r'\\btest\\s+(-[A-Za-z]{1,3})',part)
+                  apt_flags=re.findall(r'(?:^|\\s)(-(?:q|y|qq|qy|yq|qqy|yqq|n|f))(?:\\s|$)',part)
+                  print('OVH_LEGACY_SHELL_SEGMENT',i,
+                        'programs='+(','.join(names[:14]) or 'other'),
+                        'tests='+(','.join(tests[:8]) or 'none'),
+                        'apt_flags='+(','.join(apt_flags[:8]) or 'none'),
+                        'size='+str(len(part)))
           PY
