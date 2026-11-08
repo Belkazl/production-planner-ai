@@ -21,6 +21,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile ops/ovh/render-secrets.py
+          sudo mkdir -p /opt/liftorbit/secrets
+          printf 'POSTGRES_USER=postgres\nPOSTGRES_DB=railway\nPOSTGRES_PASSWORD=ci-placeholder\n' | sudo tee /opt/liftorbit/secrets/postgres-main.env > /dev/null
+          printf 'POSTGRES_USER=postgres\nPOSTGRES_DB=railway\nPOSTGRES_PASSWORD=ci-placeholder\n' | sudo tee /opt/liftorbit/secrets/postgres-auth.env > /dev/null
           docker compose -f ops/ovh/full.compose.yml config --no-env-resolution --quiet
           echo 'OVH_STAGING_COMPOSE_STATIC_VALID'
       - name: Verify secret transformations on OVH without disclosing values
