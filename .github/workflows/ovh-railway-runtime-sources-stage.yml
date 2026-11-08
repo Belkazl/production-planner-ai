@@ -1,0 +1,99 @@
+name: OVH migration - stage exact application, auth and GA sources
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ovh-railway-runtime-sources-stage.yml
+
+permissions:
+  contents: read
+
+jobs:
+  stage-sources:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Fetch exact deployed application commit
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: app
+          persist-credentials: false
+      - name: Fetch exact deployed auth gateway commit
+        uses: actions/checkout@v4
+        with:
+          ref: e0d0b7a5d4e625c4fe47acb2a26436ad3071c9e1
+          path: auth
+          persist-credentials: false
+      - name: Fetch exact deployed isolated GA worker commit
+        uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: ga
+          persist-credentials: false
+      - name: Bundle pinned code without checkout credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$RUNNER_TEMP/liftorbit-pinned-sources"
+          mkdir -p "$dir"
+          test -f app/Dockerfile && test -f auth/ga_python_workers/qa_auth/Dockerfile \
+            && test -f ga/ga_python_workers/Dockerfile
+          tar -czf "$dir/app.tgz" --exclude=.git -C app .
+          tar -czf "$dir/auth.tgz" --exclude=.git -C auth/ga_python_workers/qa_auth .
+          tar -czf "$dir/ga.tgz" --exclude=.git -C ga/ga_python_workers .
+          (cd "$dir" && sha256sum app.tgz auth.tgz ga.tgz > SHA256SUMS.txt)
+          echo 'THREE_PINNED_RUNTIME_SOURCE_BUNDLES_CREATED'
+      - name: Transfer and verify pinned source bundles on OVH
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          work="$RUNNER_TEMP/liftorbit-pinned-sources"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/ovh.key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/ovh.hosts"
+          chmod 600 "$work/ovh.key" "$work/ovh.hosts"
+          opts=(-i "$work/ovh.key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/ovh.hosts" \
+            -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          base="/home/liftorbit-ci/liftorbit-migration/sources"
+          ssh "${opts[@]}" "$target" "umask 077; mkdir -p '$base/incoming/$GITHUB_SHA' '$base/releases'; chmod 700 '$base' '$base/incoming' '$base/releases'"
+          scp -q "${opts[@]}" "$work/app.tgz" "$work/auth.tgz" "$work/ga.tgz" \
+            "$work/SHA256SUMS.txt" "$target:$base/incoming/$GITHUB_SHA/"
+          ssh "${opts[@]}" "$target" "RELEASE_SHA='$GITHUB_SHA' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          base="$HOME/liftorbit-migration/sources"
+          incoming="$base/incoming/$RELEASE_SHA"
+          (cd "$incoming" && sha256sum --check --quiet SHA256SUMS.txt)
+          release="$base/releases/$RELEASE_SHA"
+          mkdir -p "$release/app" "$release/auth" "$release/ga"
+          for name in app auth ga; do
+            tar -xzf "$incoming/$name.tgz" -C "$release/$name"
+          done
+          test -f "$release/app/Dockerfile"
+          test -f "$release/auth/Dockerfile"
+          test -f "$release/ga/Dockerfile"
+          printf 'app=%s\nauth=%s\nga=%s\n' \
+            '4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f' \
+            'e0d0b7a5d4e625c4fe47acb2a26436ad3071c9e1' \
+            '788a06c269330d70528d3ac75a89ec729c12fe0b' > "$release/commits.txt"
+          chmod 600 "$release/commits.txt"
+          ln -sfn "$release" "$base/current.next"
+          mv -Tf "$base/current.next" "$base/current"
+          rm -rf "$incoming"
+          echo 'OVH_PINNED_APP_AUTH_GA_SOURCES_STAGED'
+          REMOTE
+          rm -f "$work/ovh.key" "$work/ovh.hosts"
