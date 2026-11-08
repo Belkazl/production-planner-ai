@@ -1,9 +1,8 @@
 name: OVH migration - safely stage Railway config on VPS
 
 on:
-  push:
-    branches:
-      - ops/railway-migration-20261108
+  pull_request:
+    branches: [main]
     paths:
       - .github/workflows/ovh-railway-config-stage.yml
   workflow_dispatch:
@@ -18,7 +17,7 @@ concurrency:
 jobs:
   stage-config:
     # Never run with production secrets from unreviewed pull requests.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/ops/railway-migration-20261108'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
