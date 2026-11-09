@@ -1,0 +1,51 @@
+name: OVH migration - compare source database backup generations without exposing contents
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-compare-db-backup-generations.yml]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Compare old source dump, mid-migration dump and fresh source dump on OVH read-only
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 600 "$work/key" "$work/hosts"
+          ssh -i "$work/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          base="$HOME/liftorbit-migration/backups"
+          names=(backup-42475681877-1 backup-42610789251-1 backup-42660218611-1)
+          for name in "${names[@]}"; do
+            [[ -f "$base/$name/SHA256SUMS.txt" ]] || { echo 'OVH_COMPARISON_BACKUP_MISSING'; exit 2; }
+            (cd "$base/$name"; sha256sum --quiet --check SHA256SUMS.txt)
+          done
+          for archive in postgres.dump postgres-me4i.dump; do
+            first="$base/${names[0]}/$archive"
+            mid="$base/${names[1]}/$archive"
+            recent="$base/${names[2]}/$archive"
+            label=main
+            [[ "$archive" == postgres-me4i.dump ]] && label=auth
+            if cmp -s "$first" "$mid"; then same1=yes; else same1=no; fi
+            if cmp -s "$mid" "$recent"; then same2=yes; else same2=no; fi
+            if cmp -s "$first" "$recent"; then same3=yes; else same3=no; fi
+            echo "OVH_DB_ARCHIVE_COMPARE $label first_vs_mid=$same1 mid_vs_recent=$same2 first_vs_recent=$same3"
+          done
+          echo 'OVH_DB_ARCHIVE_COMPARISON_COMPLETE'
+          REMOTE
