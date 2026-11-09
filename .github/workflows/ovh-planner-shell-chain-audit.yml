@@ -268,6 +268,37 @@ jobs:
                       print('OVH_PATCH_NEW_TOKENS',' '.join(safe(t) for t in toks[:30]))
           # Resolve why the protected etalon restore aborts: emit structural statistics only.
           # Compare the expected etalon write anchor with the actual protected runtime text.
+          # Locate the exact database-target error in protected runtime source, without printing source.
+          _needle='PP_FIX_VERIFY_DB_TARGET_MISSING'
+          for _key,_value in data.items():
+              if not isinstance(_value,str) or not _key.startswith('PP_'): continue
+              _variants=[('plain',_value)]
+              if _key.endswith('_B64'):
+                  try: _variants.append(('decoded',base64.b64decode(_value,validate=True).decode('utf8')))
+                  except Exception: pass
+              for _kind,_source in _variants:
+                  if _needle not in _source: continue
+                  _lines=_source.splitlines()
+                  _locations=[i for i,line in enumerate(_lines,1) if _needle in line]
+                  print('OVH_DB_TARGET_ERROR_SOURCE',_key,_kind,
+                        'lines='+str(len(_lines)),'occurrences='+str(len(_locations)),
+                        'line_numbers='+','.join(str(i) for i in _locations[:8]))
+                  try: _tree=ast.parse(_source)
+                  except SyntaxError:
+                      print('OVH_DB_TARGET_ERROR_SOURCE_PARSE',_key,'not_python')
+                      continue
+                  for _n in ast.walk(_tree):
+                      if isinstance(_n,ast.Raise) and isinstance(_n.exc,ast.Call) and _n.exc.args:
+                          _v=_n.exc.args[0]
+                          if isinstance(_v,ast.Constant) and _v.value==_needle:
+                              print('OVH_DB_TARGET_RAISE',_key,'line='+str(_n.lineno))
+                              _parent=[node for node in ast.walk(_tree)
+                                       if isinstance(node,(ast.If,ast.Try)) and node.lineno<=_n.lineno <=getattr(node,'end_lineno',_n.lineno)]
+                              for _item in sorted(_parent,key=lambda x:getattr(x,'end_lineno',0)-x.lineno)[:2]:
+                                  _anon=_HideAnchorLiterals().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_item))))
+                                  print('OVH_DB_TARGET_GUARD_ANON',_key,
+                                        ast.unparse(_anon).replace(chr(10),' ')[:500])
+          
           class _HideAnchorLiterals(ast.NodeTransformer):
               def visit_Constant(self,node):
                   if isinstance(node.value,str):
