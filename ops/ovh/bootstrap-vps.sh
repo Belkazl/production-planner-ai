@@ -143,6 +143,19 @@ echo 'OVH_TWO_DATABASES_RESTORED_AND_VALIDATED'
 
 # All services are still loopback-only. The public domain is not redirected here.
 "${compose[@]}" up -d --build planner-gateway auth-gateway ga-worker app
+for service in postgres-main postgres-auth planner-gateway auth-gateway ga-worker app; do
+  id=$("${compose[@]}" ps -q "$service")
+  [[ -n "$id" ]] || { echo "OVH_BOOTSTRAP_SERVICE_MISSING $service"; exit 9; }
+  health=starting
+  for attempt in {1..100}; do
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id")
+    if [[ "$health" == healthy ]]; then break; fi
+    if [[ "$health" == unhealthy || "$health" == exited || "$health" == dead ]]; then break; fi
+    sleep 2
+  done
+  echo "OVH_BOOTSTRAP_SERVICE_HEALTH $service=$health"
+  [[ "$health" == healthy ]] || { echo "OVH_BOOTSTRAP_SERVICE_NOT_READY $service"; exit 9; }
+done
 /usr/local/sbin/liftorbit-ops status
 if /usr/local/sbin/liftorbit-ops smoke; then
   echo 'OVH_FULL_STAGING_HEALTHY_NO_DNS_CHANGED'
