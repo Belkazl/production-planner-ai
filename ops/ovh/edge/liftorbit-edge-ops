@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Root-owned, fixed-argument control plane. No arbitrary commands or user-supplied paths.
+set -euo pipefail
+umask 077
+[[ "$(id -u)" -eq 0 ]] || { echo 'OVH_EDGE_ROOT_ONLY'; exit 2; }
+[[ "$#" -eq 1 ]] || { echo 'OVH_EDGE_SINGLE_ACTION_REQUIRED'; exit 2; }
+root=/opt/liftorbit/edge
+compose=(docker compose -f "$root/edge.compose.yml")
+case "$1" in
+  status)
+    cid=$("${compose[@]}" ps -q caddy)
+    if [[ -z "$cid" ]]; then echo 'OVH_EDGE_CADDY_MISSING'; exit 3; fi
+    docker inspect --format 'OVH_EDGE_CONTAINER {{.State.Status}} OOM={{.State.OOMKilled}} Exit={{.State.ExitCode}}' "$cid"
+    if cmp -s "$root/config/Caddyfile" "$root/config/Caddyfile.staging"; then
+      echo 'OVH_EDGE_MODE staging'
+    elif cmp -s "$root/config/Caddyfile" "$root/config/Caddyfile.production"; then
+      echo 'OVH_EDGE_MODE production'
+    else
+      echo 'OVH_EDGE_MODE unknown'
+      exit 3
+    fi
+    ;;
+  smoke)
+    curl -kfsS --connect-timeout 4 --max-time 10 \
+      --resolve liftorbit.app:443:127.0.0.1 \
+      https://liftorbit.app/health > /dev/null
+    curl -kfsS --connect-timeout 4 --max-time 10 \
+      --resolve app.liftorbit.app:443:127.0.0.1 \
+      https://app.liftorbit.app/__bridge_health > /dev/null
+    echo 'OVH_EDGE_LOOPBACK_TLS_ORIGINS_OK'
+    ;;
+  activate)
+    marker=/opt/liftorbit/state/cutover-ready.marker
+    [[ -f "$marker" && ! -L "$marker" && "$(stat -c %u "$marker")" == 0 ]] || {
+      echo 'OVH_EDGE_CUTOVER_MARKER_REQUIRED'; exit 4;
+    }
+    age=$(( $(date +%s) - $(stat -c %Y "$marker") ))
+    [[ "$age" -ge 0 && "$age" -le 3600 ]] || {
+      echo 'OVH_EDGE_CUTOVER_MARKER_EXPIRED'; exit 4;
+    }
+    for endpoint in 'http://127.0.0.1:18080/health' 'http://127.0.0.1:18082/__bridge_health'; do
+      curl -fsS --connect-timeout 3 --max-time 8 "$endpoint" > /dev/null || {
+        echo 'OVH_EDGE_ORIGIN_NOT_READY'; exit 4;
+      }
+    done
+    [[ -f "$root/config/Caddyfile.production" ]] || exit 4
+    install -o root -g root -m 0644 "$root/config/Caddyfile.production" "$root/config/Caddyfile.next"
+    mv -f "$root/config/Caddyfile.next" "$root/config/Caddyfile"
+    "${compose[@]}" up -d --force-recreate --no-deps caddy
+    echo 'OVH_EDGE_PUBLIC_TLS_ACTIVATION_REQUESTED_CHECK_ACME_AND_DNS'
+    ;;
+  *)
+    echo 'OVH_EDGE_UNSUPPORTED_ACTION'; exit 2 ;;
+esac

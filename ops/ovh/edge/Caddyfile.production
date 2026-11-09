@@ -1,0 +1,31 @@
+{
+  email manager@liftorbit.app
+  admin off
+}
+# Activate only after the database cutover and DNS prerequisites are satisfied.
+# Automatic HTTPS uses publicly trusted ACME certificates and persists them in /data.
+liftorbit.app {
+  encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+  }
+  reverse_proxy 127.0.0.1:18080 {
+    health_uri /health
+    health_interval 15s
+    health_timeout 5s
+  }
+}
+app.liftorbit.app {
+  encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    Cache-Control "no-store"
+  }
+  reverse_proxy 127.0.0.1:18082 {
+    health_uri /__bridge_health
+    health_interval 15s
+    health_timeout 5s
+  }
+}

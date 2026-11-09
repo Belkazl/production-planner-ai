@@ -1,0 +1,21 @@
+{
+  admin off
+}
+# Pre-cutover: both sites are intentionally accessible only from the VPS loopback.
+# Internal TLS lets us smoke-test the public Host headers without exposing user data.
+liftorbit.app {
+  tls internal
+  @local remote_ip 127.0.0.1 ::1
+  handle @local {
+    reverse_proxy 127.0.0.1:18080
+  }
+  respond "Staging unavailable" 403
+}
+app.liftorbit.app {
+  tls internal
+  @local remote_ip 127.0.0.1 ::1
+  handle @local {
+    reverse_proxy 127.0.0.1:18082
+  }
+  respond "Staging unavailable" 403
+}
