@@ -85,4 +85,24 @@ jobs:
                   ('TEST',r'\btest\s+-s'),('B64',r'\bbase64\b'),('REDIR',r'>'),
                   ('PIPE',r'\|'),('TRY',r'\btry\b'),('SUBPROC',r'\bsubprocess\b')] if re.search(expr,row)]
               print('OVH_LEGACY_LINE_SHAPE',i,len(row),','.join(tags) or 'plain')
+          lex_all=shlex.shlex(legacy,posix=True,punctuation_chars=';&|<>')
+          lex_all.whitespace_split=True
+          lex_all.commenters=''
+          try:
+              full_tokens=list(lex_all)
+              print('OVH_PRIVATE_FULL_LEX_SUCCESS',len(full_tokens))
+              print('OVH_PRIVATE_FULL_TOKEN_SHAPE',' '.join(safe(t) for t in full_tokens[:95]))
+              print('OVH_PRIVATE_FULL_OPS',' '.join(t for t in full_tokens if t in ('&&','||','|',';','>','>>','<'))[:200])
+          except ValueError:
+              print('OVH_PRIVATE_FULL_LEX_UNBALANCED')
+          for i,row in enumerate(legacy.splitlines(),1):
+              stripped=row.strip()
+              categories=[]
+              for prefix,tag in [('import ','PY_IMPORT'),('from ','PY_FROM'),('def ','PY_DEF'),('class ','PY_CLASS'),
+                                 ('if ','PY_IF'),('for ','PY_FOR'),('while ','PY_WHILE'),('try:','PY_TRY'),
+                                 ('except ','PY_EXCEPT'),('return ','PY_RETURN'),('sh ','SHELL'),
+                                 ('python3 ','PY_CMD'),('cat ','CAT'),('echo ','ECHO'),('printf ','PRINTF'),
+                                 ('apt-get ','APT'),('test ','TEST'),('#','COMMENT'),('PY','HEREDOC_MARKER')]:
+                  if stripped.startswith(prefix): categories.append(tag)
+              print('OVH_PRIVATE_FULL_LINE_PREFIX',i,','.join(categories) or 'OTHER')
           PY
