@@ -182,4 +182,21 @@ jobs:
                   print('OVH_PATCH_LINE_SHAPE',key,'line='+str(line_number),
                         'kinds='+','.join(sorted(set(type(n).__name__ for n in matches))[:16]),
                         'calls='+','.join(calls[:12]))
+          cap=data.get('PP_CAP_BATCH_BOOT_V2','')
+          if isinstance(cap,str):
+              try: ct=ast.parse(cap)
+              except SyntaxError: ct=None
+              if ct:
+                  for node in ast.walk(ct):
+                      if isinstance(node,ast.Call):
+                          fn=node.func
+                          n=fn.attr if isinstance(fn,ast.Attribute) else fn.id if isinstance(fn,ast.Name) else 'OTHER'
+                          if n in ('run','Popen','check_call','check_output','wait','communicate','sleep','getenv','exec','compile'):
+                              kw=[x.arg or 'STAR' for x in node.keywords]
+                              print('OVH_CAP_CALL',node.lineno,n,'keywords='+','.join(kw[:14]),
+                                    'arguments='+str(len(node.args)))
+                  for i,row in enumerate(cap.splitlines(),1):
+                      if any(w in row for w in ('D_START_GOOD','subprocess.run','subprocess.Popen','PP_CAP_BATCH_BOOT')):
+                          tags=[w for w in ('D_START_GOOD','subprocess.run','subprocess.Popen','PP_CAP_BATCH_BOOT') if w in row]
+                          print('OVH_CAP_RELEVANT_LINE',i,','.join(tags),'length='+str(len(row)))
           PY
