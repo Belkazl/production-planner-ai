@@ -217,4 +217,29 @@ jobs:
                           clean=RedactStrings().visit(ast.fix_missing_locations(ast.parse(ast.unparse(n))))
                           anonymized=ast.unparse(clean).replace('\n',' ')
                           print('OVH_CAP_TAIL_AST',n.lineno,type(n).__name__,anonymized[:420])
+          import subprocess
+          if isinstance(cap,str):
+              try: ct=ast.parse(cap)
+              except SyntaxError: ct=None
+              if ct:
+                  changes=[n for n in ast.walk(ct) if isinstance(n,ast.Call)
+                           and isinstance(n.func,ast.Attribute) and n.func.attr=='replace'
+                           and getattr(n,'lineno',0)==68 and len(n.args)>=2]
+                  if changes:
+                      n=changes[0]
+                      if all(isinstance(x,ast.Constant) and isinstance(x.value,str) for x in n.args[:2]):
+                          old,new=[x.value for x in n.args[:2]]
+                          count=n.args[2].value if len(n.args)>=3 and isinstance(n.args[2],ast.Constant) else 1
+                          original=shlex.split(data['D_START_GOOD'])[2]
+                          patched=original.replace(old,new,count)
+                          print('OVH_PATCH_SHELL_CHANGE','old_len='+str(len(old)),
+                                'new_len='+str(len(new)),'occurrences='+str(original.count(old)),
+                                'patch_delta='+str(len(patched)-len(original)))
+                          for label,value in [('OLD',old),('NEW',new)]:
+                              tags=[token for token in ('python3','base64','psql','postgresql','DATABASE_URL','PP_','import','from ','env','http','/tmp/') if token in value]
+                              print('OVH_PATCH_REPLACEMENT_CATEGORIES',label,','.join(tags) or 'OTHER')
+                          for name,src in [('ORIGINAL',original),('PATCHED',patched)]:
+                              proc=subprocess.run(['sh','-n','-c',src],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=8)
+                              print('OVH_PATCH_SHELL_SYNTAX',name,'return='+str(proc.returncode),
+                                    'stderr_bytes='+str(len(proc.stderr)))
           PY
