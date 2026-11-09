@@ -72,6 +72,31 @@ jobs:
               echo 'OVH_SERVER_SIX_SERVICE_SMOKE_INCOMPLETE'
             fi
           fi
+          # Diagnose only loopback port ownership, no application data or privileged changes.
+          python3 - <<'PY'
+          import re,socket,subprocess,urllib.request,urllib.error
+          for port in (18082,18083,18084):
+              try:
+                  with socket.create_connection(('127.0.0.1',port),timeout=1):
+                      listening=True
+              except OSError:
+                  listening=False
+              print('OVH_PORT_LISTEN',port,'yes' if listening else 'no')
+          p=subprocess.run(['ss','-H','-ltnp','( sport = :18082 )'],capture_output=True,text=True,timeout=8)
+          print('OVH_SS_DIAGNOSTIC_RC',p.returncode)
+          print('OVH_SS_LISTENER_COUNT',len([x for x in p.stdout.splitlines() if x.strip()]))
+          names=sorted(set(re.findall(r'users:\\(\\("([a-zA-Z0-9_.-]{1,40})"',p.stdout)))
+          print('OVH_SS_VISIBLE_PROCESS_NAMES',','.join(names) if names else 'redacted_or_not_visible')
+          for suffix in ('/__bridge_health','/'):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:18082'+suffix,timeout=3) as response:
+                      code=response.status
+              except urllib.error.HTTPError as error:
+                  code=error.code
+              except Exception:
+                  code='unreachable'
+              print('OVH_PORT18082_HTTP', 'bridge' if suffix!='/ ' and suffix!='/' else 'root',code)
+          PY
           REMOTE
           local_sha=$(sha256sum ops/ovh/full.compose.yml | cut -d ' ' -f1)
           remote_sha=$(ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
