@@ -122,49 +122,49 @@ services:
             cap=os.environ.get('PP_CAP_BATCH_BOOT_V2','')
             cap_lines=cap.splitlines(keepends=True)
             if len(cap_lines)>=69 and 'subprocess.run' in cap_lines[68]:
-                helper=r'''
-def _ovh_debug_run(*_args,**_kwargs):
-    import os as _os,re as _re,subprocess as _sp
-    options=dict(_kwargs)
-    options['check']=False
-    options['stdout']=_sp.PIPE
-    options['stderr']=_sp.PIPE
-    out=_sp.run(*_args,**options)
-    if out.returncode:
-        print('OVH_ACTUAL_BATCH_EXIT',out.returncode,flush=True)
-        err=(out.stderr or b'').decode('utf8','replace')
-        stdout=(out.stdout or b'').decode('utf8','replace')
-        print('OVH_ACTUAL_BATCH_OUTPUT_SIZES',len(err),len(stdout),flush=True)
-        txt=(err+'\n'+stdout).lower()
-        for label,word in [
-            ('MISSING_FILE','no such file'),
-            ('CANNOT_OPEN','can\\'t open file'),
-            ('MISSING_MODULE','no module named'),
-            ('DATABASE','connection refused'),
-            ('DNS','could not translate host name'),
-            ('BAD_PASSWORD','password authentication failed'),
-            ('BIND','address already in use'),
-            ('SYNTAX','syntax error'),
-            ('NO_SPACE','no space left'),
-            ('PERMISSION','permission denied'),
-            ('INVALID_INPUT','invalid input'),
-            ('TRACEBACK','traceback (most recent call last)'),
-            ('EACCES','errno 13'),
-            ('ENOENT','errno 2'),
-        ]:
-            if word in txt: print('OVH_ACTUAL_BATCH_ERROR_CLASS',label,flush=True)
-        for name in ('ModuleNotFoundError','ImportError','FileNotFoundError',
-                     'SyntaxError','IndentationError','KeyError','ValueError',
-                     'TypeError','RuntimeError','OSError','NameError',
-                     'OperationalError','AssertionError'):
-            if name.lower() in txt: print('OVH_ACTUAL_BATCH_PY_ERROR',name,flush=True)
-        paths=list(dict.fromkeys(_re.findall(r'/tmp/[A-Za-z0-9_.-]+',err)))
-        for name in paths[:9]:
-            print('OVH_ACTUAL_BATCH_TMP_RELATION',
-                  'len='+str(len(name)),'exists='+str(_os.path.exists(name)).lower(),flush=True)
-        out.check_returncode()
-    return out
-'''
+                helper=__import__('textwrap').dedent(r'''
+            def _ovh_debug_run(*_args,**_kwargs):
+                import os as _os,re as _re,subprocess as _sp
+                options=dict(_kwargs)
+                options['check']=False
+                options['stdout']=_sp.PIPE
+                options['stderr']=_sp.PIPE
+                out=_sp.run(*_args,**options)
+                if out.returncode:
+                    print('OVH_ACTUAL_BATCH_EXIT',out.returncode,flush=True)
+                    err=(out.stderr or b'').decode('utf8','replace')
+                    stdout=(out.stdout or b'').decode('utf8','replace')
+                    print('OVH_ACTUAL_BATCH_OUTPUT_SIZES',len(err),len(stdout),flush=True)
+                    txt=(err+'\n'+stdout).lower()
+                    for label,word in [
+                        ('MISSING_FILE','no such file'),
+                        ("CANNOT_OPEN","can\u0027t open file"),
+                        ('MISSING_MODULE','no module named'),
+                        ('DATABASE','connection refused'),
+                        ('DNS','could not translate host name'),
+                        ('BAD_PASSWORD','password authentication failed'),
+                        ('BIND','address already in use'),
+                        ('SYNTAX','syntax error'),
+                        ('NO_SPACE','no space left'),
+                        ('PERMISSION','permission denied'),
+                        ('INVALID_INPUT','invalid input'),
+                        ('TRACEBACK','traceback (most recent call last)'),
+                        ('EACCES','errno 13'),
+                        ('ENOENT','errno 2'),
+                    ]:
+                        if word in txt: print('OVH_ACTUAL_BATCH_ERROR_CLASS',label,flush=True)
+                    for name in ('ModuleNotFoundError','ImportError','FileNotFoundError',
+                                 'SyntaxError','IndentationError','KeyError','ValueError',
+                                 'TypeError','RuntimeError','OSError','NameError',
+                                 'OperationalError','AssertionError'):
+                        if name.lower() in txt: print('OVH_ACTUAL_BATCH_PY_ERROR',name,flush=True)
+                    paths=list(dict.fromkeys(_re.findall(r'/tmp/[A-Za-z0-9_.-]+',err)))
+                    for name in paths[:9]:
+                        print('OVH_ACTUAL_BATCH_TMP_RELATION',
+                              'len='+str(len(name)),'exists='+str(_os.path.exists(name)).lower(),flush=True)
+                    out.check_returncode()
+                return out
+            ''')
                 cap_lines[68]=cap_lines[68].replace('subprocess.run','_ovh_debug_run',1)
                 os.environ['PP_CAP_BATCH_BOOT_V2']=helper+''.join(cap_lines)
                 print('OVH_ACTUAL_BATCH_DIAGNOSTIC_HOOK_INSTALLED',flush=True)
