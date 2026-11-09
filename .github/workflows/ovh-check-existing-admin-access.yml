@@ -1,0 +1,47 @@
+name: OVH migration - test preexisting administrator SSH entitlement
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-check-existing-admin-access.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Check whether existing pinned SSH identity already has an authorized admin login
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' ]] || exit 2
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 0600 "$work/key" "$work/hosts"
+          for user in ubuntu root; do
+            if ssh -T -i "$work/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o NumberOfPasswordPrompts=0 -o ConnectTimeout=8 \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts" \
+              "$user@$OVH_HOST" 'id -un' > "$work/out" 2> /dev/null; then
+              echo "OVH_EXISTING_ADMIN_KEY_ACCESS $user yes"
+              if ssh -T -i "$work/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+                  -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+                  -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
+                  -o UserKnownHostsFile="$work/hosts" "$user@$OVH_HOST" \
+                  'sudo -n true' > /dev/null 2>&1; then
+                echo "OVH_EXISTING_ADMIN_NONINTERACTIVE_SUDO $user yes"
+              else
+                echo "OVH_EXISTING_ADMIN_NONINTERACTIVE_SUDO $user no"
+              fi
+            else
+              echo "OVH_EXISTING_ADMIN_KEY_ACCESS $user no"
+            fi
+          done
