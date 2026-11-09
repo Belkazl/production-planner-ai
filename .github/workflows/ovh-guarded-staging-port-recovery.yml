@@ -1,0 +1,135 @@
+name: OVH staging - recover orphaned 18082 Bun listener and start Docker app
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-guarded-staging-port-recovery.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ovh-guarded-staging-port-recovery
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - name: Replace only detached CI-owned LiftOrbit loopback listener with Docker services
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          [[ -n "$OVH_SSH_PRIVATE_KEY" && -n "$OVH_SSH_KNOWN_HOSTS" ]] || exit 2
+          temp=$(mktemp -d)
+          trap 'rm -rf "$temp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$temp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$temp/hosts"
+          chmod 600 "$temp/key" "$temp/hosts"
+          ssh -i "$temp/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$temp/hosts" \
+            -o ServerAliveInterval=30 "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          helper=/usr/local/sbin/liftorbit-ops
+          test -x "$helper" || { echo 'OVH_RESTRICTED_HELPER_MISSING'; exit 2; }
+          for action in status smoke update; do
+            sudo -n -l "$helper" "$action" >/dev/null 2>&1 || {
+              echo "OVH_HELPER_NOT_AUTHORIZED $action"; exit 2;
+            }
+          done
+          test -f /opt/liftorbit/full.compose.yml || exit 2
+          python3 - <<'PY'
+          import os,pathlib,re,signal,socket,subprocess,sys,time
+          def probe():
+              p=subprocess.run(['ss','-H','-ltnp','( sport = :18082 )'],
+                               text=True,capture_output=True,timeout=8,check=True)
+              return [s for s in p.stdout.splitlines() if s.strip()]
+          rows=probe()
+          if not rows:
+              print('OVH_STAGING_PORT18082_ALREADY_FREE')
+              sys.exit(0)
+          if len(rows)!=1:
+              raise SystemExit('OVH_REFUSE_MULTIPLE_PORT_LISTENERS')
+          line=rows[0]
+          if '127.0.0.1:18082' not in line:
+              raise SystemExit('OVH_REFUSE_NON_LOOPBACK_LISTENER')
+          m=re.search(r'pid=(\d+)',line)
+          if not m:
+              raise SystemExit('OVH_REFUSE_HIDDEN_LISTENER_PID')
+          pid=int(m.group(1))
+          proc=pathlib.Path('/proc')/str(pid)
+          status=(proc/'status').read_text(errors='replace')
+          uidline=next((x for x in status.splitlines() if x.startswith('Uid:')),None)
+          ppline=next((x for x in status.splitlines() if x.startswith('PPid:')),None)
+          if not uidline or int(uidline.split()[1])!=os.getuid():
+              raise SystemExit('OVH_REFUSE_NON_CI_OWNER')
+          if not ppline or int(ppline.split()[1])!=1:
+              raise SystemExit('OVH_REFUSE_ATTACHED_LISTENER')
+          exe=os.readlink(str(proc/'exe'))
+          cwd=os.readlink(str(proc/'cwd'))
+          argv=(proc/'cmdline').read_bytes().decode('utf8','replace').split(chr(0))
+          if 'bun' not in pathlib.Path(exe).name.lower() or not argv:
+              raise SystemExit('OVH_REFUSE_NON_BUN_LISTENER')
+          if not any('liftorbit' in part.lower() for part in argv):
+              raise SystemExit('OVH_REFUSE_NON_LIFTORBIT_LISTENER')
+          if not cwd.startswith('/home/liftorbit-ci/'):
+              raise SystemExit('OVH_REFUSE_UNEXPECTED_PROCESS_DIRECTORY')
+          cgroup=(proc/'cgroup').read_text(errors='replace')
+          if any(term in cgroup for term in ('docker','containerd','kubepods','/system.slice/')):
+              raise SystemExit('OVH_REFUSE_MANAGED_OR_CONTAINER_LISTENER')
+          clients=subprocess.run(['ss','-H','-tn','state','established','( sport = :18082 )'],
+                   capture_output=True,text=True,timeout=8,check=True).stdout.splitlines()
+          if any(item.strip() for item in clients):
+              raise SystemExit('OVH_REFUSE_ACTIVE_PORT_CONNECTIONS')
+          # Verify the same process still owns the listening socket immediately before SIGTERM.
+          again=probe()
+          if len(again)!=1 or ('pid='+str(pid)) not in again[0]:
+              raise SystemExit('OVH_REFUSE_LISTENER_CHANGED')
+          print('OVH_CONFIRMED_ORPHAN_CI_BUN_LISTENER')
+          os.kill(pid,signal.SIGTERM)
+          for _ in range(45):
+              if not probe():
+                  print('OVH_STAGING_PORT18082_RELEASED')
+                  sys.exit(0)
+              time.sleep(1)
+          raise SystemExit('OVH_STAGING_PORT18082_REMAINS_BUSY')
+          PY
+          echo 'OVH_UPDATING_ISOLATED_STAGING_SERVICES'
+          logfile=$(mktemp)
+          trap 'rm -f "$logfile"' EXIT
+          if timeout 900 sudo -n "$helper" update > "$logfile" 2>&1; then
+            echo 'OVH_STAGING_UPDATE_COMMAND_SUCCEEDED'
+          else
+            code=$?
+            echo "OVH_STAGING_UPDATE_COMMAND_FAILED code=$code"
+            python3 - "$logfile" <<'PY'
+          import pathlib,sys
+          s=pathlib.Path(sys.argv[1]).read_text(errors='replace').lower()
+          for label,word in (('BUILD_FAILED','failed to solve'),
+                             ('HEALTH_DEPENDENCY','dependency failed'),
+                             ('PORT_BUSY','address already in use'),
+                             ('FILE_MISSING','missing_dockerfile'),
+                             ('OUT_OF_DISK','no space left')):
+              if word in s:
+                  print('OVH_STAGING_SAFE_ERROR',label)
+          PY
+            sudo -n "$helper" status
+            exit 1
+          fi
+          for attempt in {1..90}; do
+            if sudo -n "$helper" smoke > /dev/null 2>&1; then
+              echo 'OVH_STAGING_ALL_SIX_HEALTHY_AND_HTTP_SMOKE_OK'
+              sudo -n "$helper" status
+              exit 0
+            fi
+            sleep 3
+          done
+          echo 'OVH_STAGING_SERVICE_READINESS_INCOMPLETE'
+          sudo -n "$helper" status
+          exit 1
+          REMOTE
