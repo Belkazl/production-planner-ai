@@ -1,0 +1,70 @@
+name: LiftOrbit OVH - controlled final production cutover
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-final-cutover-launch.yml]
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-ovh-final-production-cutover
+  cancel-in-progress: false
+jobs:
+  safe-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate shell/Python and mandatory safety gates before any production mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/final-cutover-run.sh
+          python3 -m py_compile ops/ovh/final-dns-cutover.py
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('ops/ovh/final-cutover-run.sh').read_text()
+          required=(
+              'LIFTORBIT_SOURCE_DB_NEW_WRITES_FROZEN',
+              'default_transaction_read_only TO on',
+              'default_transaction_read_only TO off',
+              'final-write-frozen.marker',
+              'final-selected.txt',
+              'liftorbit-cutover-ops import',
+              'liftorbit-cutover-ops promote',
+              'liftorbit-edge-ops activate',
+              'final-dns-cutover.py switch',
+              'final-dns-cutover.py restore',
+              'CUTOVER_DONE=yes',
+          )
+          assert all(k in s for k in required)
+          assert s.index('LIFTORBIT_SOURCE_DB_NEW_WRITES_FROZEN') < s.index('LIFTORBIT_FINAL_PG_DUMP_START')
+          assert s.index('liftorbit-cutover-ops promote') < s.index('final-dns-cutover.py switch')
+          print('LIFTORBIT_SAFE_FINAL_CUTOVER_STATIC_CHECKS_OK')
+          PY
+  execute:
+    needs: safe-lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Railway CLI for the two existing database connections
+        run: npm install --global @railway/cli
+      - name: Execute guarded OVH promotion and two-record Cloudflare DNS cutover
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for key in RAILWAY_TOKEN CLOUDFLARE_API_TOKEN OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            test -n "${!key:-}" || { echo "LIFTORBIT_MISSING_REQUIRED_CI_SECRET $key"; exit 2; }
+          done
+          bash ops/ovh/final-cutover-run.sh
