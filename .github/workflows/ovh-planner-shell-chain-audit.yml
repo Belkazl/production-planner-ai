@@ -105,4 +105,34 @@ jobs:
                                  ('apt-get ','APT'),('test ','TEST'),('#','COMMENT'),('PY','HEREDOC_MARKER')]:
                   if stripped.startswith(prefix): categories.append(tag)
               print('OVH_PRIVATE_FULL_LINE_PREFIX',i,','.join(categories) or 'OTHER')
+          import ast,base64
+          launch=data.get('PP_GENERIC_RESTORE_LAUNCH_V2','')
+          if isinstance(launch,str) and launch:
+              try:
+                  t=ast.parse(launch)
+                  calls=[]
+                  keys=[]
+                  for node in ast.walk(t):
+                      if isinstance(node,ast.Call):
+                          f=node.func
+                          n=(f.attr if isinstance(f,ast.Attribute) else f.id if isinstance(f,ast.Name) else 'OTHER')
+                          if n in ('exec','decode','decompress','b64decode','compile','get','getenv','run','check_call','Popen','loads','join'):
+                              calls.append(n)
+                      if isinstance(node,ast.Constant) and isinstance(node.value,str):
+                          if re.fullmatch(r'[A-Z_][A-Z_0-9]{3,72}',node.value):
+                              keys.append(node.value)
+                  print('OVH_LAUNCHER_AST_CALLS',','.join(calls[:35]))
+                  print('OVH_LAUNCHER_AST_CONFIG_KEYS',','.join(keys[:25]))
+              except SyntaxError:
+                  print('OVH_LAUNCHER_AST_PARSE_FAILED')
+          for k in ('PP_GENERIC_CORE_B64','PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
+              value=data.get(k,'')
+              if not isinstance(value,str): continue
+              if k.endswith('B64'):
+                  try: value=base64.b64decode(value,validate=True).decode('utf8','replace')
+                  except ValueError: value=''
+              print('OVH_CORE_DIAG',k,'lines='+str(len(value.splitlines())),
+                    'has_legacy_start='+str('D_START_GOOD' in value).lower(),
+                    'has_subprocess='+str('subprocess' in value).lower(),
+                    'has_server='+str('HTTPServer' in value or 'uvicorn' in value).lower())
           PY
