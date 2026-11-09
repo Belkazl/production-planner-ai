@@ -1,0 +1,80 @@
+name: OVH migration - read-only public ingress and DNS readiness audit
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-public-ingress-audit.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ovh-public-ingress-audit
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Audit exposed listeners, proxy packages, DNS and independent app/landing health
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/known_hosts"
+          chmod 600 "$work/key" "$work/known_hosts"
+          ssh -i "$work/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/known_hosts" \
+              "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,socket,subprocess,urllib.error,urllib.request
+          expected='51.255.163.121'
+          for name in ('liftorbit.app','app.liftorbit.app'):
+              try:
+                  addresses={x[4][0] for x in socket.getaddrinfo(name,443,proto=socket.IPPROTO_TCP)}
+                  print('OVH_DNS_STATUS',name,'points_to_ovh='+str(expected in addresses).lower(),
+                        'has_dns='+str(bool(addresses)).lower(),
+                        'ipv6_present='+str(any(':' in a for a in addresses)).lower())
+              except OSError:
+                  print('OVH_DNS_STATUS',name,'resolution_failed')
+          for port in (80,443,18080,18082):
+              p=subprocess.run(['ss','-H','-ltnp',f'( sport = :{port} )'],
+                               capture_output=True,text=True,timeout=8)
+              entries=[line for line in p.stdout.splitlines() if line.strip()]
+              visible='none'
+              if entries:
+                  programs=[]
+                  for row in entries:
+                      if 'users:((' in row:
+                          programs.append(row.split('users:(("',1)[1].split('"',1)[0])
+                  visible=','.join(sorted(set(programs))) if programs else 'owner_hidden'
+              print('OVH_TCP_LISTENER',port,'count='+str(len(entries)),'process='+visible)
+          for prog in ('caddy','nginx','certbot','docker'):
+              exists=subprocess.run(['sh','-c','command -v "$1" >/dev/null 2>&1','_',prog]).returncode==0
+              print('OVH_PROXY_TOOL',prog,'installed='+str(exists).lower())
+          for name in ('caddy','nginx','apache2','traefik'):
+              p=subprocess.run(['systemctl','is-active',name],capture_output=True,text=True,timeout=5)
+              print('OVH_PROXY_UNIT',name,'active='+str(p.stdout.strip()=='active').lower())
+          for name,port,path in [('landing',18080,'/health'),('app',18082,'/__bridge_health')]:
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:'+str(port)+path,timeout=5) as response:
+                      print('OVH_ORIGIN_HTTP',name,response.status)
+              except urllib.error.HTTPError as e:
+                  print('OVH_ORIGIN_HTTP',name,e.code)
+              except Exception as e:
+                  print('OVH_ORIGIN_HTTP',name,'failed_'+type(e).__name__)
+          try:
+              p=subprocess.run(['sh','-c','test -f /etc/letsencrypt/live/liftorbit.app/fullchain.pem'],
+                               capture_output=True,text=True,timeout=5)
+              print('OVH_LE_CERT_PRESENT',str(p.returncode==0).lower())
+          except Exception:
+              print('OVH_LE_CERT_PRESENT unknown')
+          PY
+          REMOTE
