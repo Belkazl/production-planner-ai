@@ -1,0 +1,63 @@
+name: OVH migration - verify delegated HTTPS management permissions
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-edge-verify-permissions.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm root-owned edge helper and delegated commands over SSH
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 0600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$dir/hosts" "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          edge=/usr/local/sbin/liftorbit-edge-ops
+          app=/usr/local/sbin/liftorbit-ops
+          [[ -x "$edge" ]] || { echo 'OVH_EDGE_HELPER_MISSING'; exit 3; }
+          [[ "$(stat -c %u "$edge")" -eq 0 ]] || { echo 'OVH_EDGE_HELPER_NOT_ROOT_OWNED'; exit 3; }
+          for action in status smoke activate; do
+            if sudo -n -l "$edge" "$action" > /dev/null 2>&1; then
+              echo "OVH_EDGE_DELEGATED $action yes"
+            else
+              echo "OVH_EDGE_DELEGATED $action no"
+              exit 3
+            fi
+          done
+          if sudo -n true > /dev/null 2>&1; then
+            echo 'OVH_GLOBAL_ROOT_GRANTED true'
+          else
+            echo 'OVH_GLOBAL_ROOT_GRANTED false'
+          fi
+          sudo -n "$edge" status
+          sudo -n "$edge" smoke
+          if [[ -x "$app" ]]; then
+            sudo -n "$app" smoke
+          else
+            echo 'OVH_APP_HELPER_MISSING'
+            exit 3
+          fi
+          if [[ -f /opt/liftorbit/state/cutover-ready.marker ]]; then
+            echo 'OVH_EDGE_CUTOVER_MARKER_PRESENT true'
+          else
+            echo 'OVH_EDGE_CUTOVER_MARKER_PRESENT false'
+          fi
+          echo 'OVH_DELEGATED_HTTPS_AND_APP_HEALTH_VERIFIED'
+          REMOTE
