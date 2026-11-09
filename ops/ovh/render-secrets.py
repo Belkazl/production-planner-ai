@@ -77,6 +77,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mode", choices=("staging", "production"), default="staging")
     args = parser.parse_args()
     os.umask(0o077)
     source = args.source.resolve(strict=True)
@@ -137,9 +138,19 @@ def main():
         "PORT": "8080",
         "PP_OVH_STAGING": "1",
     })
-    # Avoid sending real emails from a staging system.
-    auth.pop("RESEND_API_KEY", None)
-    auth.pop("PP_PASSWORD_RESET_FROM", None)
+    # Preserve the existing staging behavior unless production is explicitly requested.
+    # The source is Railway's private, validated config; never print sender or keys.
+    if args.mode == "staging":
+        auth.pop("RESEND_API_KEY", None)
+        auth.pop("PP_PASSWORD_RESET_FROM", None)
+        print("OVH_EMAIL_DELIVERY_DISABLED_STAGING")
+    else:
+        for key in ("RESEND_API_KEY", "PP_PASSWORD_RESET_FROM"):
+            if not isinstance(auth.get(key), str) or not auth[key].strip():
+                abort("production_email_setting_missing_" + key.lower())
+        if auth.get("PP_PASSWORD_RESET_PUBLIC_ORIGIN", "").rstrip("/") != "https://app.liftorbit.app":
+            abort("production_password_reset_origin_mismatch")
+        print("OVH_EMAIL_DELIVERY_CONFIGURED_PRODUCTION")
     write_json(output, "auth", auth)
 
     worker = dict(configs["ga-worker"])
