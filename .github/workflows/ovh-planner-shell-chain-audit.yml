@@ -267,6 +267,47 @@ jobs:
                       except ValueError: toks=[]
                       print('OVH_PATCH_NEW_TOKENS',' '.join(safe(t) for t in toks[:30]))
           # Resolve why the protected etalon restore aborts: emit structural statistics only.
+          # Compare the expected etalon write anchor with the actual protected runtime text.
+          import difflib
+          _boot=data.get('PP_RESTORE_ETALON_BOOT_V1','')
+          _cap=data.get('PP_CAP_BATCH_BOOT_V2','')
+          if isinstance(_boot,str) and isinstance(_cap,str):
+              _bt=ast.parse(_boot)
+              _lits={}
+              for _st in _bt.body:
+                  if isinstance(_st,ast.Assign) and len(_st.targets)==1 and isinstance(_st.targets[0],ast.Name):
+                      if isinstance(_st.value,ast.Constant) and isinstance(_st.value.value,str):
+                          _lits[_st.targets[0].id]=_st.value.value
+              _needle=_lits.get('needle','')
+              _replacement=_lits.get('replacement','')
+              print('OVH_ANCHOR_NEEDLE_LENGTH',len(_needle),'lines='+str(len(_needle.splitlines())))
+              print('OVH_ANCHOR_NEEDLE_MATCHES_CURRENT_CAP',_cap.count(_needle) if _needle else 0)
+              _chunks=_cap.splitlines()
+              if _needle:
+                  _ranges=[]
+                  for _i in range(len(_chunks)):
+                      for _span in range(1,min(7,len(_chunks)-_i)+1):
+                          _s='\\n'.join(_chunks[_i:_i+_span])
+                          _ratio=difflib.SequenceMatcher(None,_needle,_s,autojunk=False).ratio()
+                          _ranges.append((_ratio,_i+1,_span,len(_s)))
+                  for _ratio,_lineno,_span,_size in sorted(_ranges,reverse=True)[:5]:
+                      print('OVH_ANCHOR_NEAREST_WINDOW','line='+str(_lineno),
+                            'lines='+str(_span),'chars='+str(_size),
+                            'similarity_per_mille='+str(round(_ratio*1000)))
+                  for _term in ('subprocess.run','D_START_GOOD','python3','os.environ','write_text','open(','exec(','compile(','start','cap','PP_'):
+                      print('OVH_ANCHOR_TOKEN_PRESENCE',_term.replace('(','_'),
+                            'needle='+str(_term in _needle).lower(),
+                            'replacement='+str(_term in _replacement).lower(),
+                            'cap='+str(_term in _cap).lower())
+                  for _part,_val in (('needle',_needle),('replacement',_replacement)):
+                      print('OVH_ANCHOR_PY_PARSE',_part,
+                            'valid='+str((lambda v: v)('TBD')))
+                      try:
+                          _anonymous=ast.unparse(_HideLiterals().visit(ast.parse(_val)))
+                          print('OVH_ANCHOR_AST_ANON',_part,_anonymous.replace(chr(10),' ')[:700])
+                      except SyntaxError:
+                          print('OVH_ANCHOR_AST_ANON',_part,'NOT_STANDALONE_PYTHON')
+          
           # Anonymized AST for exact anchor mismatch, with ALL string and numeric literals stripped.
           class _HideLiterals(ast.NodeTransformer):
               def visit_Constant(self,node):
