@@ -267,6 +267,22 @@ jobs:
                       except ValueError: toks=[]
                       print('OVH_PATCH_NEW_TOKENS',' '.join(safe(t) for t in toks[:30]))
           # Resolve why the protected etalon restore aborts: emit structural statistics only.
+          # Anonymized AST for exact anchor mismatch, with ALL string and numeric literals stripped.
+          class _HideLiterals(ast.NodeTransformer):
+              def visit_Constant(self,node):
+                  if isinstance(node.value,str):
+                      return ast.copy_location(ast.Constant(value='STR_LEN_'+str(len(node.value))),node)
+                  if isinstance(node.value,(int,float)):
+                      return ast.copy_location(ast.Constant(value=0),node)
+                  return node
+          _restore=data.get('PP_RESTORE_ETALON_BOOT_V1','')
+          if isinstance(_restore,str):
+              _ast=ast.parse(_restore)
+              _anon=_HideLiterals().visit(_ast)
+              for _idx,_statement in enumerate(_anon.body,1):
+                  _shape=ast.unparse(_statement).replace(chr(10),' ')
+                  print('OVH_RESTORE_AST_REDACTED',_idx,type(_statement).__name__,_shape[:750])
+          
           for _key in ('PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
               _source=data.get(_key,'')
               if not isinstance(_source,str): continue
