@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 4
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check existing SSH scope and installed bootstrap (no mutations)
         shell: bash
         env:
@@ -50,7 +53,24 @@ jobs:
           else
             echo 'OVH_COMPOSE_MISSING'
           fi
+          if [[ -x /usr/local/sbin/liftorbit-ops ]] && sudo -n -l /usr/local/sbin/liftorbit-ops status >/dev/null 2>&1; then
+            sudo -n /usr/local/sbin/liftorbit-ops status
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then
+              echo 'OVH_SERVER_ALL_SIX_HEALTHY'
+            else
+              echo 'OVH_SERVER_SIX_SERVICE_SMOKE_INCOMPLETE'
+            fi
+          fi
           REMOTE
+          local_sha=$(sha256sum ops/ovh/full.compose.yml | cut -d ' ' -f1)
+          remote_sha=$(ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$tmp/hosts" "$OVH_USER@$OVH_HOST" \
+            'sha256sum /opt/liftorbit/full.compose.yml | cut -d " " -f1' 2>/dev/null || true)
+          if [[ -n "$remote_sha" && "$local_sha" == "$remote_sha" ]]; then
+            echo 'OVH_SERVER_COMPOSE_MATCHES_TESTED_RELEASE'
+          else
+            echo 'OVH_SERVER_COMPOSE_NEEDS_SYNC'
+          fi
           # Read-only root key check; authentication errors are expected and printed as booleans.
           if ssh -i "$tmp/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=9 -o UserKnownHostsFile="$tmp/hosts" "root@$OVH_HOST" \
