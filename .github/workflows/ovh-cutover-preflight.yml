@@ -1,0 +1,62 @@
+name: OVH migration - read-only final cutover prerequisites
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-cutover-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Audit email/reset settings and newest backup without disclosing secrets
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$tmp/hosts"
+          chmod 600 "$tmp/key" "$tmp/hosts"
+          ssh -i "$tmp/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path('/home/liftorbit-ci/liftorbit-migration')
+          protected=root/'production/current'
+          for name in ('auth-app','auth-gateway'):
+              file=protected/(name+'.json')
+              if not file.is_file():
+                  print('OVH_CUTOVER_CONFIG_PRESENT',name,'false')
+                  continue
+              config=json.loads(file.read_text())
+              print('OVH_CUTOVER_CONFIG_PRESENT',name,'true')
+              if name=='auth-gateway':
+                  for key in ('RESEND_API_KEY','PP_PASSWORD_RESET_FROM'):
+                      print('OVH_CUTOVER_EMAIL_SETTING_PRESENT',key,
+                            str(bool(config.get(key,''))).lower())
+                  print('OVH_CUTOVER_RESET_ORIGIN_MATCH',
+                        str(config.get('PP_PASSWORD_RESET_PUBLIC_ORIGIN','').rstrip('/')=='https://app.liftorbit.app').lower())
+              if name=='auth-app':
+                  print('OVH_CUTOVER_APP_ORIGIN_MATCH',
+                        str(config.get('PP_AUTH_PUBLIC_ORIGIN','').rstrip('/')=='https://app.liftorbit.app').lower())
+          latest=root/'backups/backup-42610789251-1'
+          expected=('postgres.dump','postgres-me4i.dump','SHA256SUMS.txt')
+          print('OVH_FRESH_BACKUP_FILES_PRESENT',str(all((latest/f).is_file() for f in expected)).lower())
+          if all((latest/f).is_file() for f in expected):
+              import subprocess
+              p=subprocess.run(['sha256sum','--check','--quiet','SHA256SUMS.txt'],
+                               cwd=latest,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+              print('OVH_FRESH_BACKUP_SHA256_VALID',str(p.returncode==0).lower())
+          PY
+          REMOTE
