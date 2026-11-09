@@ -1,4 +1,5 @@
 name: OVH read-only administrator readiness check
+# 2026-11-09 post-integration readiness after six-service CI success.
 on:
   push:
     branches: [ops/railway-migration-20261108]
