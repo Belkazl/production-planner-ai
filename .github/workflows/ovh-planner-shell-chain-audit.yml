@@ -242,4 +242,28 @@ jobs:
                               proc=subprocess.run(['sh','-n','-c',src],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=8)
                               print('OVH_PATCH_SHELL_SYNTAX',name,'return='+str(proc.returncode),
                                     'stderr_bytes='+str(len(proc.stderr)))
+          if isinstance(cap,str):
+              try: tr=ast.parse(cap)
+              except SyntaxError: tr=None
+              if tr:
+                  nodes=[n for n in ast.walk(tr) if isinstance(n,ast.Call)
+                         and isinstance(n.func,ast.Attribute) and n.func.attr=='replace'
+                         and getattr(n,'lineno',0)==68 and len(n.args)>=2]
+                  if nodes and all(isinstance(a,ast.Constant) and isinstance(a.value,str) for a in nodes[0].args[:2]):
+                      old,new=[a.value for a in nodes[0].args[:2]]
+                      first=shlex.split(data['D_START_GOOD'])[2]
+                      for group,label in [(old,'OLD'),(new,'NEW'),(first,'ORIGINAL')]:
+                          matches=list(dict.fromkeys(re.findall(r'/tmp/[A-Za-z0-9_.-]+',group)))
+                          print('OVH_PATCH_TEMP_FILES',label,'count='+str(len(matches)),
+                                'has_python='+str('python3' in group).lower(),
+                                'has_env='+str('env' in group).lower())
+                          for i,v in enumerate(matches[:6],1):
+                              print('OVH_PATCH_TEMP_RELATION',label,i,
+                                    'len='+str(len(v)),
+                                    'in_original='+str(v in first).lower(),
+                                    'in_new='+str(v in new).lower(),
+                                    'prior_written='+str(bool(re.search(r'>\s*'+re.escape(v),first[:first.find(v)]))).lower())
+                      try: toks=shlex.split(new)
+                      except ValueError: toks=[]
+                      print('OVH_PATCH_NEW_TOKENS',' '.join(safe(t) for t in toks[:30]))
           PY
