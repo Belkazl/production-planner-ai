@@ -1,0 +1,56 @@
+name: OVH migration - read-only CPU memory and disk pre-cutover capacity check
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-capacity-precutover.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read system capacity and validate six-service health without secrets
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,os
+          p=pathlib.Path('/proc/meminfo')
+          mem={}
+          for row in p.read_text().splitlines():
+              if ':' not in row: continue
+              key,value=row.split(':',1)
+              if key in ('MemTotal','MemAvailable','SwapTotal','SwapFree'):
+                  mem[key]=int(value.strip().split()[0])//1024
+          print('OVH_VPS_CPU_CORES',os.cpu_count())
+          for name in ('MemTotal','MemAvailable','SwapTotal','SwapFree'):
+              print('OVH_VPS_'+name.upper()+'_MIB',mem.get(name,-1))
+          for path in ('/','/var/lib/docker','/opt/liftorbit'):
+              try:
+                  s=os.statvfs(path)
+                  print('OVH_VPS_DISK_MIB',path,'free='+str(s.f_bavail*s.f_frsize//1048576),
+                        'total='+str(s.f_blocks*s.f_frsize//1048576))
+              except Exception:
+                  print('OVH_VPS_DISK',path,'UNAVAILABLE')
+          PY
+          sudo -n /usr/local/sbin/liftorbit-ops smoke
+          sudo -n /usr/local/sbin/liftorbit-edge-ops smoke
+          echo 'OVH_VPS_CAPACITY_AND_SMOKE_AUDIT_FINISHED'
+          REMOTE
