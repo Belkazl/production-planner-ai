@@ -1,0 +1,88 @@
+name: OVH diagnostic - classify private planner shell chain without disclosing values
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-planner-shell-chain-audit.yml]
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read protected launcher over authenticated SSH and output structure only
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 0600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$dir/hosts" "$OVH_USER@$OVH_HOST" \
+            'cat "$HOME/liftorbit-migration/production/current/gateway.json"' > "$dir/gateway.json"
+          python3 - "$dir/gateway.json" <<'PY'
+          import json, pathlib, re, shlex, sys
+          data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          legacy=data.get('D_START_GOOD')
+          launcher=data.get('PP_GENERIC_RESTORE_LAUNCH_V2')
+          if not isinstance(legacy,str) or not isinstance(launcher,str):
+              raise SystemExit('OVH_PRIVATE_LAUNCHER_MISSING')
+          first=legacy.splitlines()[0]
+          print('OVH_PRIVATE_FIRST_LINE_LENGTH',len(first))
+          lex=shlex.shlex(first,posix=True,punctuation_chars=';&|<>')
+          lex.whitespace_split=True
+          lex.commenters=''
+          try:
+              tokens=list(lex)
+          except ValueError:
+              print('OVH_LEXER_ERROR_UNBALANCED_QUOTES')
+              tokens=[]
+          known={'apt-get','update','install','-y','-qq','-q','-s','test','python3','base64','-d','-c',
+                 'printf','echo','cat','sh','bash','pip','mkdir','cd','export','true','false',
+                 '&&','||','|',';','>','>>','<','>&','2','1','0','2>&1',
+                 '-m','-u','-E','env','nohup','timeout','set','tee','mktemp','sed',
+                 'psql','pg_isready','which','-f','-e','-n'}
+          def safe(t):
+              if t in known: return t
+              if t.startswith('/tmp/'): return 'TMP_PATH'
+              if t.startswith('/srv/'): return 'SRV_PATH'
+              if t.startswith('/app/'): return 'APP_PATH'
+              if t.startswith('/usr/'): return 'USR_PATH'
+              if t.startswith('DATABASE_URL=') or t.startswith('$DATABASE_URL'): return 'DATABASE_VAR'
+              if t.startswith('-'): return 'OTHER_OPTION'
+              if t.startswith('$'): return 'ENV_REF'
+              if len(t)>80: return 'LARGE_VALUE'
+              return 'ARG'
+          print('OVH_PRIVATE_SHELL_TOKEN_COUNT',len(tokens))
+          print('OVH_PRIVATE_SHELL_TOKEN_SHAPE',' '.join(safe(t) for t in tokens[:100]))
+          ops=[(i,t) for i,t in enumerate(tokens) if t in ('&&','||','|',';','>','>>','<')]
+          print('OVH_PRIVATE_SHELL_OPERATOR_COUNT',len(ops))
+          print('OVH_PRIVATE_SHELL_OPERATORS',' '.join(t for _,t in ops[:40]))
+          test=re.search(r'test\s+-s\s+(/tmp/[A-Za-z0-9_.-]+)',first)
+          if test:
+              name=test.group(1)
+              loc=test.start()
+              print('OVH_TEST_TARGET_RELATIONS',
+                    'offset='+str(loc),
+                    'head_count='+str(first.count(name)),
+                    'full_legacy_count='+str(legacy.count(name)),
+                    'launcher_count='+str(launcher.count(name)),
+                    'prefix_redirect='+str(bool(re.search(r'>\s*'+re.escape(name),first[:loc]))).lower(),
+                    'suffix_redirect='+str(bool(re.search(r'>\s*'+re.escape(name),first[loc:]))).lower())
+          print('OVH_LEGACY_LINE_COUNT',len(legacy.splitlines()))
+          for i,row in enumerate(legacy.splitlines()[:12],1):
+              tags=[name for name,expr in [
+                  ('SHELL',r'\bsh\b'),('PYTHON',r'\bpython3?\b'),('APT',r'apt-get'),
+                  ('TEST',r'\btest\s+-s'),('B64',r'\bbase64\b'),('REDIR',r'>'),
+                  ('PIPE',r'\|'),('TRY',r'\btry\b'),('SUBPROC',r'\bsubprocess\b')] if re.search(expr,row)]
+              print('OVH_LEGACY_LINE_SHAPE',i,len(row),','.join(tags) or 'plain')
+          PY
