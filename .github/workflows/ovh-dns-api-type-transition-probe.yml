@@ -1,0 +1,77 @@
+name: OVH migration - validate Cloudflare CNAME-to-A update on disposable record
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-dns-api-type-transition-probe.yml]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create, safely replace and remove ONLY unique temporary DNS probe record
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,urllib.parse,urllib.request,urllib.error,time
+          token=os.environ.get('CF_TOKEN','')
+          run=os.environ.get('GITHUB_RUN_ID','')
+          if not token or not run.isdigit(): raise SystemExit('OVH_DNS_TOKEN_OR_RUN_MISSING')
+          name='pp-migration-validate-'+run+'.liftorbit.app'
+          base='https://api.cloudflare.com/client/v4/'
+          def api(method,path,data=None):
+              request=urllib.request.Request(base+path,method=method,headers={
+                  'Authorization':'Bearer '+token,'Accept':'application/json',
+                  'Content-Type':'application/json'
+              },data=json.dumps(data).encode() if data is not None else None)
+              try:
+                  with urllib.request.urlopen(request,timeout=15) as r:
+                      return r.status,json.load(r)
+              except urllib.error.HTTPError as e:
+                  return e.code,{}
+          status,z=api('GET','zones?'+urllib.parse.urlencode({'name':'liftorbit.app','per_page':10}))
+          zones=[v for v in z.get('result',[]) if v.get('name')=='liftorbit.app'] if status==200 else []
+          if len(zones)!=1: raise SystemExit('OVH_DNS_ZONE_LOOKUP_INVALID')
+          prefix='zones/'+zones[0]['id']+'/dns_records'
+          query='?'+urllib.parse.urlencode({'name':name,'per_page':20})
+          status,d=api('GET',prefix+query)
+          if status!=200 or d.get('result')!=[]: raise SystemExit('OVH_DNS_PROBE_NAME_NOT_FREE')
+          record_id=None
+          changed=False
+          try:
+              status,d=api('POST',prefix,{'type':'CNAME','name':name,'content':'example.com',
+                                        'proxied':False,'ttl':60})
+              if status not in (200,201) or not d.get('success'):
+                  raise SystemExit('OVH_DNS_TEMP_RECORD_CREATION_FAILED')
+              record_id=d.get('result',{}).get('id')
+              if not record_id: raise SystemExit('OVH_DNS_TEMP_RECORD_ID_MISSING')
+              print('OVH_DNS_TEMP_CNAME_CREATED')
+              status,d=api('PATCH',prefix+'/'+record_id,
+                           {'type':'A','name':name,'content':'192.0.2.42',
+                            'proxied':False,'ttl':60})
+              print('OVH_DNS_CNAME_TO_A_PATCH_HTTP',status)
+              if status==200 and d.get('success'):
+                  status,v=api('GET',prefix+query)
+                  expected=[x for x in v.get('result',[]) if x.get('name')==name]
+                  changed=(status==200 and len(expected)==1 and expected[0].get('type')=='A'
+                           and expected[0].get('content')=='192.0.2.42')
+              print('OVH_DNS_CNAME_TO_A_EDIT_SUPPORTED',str(changed).lower())
+          finally:
+              if record_id:
+                  for attempt in range(3):
+                      status,d=api('DELETE',prefix+'/'+record_id)
+                      if status in (200,204) and d.get('success') is True:
+                          break
+                      time.sleep(1)
+                  else:
+                      raise SystemExit('OVH_DNS_PROBE_CLEANUP_FAILED')
+                  status,d=api('GET',prefix+query)
+                  if status!=200 or any(x.get('name')==name for x in d.get('result',[])):
+                      raise SystemExit('OVH_DNS_PROBE_STILL_PRESENT')
+                  print('OVH_DNS_TEMP_RECORD_REMOVED')
+          if not changed: raise SystemExit('OVH_DNS_TYPE_CHANGE_FALLBACK_NEEDED')
+          PY
