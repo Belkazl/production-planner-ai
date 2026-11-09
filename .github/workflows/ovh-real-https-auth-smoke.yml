@@ -1,0 +1,92 @@
+name: OVH migration - verify staging HTTPS authentication and network isolation
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-real-https-auth-smoke.yml]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Verify OVH local TLS response, anonymous permissions, and isolated access
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$tmp/hosts"
+          chmod 0600 "$tmp/key" "$tmp/hosts"
+          ssh -i "$tmp/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          edge=/usr/local/sbin/liftorbit-edge-ops
+          app=/usr/local/sbin/liftorbit-ops
+          sudo -n "$edge" status
+          sudo -n "$edge" smoke
+          sudo -n "$app" smoke
+          temp=$(mktemp -d)
+          trap 'rm -rf "$temp"' EXIT
+          curl -kfsS --connect-timeout 4 --max-time 12 --noproxy '*' \
+            --resolve liftorbit.app:443:127.0.0.1 https://liftorbit.app/ -o "$temp/landing"
+          grep -qi 'LiftOrbit' "$temp/landing" || {
+            echo 'OVH_LANDING_BRAND_MARKER_MISSING'; exit 3;
+          }
+          echo 'OVH_LANDING_TLS_HTML_OK'
+          curl -kfsS --connect-timeout 4 --max-time 12 --noproxy '*' \
+            --resolve app.liftorbit.app:443:127.0.0.1 https://app.liftorbit.app/ -o "$temp/login"
+          grep -qi 'LiftOrbit' "$temp/login" || {
+            echo 'OVH_APP_LOGIN_BRAND_MARKER_MISSING'; exit 3;
+          }
+          echo 'OVH_APP_ANONYMOUS_LOGIN_HTML_OK'
+          for endpoint in /api/auth/me /api/db-storage /api/account; do
+            status=$(curl -k -sS -o /dev/null -w '%{http_code}' --noproxy '*' \
+              --connect-timeout 4 --max-time 12 \
+              --resolve app.liftorbit.app:443:127.0.0.1 \
+              "https://app.liftorbit.app$endpoint")
+            [[ "$status" == 401 || "$status" == 404 ]] || {
+              echo "OVH_APP_ANON_GATE_FAILURE status=$status"; exit 3;
+            }
+            echo "OVH_APP_ANONYMOUS_API_DENIED $endpoint status=$status"
+          done
+          status=$(curl -k -sS -o /dev/null -w '%{http_code}' --noproxy '*' \
+            --connect-timeout 4 --max-time 12 \
+            --resolve app.liftorbit.app:443:127.0.0.1 \
+            -H 'Origin: https://not-the-app.example' -H 'Sec-Fetch-Site: cross-site' \
+            -H 'Content-Type: application/json' \
+            --data '{"email":"none@example.invalid","password":"not-a-password"}' \
+            https://app.liftorbit.app/api/auth/login)
+          [[ "$status" == 403 ]] || {
+            echo "OVH_APP_CROSS_ORIGIN_PROTECTION_FAILED status=$status"; exit 3;
+          }
+          echo 'OVH_APP_CSRF_CROSS_SITE_DENIED'
+          REMOTE
+          # Check public ingress: network failures are safe but other HTTP statuses are not.
+          for host in liftorbit.app app.liftorbit.app; do
+            set +e
+            code=$(curl -k -sS -o /dev/null -w '%{http_code}' --noproxy '*' \
+              --connect-timeout 4 --max-time 12 \
+              --resolve "$host:443:$OVH_HOST" "https://$host/")
+            result=$?
+            set -e
+            if [[ "$result" == 0 ]]; then
+              test "$code" = 403 || {
+                echo "OVH_STAGING_PUBLIC_DENY_FAILED $host http=$code"
+                exit 4
+              }
+              echo "OVH_STAGING_PUBLIC_DENIED $host http=403"
+            else
+              echo "OVH_STAGING_PUBLIC_NOT_REACHABLE $host"
+            fi
+          done
+          echo 'OVH_STAGING_TLS_SECURITY_CHECKS_PASSED'
