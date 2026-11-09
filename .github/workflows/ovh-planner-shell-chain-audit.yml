@@ -135,4 +135,23 @@ jobs:
                     'has_legacy_start='+str('D_START_GOOD' in value).lower(),
                     'has_subprocess='+str('subprocess' in value).lower(),
                     'has_server='+str('HTTPServer' in value or 'uvicorn' in value).lower())
+          for key in ('PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
+              src=data.get(key,'')
+              if not isinstance(src,str): continue
+              try: tree=ast.parse(src)
+              except SyntaxError:
+                  print('OVH_BOOT_AST',key,'parse=NON_PYTHON')
+                  continue
+              calls=[]
+              constants=[]
+              for n in ast.walk(tree):
+                  if isinstance(n,ast.Call):
+                      f=n.func
+                      name=(f.attr if isinstance(f,ast.Attribute) else f.id if isinstance(f,ast.Name) else 'OTHER')
+                      if re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,35}',name): calls.append(name)
+                  if isinstance(n,ast.Constant) and isinstance(n.value,str):
+                      if re.fullmatch(r'[A-Z_][A-Z0-9_]{3,70}',n.value):
+                          constants.append(n.value)
+              print('OVH_BOOT_AST',key,'call_shape='+','.join(calls[:45]))
+              print('OVH_BOOT_AST_KEYS',key,','.join(constants[:45]) or 'none')
           PY
