@@ -266,4 +266,36 @@ jobs:
                       try: toks=shlex.split(new)
                       except ValueError: toks=[]
                       print('OVH_PATCH_NEW_TOKENS',' '.join(safe(t) for t in toks[:30]))
+          # Resolve why the protected etalon restore aborts: emit structural statistics only.
+          for _key in ('PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
+              _source=data.get(_key,'')
+              if not isinstance(_source,str): continue
+              try: _tree=ast.parse(_source)
+              except SyntaxError:
+                  print('OVH_ANCHOR_PARSE_FAIL',_key)
+                  continue
+              for _n in ast.walk(_tree):
+                  if isinstance(_n,ast.Raise) and isinstance(_n.exc,ast.Call) and _n.exc.args:
+                      _arg=_n.exc.args[0]
+                      if isinstance(_arg,ast.Constant) and isinstance(_arg.value,str):
+                          _v=_arg.value
+                          _ok=(_v=='PP_RESTORE_WRITE_ANCHOR_MISSING')
+                          print('OVH_RESTORE_RAISE',_key,'line='+str(_n.lineno),
+                                'is_known_anchor_missing='+str(_ok).lower(),
+                                'message_length='+str(len(_v)))
+                  if isinstance(_n,ast.Call) and isinstance(_n.func,ast.Attribute) and _n.func.attr=='replace':
+                      _args=_n.args
+                      _anchor=_args[0].value if _args and isinstance(_args[0],ast.Constant) and isinstance(_args[0].value,str) else None
+                      _replacement=_args[1].value if len(_args)>=2 and isinstance(_args[1],ast.Constant) and isinstance(_args[1].value,str) else None
+                      print('OVH_RESTORE_REPLACE_SHAPE',_key,
+                            'line='+str(_n.lineno),
+                            'anchor_constant='+str(_anchor is not None).lower(),
+                            'replacement_constant='+str(_replacement is not None).lower(),
+                            'anchor_length='+str(len(_anchor)) if _anchor is not None else 'dynamic',
+                            'replacement_length='+str(len(_replacement)) if _replacement is not None else 'dynamic')
+                      if _anchor:
+                          for _target in ('PP_CAP_BATCH_BOOT_V2','PP_GENERIC_RESTORE_BOOT_V1','PP_RESTORE_ETALON_BOOT_V1'):
+                              _t=data.get(_target,'')
+                              print('OVH_RESTORE_ANCHOR_PRESENCE',_key,_target,
+                                    'count='+str(_t.count(_anchor)) if isinstance(_t,str) else 'not_string')
           PY
