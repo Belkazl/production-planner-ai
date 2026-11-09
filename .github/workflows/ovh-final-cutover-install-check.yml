@@ -1,0 +1,47 @@
+name: OVH migration - lint protected final cutover installer
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-final-cutover-install-check.yml]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile cutover root scripts and validate privilege scope
+        run: |
+          set -euo pipefail
+          python3 -m py_compile ops/ovh/final-cutover-ops.py ops/ovh/bootstrap-final-cutover.py ops/ovh/render-secrets.py
+          python3 - <<'PY'
+          import ast,pathlib
+          for filename in ('ops/ovh/final-cutover-ops.py','ops/ovh/bootstrap-final-cutover.py'):
+              source=pathlib.Path(filename).read_text()
+              ast.parse(source)
+              assert 'docker compose down -v' not in source
+              assert 'docker system prune' not in source
+              print('OVH_FINAL_SCRIPT_COMPILED',filename)
+          install=pathlib.Path('ops/ovh/bootstrap-final-cutover.py').read_text()
+          assert 'NO_DB_DNS_OR_RUNNING_CONTAINERS_MODIFIED' in install
+          assert 'visudo' in install
+          assert 'cutover-ready.marker' in pathlib.Path('ops/ovh/final-cutover-ops.py').read_text()
+          print('OVH_FINAL_CUTOVER_SAFETY_MARKERS_PRESENT')
+          PY
+          printf '%s\n' 'liftorbit-ci ALL=(root) NOPASSWD: /usr/local/sbin/liftorbit-cutover-ops status, /usr/local/sbin/liftorbit-cutover-ops prepare, /usr/local/sbin/liftorbit-cutover-ops import, /usr/local/sbin/liftorbit-cutover-ops promote, /usr/local/sbin/liftorbit-cutover-ops rollback' > /tmp/liftorbit-cutover-sudoers
+          chmod 0440 /tmp/liftorbit-cutover-sudoers
+          sudo visudo -cf /tmp/liftorbit-cutover-sudoers
+          echo OVH_FINAL_SUDOERS_SYNTAX_VALID
+      - name: Verify Caddy production template contains exactly two expected host blocks
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path('ops/ovh/edge/Caddyfile.production').read_text()
+          for host in ('liftorbit.app','app.liftorbit.app'):
+              assert t.splitlines().count(host + ' {') == 1
+          print('OVH_FINAL_CADDY_HOST_ANCHORS_VALID')
+          PY
