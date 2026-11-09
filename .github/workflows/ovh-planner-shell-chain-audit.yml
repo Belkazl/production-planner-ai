@@ -270,6 +270,13 @@ jobs:
           # Compare the expected etalon write anchor with the actual protected runtime text.
           # Locate the exact database-target error in protected runtime source, without printing source.
           _needle='PP_FIX_VERIFY_DB_TARGET_MISSING'
+          class _DbHide(ast.NodeTransformer):
+              def visit_Constant(self,node):
+                  if isinstance(node.value,str):
+                      return ast.copy_location(ast.Constant(value='REDACTED_LEN_'+str(len(node.value))),node)
+                  if isinstance(node.value,(int,float)):
+                      return ast.copy_location(ast.Constant(value=0),node)
+                  return node
           for _key,_value in data.items():
               if not isinstance(_value,str) or not _key.startswith('PP_'): continue
               _variants=[('plain',_value)]
@@ -295,7 +302,7 @@ jobs:
                               _parent=[node for node in ast.walk(_tree)
                                        if isinstance(node,(ast.If,ast.Try)) and node.lineno<=_n.lineno <=getattr(node,'end_lineno',_n.lineno)]
                               for _item in sorted(_parent,key=lambda x:getattr(x,'end_lineno',0)-x.lineno)[:2]:
-                                  _anon=_HideLiterals().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_item))))
+                                  _anon=_DbHide().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_item))))
                                   print('OVH_DB_TARGET_GUARD_ANON',_key,
                                         ast.unparse(_anon).replace(chr(10),' ')[:500])
           
