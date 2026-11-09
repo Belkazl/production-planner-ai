@@ -1,11 +1,10 @@
-name: LiftOrbit OVH integration control - isolated six-service check
+name: LiftOrbit OVH gateway only - fast isolated diagnostic
 # Runner executes only after the explicitly scoped migration workflow changes.
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - .github/workflows/liftorbit-ovh-integration-control.yml
-  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -14,7 +13,7 @@ concurrency:
 
 jobs:
   integrated-smoke:
-    if: github.ref == 'refs/heads/main'
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/ovh-gateway-debug-20261108'
     runs-on: ubuntu-24.04
     timeout-minutes: 38
     steps:
@@ -71,7 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           node ops/ops/ovh/patch-runtime-origins.mjs app
-          sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
+          sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga,planner} /opt/liftorbit/secrets
+          sudo cp ops/ops/ovh/planner/Dockerfile /opt/liftorbit/sources/planner/Dockerfile
           sudo cp -a app/. /opt/liftorbit/sources/app/
           sudo cp -a auth/ga_python_workers/qa_auth/. /opt/liftorbit/sources/auth/
           sudo cp -a ga/ga_python_workers/. /opt/liftorbit/sources/ga/
@@ -111,24 +111,27 @@ jobs:
             test "$tables" -ge "$minimum"
             echo "INTEGRATION_DB_RESTORED $service tables=$tables"
           done
-      - name: Start production-pinned planner, auth, GA and application
+      - name: Start planner only; diagnose gateway bootstrap without building app and GA
         shell: bash
         run: |
           set -euo pipefail
           cfg=/opt/liftorbit/full.compose.yml
-          sudo docker compose -f "$cfg" up -d --build planner-gateway auth-gateway ga-worker app
-          echo 'INTEGRATION_FULL_COMPOSE_UP_COMPLETED'
-          for name in planner-gateway auth-gateway ga-worker app; do
-            cid=$(sudo docker compose -f "$cfg" ps -q "$name")
-            test -n "$cid"
+          sudo docker compose -f "$cfg" up -d --build planner-gateway
+          echo 'OVH_GATEWAY_TARGETED_REPRODUCER_STARTED'
+          ready=no
+          for i in {1..30}; do
+            cid=$(sudo docker compose -f "$cfg" ps -q planner-gateway)
+            test -n "$cid" || exit 2
             state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")
-            echo "INTEGRATION_SERVICE_HEALTH $name=$state"
-            test "$state" = healthy
+            if test "$state" = healthy; then ready=yes; break; fi
+            sleep 1
           done
-          curl --fail --silent --max-time 12 http://127.0.0.1:18082/__bridge_health > /dev/null
-          status=$(curl -s -o /dev/null -w '%{http_code}' -m 12 http://127.0.0.1:18082/)
-          test "$status" = 200 || test "$status" = 302 || test "$status" = 303
-          echo "OVH_SIX_SERVICE_INTEGRATION_SMOKE_OK http_status=$status"
+          if test "$ready" = yes; then
+            echo 'OVH_GATEWAY_REPLICA_BOOT_SUCCESS'
+          else
+            echo 'OVH_GATEWAY_REPLICA_BOOT_FAILED_USE_CLASSIFIED_DIAGNOSTICS'
+            exit 7
+          fi
       - name: Sanitize failure diagnostics (no raw user-data logs)
         if: failure()
         shell: bash
@@ -162,6 +165,10 @@ jobs:
           print('SAFE_RUNTIME_ERROR_CLASS',name,','.join(dict.fromkeys(matches)) or 'UNKNOWN')
           for line in s.splitlines():
               if re.fullmatch(r'OVH_GATEWAY_BOOT_(?:EXCEPTION|MISSING_KEY|MISSING_MODULE|SYSTEM_EXIT_CODE|SUBPROCESS_FAILED)(?: [A-Za-z0-9_.=-]{1,72}){1,3}',line):
+                  print('SAFE_PLANNER_CLASSIFICATION',line)
+              if re.fullmatch(r'OVH_GATEWAY_SUBPROCESS_(?:FAILED|DIAG_ERROR)(?: [A-Za-z0-9_.=-]{1,72}){1,3}',line):
+                  print('SAFE_PLANNER_CLASSIFICATION',line)
+              if re.fullmatch(r'OVH_GATEWAY_APT_PACKAGE_NAMES [a-zA-Z0-9_,.+-]{1,200}',line):
                   print('SAFE_PLANNER_CLASSIFICATION',line)
           m=re.search(r"No module named '([a-zA-Z_][a-zA-Z0-9_.]{0,45})'",s)
           if m: print('SAFE_MISSING_IMPORT',name,m.group(1))
