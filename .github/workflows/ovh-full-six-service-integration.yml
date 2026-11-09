@@ -277,6 +277,16 @@ jobs:
                   print('SAFE_PLANNER_CLASSIFICATION',line)
               if re.fullmatch(r'OVH_GATEWAY_SHELL_ERROR_CLASS [A-Z_]{1,40}',line):
                   print('SAFE_PLANNER_CLASSIFICATION',line)
+              actual_patterns=(
+                  r'OVH_ACTUAL_BATCH_DIAGNOSTIC_HOOK_INSTALLED',
+                  r'OVH_ACTUAL_BATCH_EXIT [0-9]{1,3}',
+                  r'OVH_ACTUAL_BATCH_OUTPUT_SIZES [0-9]{1,9} [0-9]{1,9}',
+                  r'OVH_ACTUAL_BATCH_ERROR_CLASS [A-Z_]{1,40}',
+                  r'OVH_ACTUAL_BATCH_PY_ERROR [A-Za-z]{1,40}',
+                  r'OVH_ACTUAL_BATCH_TMP_RELATION len=[0-9]{1,3} exists=(?:true|false)',
+              )
+              if any(re.fullmatch(p,line) for p in actual_patterns):
+                  print('SAFE_ACTUAL_BATCH',line)
               if line in ('OVH_COMPAT_APT_SKIP_UPDATE','OVH_COMPAT_APT_SKIP_INSTALL','OVH_COMPAT_APT_FALLBACK'):
                   print('SAFE_PLANNER_CLASSIFICATION',line)
           m=re.search(r"No module named '([a-zA-Z_][a-zA-Z0-9_.]{0,45})'",s)
