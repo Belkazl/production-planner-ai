@@ -48,6 +48,17 @@ jobs:
           else
             echo 'OVH_BOOTSTRAP_REQUIRED'
           fi
+          planner_source="$HOME/liftorbit-migration/sources/planner"
+          if [[ -d "$planner_source" && -w "$planner_source" ]]; then
+            echo 'OVH_PLANNER_STAGING_DIRECTORY_WRITABLE'
+          else
+            echo 'OVH_PLANNER_STAGING_DIRECTORY_NOT_WRITABLE'
+          fi
+          if [[ -f "$planner_source/Dockerfile" && -w "$planner_source/Dockerfile" ]]; then
+            echo 'OVH_PLANNER_DOCKERFILE_WRITABLE'
+          else
+            echo 'OVH_PLANNER_DOCKERFILE_NOT_WRITABLE'
+          fi
           if test -f /opt/liftorbit/full.compose.yml; then
             echo 'OVH_COMPOSE_PRESENT'
           else
