@@ -31,7 +31,7 @@ jobs:
           assert 'cutover-ready.marker' in pathlib.Path('ops/ovh/final-cutover-ops.py').read_text()
           print('OVH_FINAL_CUTOVER_SAFETY_MARKERS_PRESENT')
           PY
-          printf '%s\n' 'liftorbit-ci ALL=(root) NOPASSWD: /usr/local/sbin/liftorbit-cutover-ops status, /usr/local/sbin/liftorbit-cutover-ops prepare, /usr/local/sbin/liftorbit-cutover-ops import, /usr/local/sbin/liftorbit-cutover-ops promote, /usr/local/sbin/liftorbit-cutover-ops rollback' > /tmp/liftorbit-cutover-sudoers
+          printf '%s\n' 'liftorbit-ci ALL=(root) NOPASSWD: /usr/local/sbin/liftorbit-cutover-ops status, /usr/local/sbin/liftorbit-cutover-ops prepare, /usr/local/sbin/liftorbit-cutover-ops import, /usr/local/sbin/liftorbit-cutover-ops promote, /usr/local/sbin/liftorbit-cutover-ops rollback, /usr/local/sbin/liftorbit-cutover-ops refresh-cert' > /tmp/liftorbit-cutover-sudoers
           chmod 0440 /tmp/liftorbit-cutover-sudoers
           sudo visudo -cf /tmp/liftorbit-cutover-sudoers
           echo OVH_FINAL_SUDOERS_SYNTAX_VALID
