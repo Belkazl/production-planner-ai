@@ -1,0 +1,56 @@
+name: OVH migration - read-only readiness for single final root grant
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-final-root-install-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Verify OVH app, TLS certificate, private configs and unprivileged state
+        shell: bash
+        env:
+          OVH_HOST: \${{ vars.OVH_HOST }}
+          OVH_USER: \${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: \${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: \${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 0600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null
+          echo OVH_FINAL_APP_SIX_SERVICE_SMOKE_OK
+          sudo -n /usr/local/sbin/liftorbit-edge-ops smoke > /dev/null
+          echo OVH_FINAL_CADDY_HTTPS_SMOKE_OK
+          sudo -n /usr/local/sbin/liftorbit-edge-ops status | grep -q 'OVH_EDGE_MODE staging'
+          echo OVH_FINAL_CADDY_STILL_STAGING
+          cert="$HOME/liftorbit-migration/tls/tls-precutover-42652829924-1/fullchain.pem"
+          key="$HOME/liftorbit-migration/tls/tls-precutover-42652829924-1/privkey.pem"
+          test -s "$cert" && test -s "$key"
+          openssl x509 -in "$cert" -noout -checkend 2592000 > /dev/null
+          openssl x509 -in "$cert" -pubkey -noout > /tmp/ovh-final-cert.pub.$$
+          openssl pkey -in "$key" -pubout > /tmp/ovh-final-key.pub.$$
+          cmp -s /tmp/ovh-final-cert.pub.$$ /tmp/ovh-final-key.pub.$$
+          rm -f /tmp/ovh-final-cert.pub.$$ /tmp/ovh-final-key.pub.$$
+          echo OVH_FINAL_CERT_KEY_PAIR_VALID
+          test -f "$HOME/liftorbit-migration/backups/backup-42660218611-1/SHA256SUMS.txt"
+          (cd "$HOME/liftorbit-migration/backups/backup-42660218611-1" && sha256sum -c --quiet SHA256SUMS.txt)
+          echo OVH_FINAL_FRESH_RAILWAY_BACKUP_VALID
+          if test -x /usr/local/sbin/liftorbit-cutover-ops; then
+            echo OVH_FINAL_CUTOVER_PRIVILEGE_ALREADY_INSTALLED
+          else
+            echo OVH_FINAL_CUTOVER_PRIVILEGE_REQUIRES_ROOT_GRANT
+          fi
+          REMOTE
