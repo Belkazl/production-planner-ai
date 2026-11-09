@@ -1,0 +1,92 @@
+name: OVH migration - secure pre-cutover DNS rollback snapshot
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-dns-rollback-snapshot.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ovh-dns-rollback-snapshot
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Read two Cloudflare records to private ephemeral file (no DNS mutations)
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          [[ -n "$CF_TOKEN" && -n "$OVH_SSH_PRIVATE_KEY" && -n "$OVH_SSH_KNOWN_HOSTS" ]] || exit 2
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 600 "$work/key" "$work/hosts"
+          export DNS_BACKUP_PATH="$work/records.json"
+          python3 - <<'PY'
+          import datetime,json,os,urllib.request,urllib.parse
+          token=os.environ['CF_TOKEN']
+          def fetch(url):
+              with urllib.request.urlopen(urllib.request.Request(
+                  'https://api.cloudflare.com/client/v4/'+url,
+                  headers={'Authorization':'Bearer '+token,'Accept':'application/json'},
+                  method='GET'),timeout=20) as response:
+                  data=json.load(response)
+              if data.get('success') is not True: raise SystemExit('OVH_DNS_API_READ_FAILED')
+              return data.get('result')
+          zones=fetch('zones?'+urllib.parse.urlencode({'name':'liftorbit.app','per_page':10}))
+          found=[z for z in zones if z.get('name')=='liftorbit.app' and z.get('id')]
+          if len(found)!=1: raise SystemExit('OVH_DNS_ZONE_NOT_UNIQUE')
+          zone=found[0]['id']
+          records={}
+          for name in ('liftorbit.app','app.liftorbit.app'):
+              result=fetch('zones/'+zone+'/dns_records?'+urllib.parse.urlencode({
+                  'name':name,'per_page':100}))
+              selected=[r for r in result if r.get('name')==name and r.get('type') in ('A','AAAA','CNAME')]
+              if len(selected)!=1 or selected[0]['type']!='CNAME':
+                  raise SystemExit('OVH_DNS_UNEXPECTED_ORIGIN_RECORD_LAYOUT_'+name.replace('.','_'))
+              records[name]=selected
+              print('OVH_DNS_ORIGIN_RECORD_SNAPSHOTTED',name,'type=CNAME','count=1')
+          snapshot={
+            'kind':'liftorbit-dns-rollback-snapshot',
+            'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'zone_name':'liftorbit.app','zone_id':zone,'records':records,
+            'read_only_snapshot':True
+          }
+          with open(os.environ['DNS_BACKUP_PATH'],'x') as file:
+              json.dump(snapshot,file,separators=(',',':'),sort_keys=True)
+          os.chmod(os.environ['DNS_BACKUP_PATH'],0o600)
+          print('OVH_DNS_SNAPSHOT_TWO_NAMES_VALID')
+          PY
+          name="dns-before-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          [[ "$name" =~ ^dns-before-[0-9]+-[0-9]+[.]json$ ]] || exit 3
+          opts=(-i "$work/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts")
+          target="$OVH_USER@$OVH_HOST"
+          ssh "${opts[@]}" "$target" 'umask 077; mkdir -p "$HOME/liftorbit-migration/dns-backups"; chmod 0700 "$HOME/liftorbit-migration/dns-backups"'
+          remote="/home/liftorbit-ci/liftorbit-migration/dns-backups/$name"
+          scp -q "${opts[@]}" "$work/records.json" "$target:$remote"
+          ssh "${opts[@]}" "$target" "BACKUP_NAME='$name' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$BACKUP_NAME" =~ ^dns-before-[0-9]+-[0-9]+[.]json$ ]] || exit 3
+          p="$HOME/liftorbit-migration/dns-backups/$BACKUP_NAME"
+          chmod 0600 "$p"
+          python3 - "$p" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['kind']=='liftorbit-dns-rollback-snapshot'
+          assert set(d['records'])=={'liftorbit.app','app.liftorbit.app'}
+          assert all(len(a)==1 and a[0]['type']=='CNAME' for a in d['records'].values())
+          print('OVH_DNS_BACKUP_STORED_AND_VERIFIED')
+          PY
+          REMOTE
