@@ -1,0 +1,65 @@
+name: LiftOrbit - public production HTTPS, login and security smoke
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-public-production-smoke.yml]
+permissions:
+  contents: read
+jobs:
+  public-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Check both public sites and reject unauthorized account and cross-site access
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          t=$(mktemp -d)
+          trap 'rm -rf "$t"' EXIT
+          for endpoint in 'https://liftorbit.app/health' 'https://app.liftorbit.app/__bridge_health'; do
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 18 \
+              "$endpoint" -o /dev/null
+            echo "PRODUCTION_PUBLIC_HEALTH_OK $endpoint"
+          done
+          curl -fsS --max-time 18 https://liftorbit.app/ -o "$t/landing"
+          curl -fsS --max-time 18 https://app.liftorbit.app/ -o "$t/app"
+          grep -qi 'LiftOrbit' "$t/landing"
+          grep -qi 'LiftOrbit' "$t/app"
+          echo 'PRODUCTION_PUBLIC_BRAND_HTML_OK'
+          for endpoint in /api/auth/me /api/db-storage /api/account; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+              "https://app.liftorbit.app$endpoint")
+            [[ "$code" == 401 || "$code" == 404 ]] || {
+              echo "PRODUCTION_AUTH_BOUNDARY_FAILED endpoint=$endpoint code=$code"; exit 5;
+            }
+            echo "PRODUCTION_ANONYMOUS_API_DENIED endpoint=$endpoint code=$code"
+          done
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+            -H 'Origin: https://unsafe.example' -H 'Sec-Fetch-Site: cross-site' \
+            -H 'Content-Type: application/json' \
+            --data '{"email":"nonexistent@example.invalid","password":"invalid"}' \
+            https://app.liftorbit.app/api/auth/login)
+          [[ "$code" == 403 ]] || { echo "PRODUCTION_CROSS_ORIGIN_LOGIN_UNEXPECTED_STATUS $code"; exit 6; }
+          echo 'PRODUCTION_CSRF_CROSS_SITE_LOGIN_DENIED'
+          python3 - <<'PY'
+          import json,os,urllib.parse,urllib.request
+          token=os.environ.get('CF_TOKEN')
+          if not token: raise SystemExit("PRODUCTION_CLOUDFLARE_TOKEN_MISSING")
+          def api(path):
+              with urllib.request.urlopen(urllib.request.Request(
+                'https://api.cloudflare.com/client/v4/'+path,
+                headers={'Authorization':'Bearer '+token},method='GET'),timeout=16) as r:
+                doc=json.load(r)
+              assert doc['success'] is True
+              return doc['result']
+          zone=next(z['id'] for z in api('zones?name=liftorbit.app') if z['name']=='liftorbit.app')
+          for name in ('liftorbit.app','app.liftorbit.app'):
+              rs=api('zones/'+zone+'/dns_records?'+urllib.parse.urlencode({'name':name}))
+              a=[r for r in rs if r.get('name')==name and r.get('type') in ('A','CNAME','AAAA')]
+              if len(a)!=1 or a[0]['type']!='A' or a[0]['content']!='51.255.163.121':
+                  raise SystemExit('PRODUCTION_DNS_WRONG_ORIGIN_'+name.replace('.','_'))
+              print('PRODUCTION_DNS_OVH_CONFIRMED',name)
+          PY
+          echo 'LIFTORBIT_PRODUCTION_PUBLIC_SMOKE_COMPLETE'
