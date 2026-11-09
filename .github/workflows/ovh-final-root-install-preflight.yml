@@ -13,10 +13,10 @@ jobs:
       - name: Verify OVH app, TLS certificate, private configs and unprivileged state
         shell: bash
         env:
-          OVH_HOST: \${{ vars.OVH_HOST }}
-          OVH_USER: \${{ vars.OVH_USER }}
-          OVH_SSH_PRIVATE_KEY: \${{ secrets.OVH_SSH_PRIVATE_KEY }}
-          OVH_SSH_KNOWN_HOSTS: \${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           umask 077
