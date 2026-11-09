@@ -80,7 +80,7 @@ def main():
     text = production_file.read_text()
     for host in ("liftorbit.app", "app.liftorbit.app"):
         anchor = host + " {\n"
-        require(text.count(anchor) == 1, "PROXY_CADDY_CONFIG_CHANGED")
+        require(text.splitlines().count(anchor.rstrip("\n")) == 1, "PROXY_CADDY_CONFIG_CHANGED")
         text = text.replace(anchor, anchor +
                             "  tls /etc/caddy/fullchain.pem /etc/caddy/privkey.pem\n", 1)
     # Only touches the *inactive* production template, never Caddy's active staging config.
