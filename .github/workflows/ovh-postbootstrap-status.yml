@@ -1,0 +1,38 @@
+name: LiftOrbit OVH - post-bootstrap read-only status
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-postbootstrap-status.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify delegated OVH status without changing production
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]]
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$tmp/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$tmp/hosts"
+          chmod 600 "$tmp/key" "$tmp/hosts"
+          ssh -i "$tmp/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          sudo -n /usr/local/sbin/liftorbit-cutover-ops status
+          sudo -n /usr/local/sbin/liftorbit-ops smoke
+          sudo -n /usr/local/sbin/liftorbit-edge-ops status
+          echo OVH_POSTBOOTSTRAP_SCOPED_ACCESS_AND_STACK_VERIFIED
+          REMOTE
