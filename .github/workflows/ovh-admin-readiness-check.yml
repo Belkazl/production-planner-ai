@@ -88,6 +88,42 @@ jobs:
           names=sorted(set(line.split('users:(("',1)[1].split('"',1)[0]
               for line in p.stdout.splitlines() if 'users:(("' in line))
           print('OVH_SS_VISIBLE_PROCESS_NAMES',','.join(names) if names else 'redacted_or_not_visible')
+          pid_match=re.search(r'pid=([0-9]+)',p.stdout)
+          if pid_match:
+              import os,pathlib
+              pid=int(pid_match.group(1))
+              proc=pathlib.Path('/proc')/str(pid)
+              status_text=(proc/'status').read_text(errors='replace')
+              owner_line=next((x for x in status_text.splitlines() if x.startswith('Uid:')),'')
+              process_uid=int(owner_line.split()[1]) if owner_line else -1
+              same_user=(process_uid==os.getuid())
+              def classify_path(value):
+                  if not isinstance(value,str): return 'UNKNOWN'
+                  if value.startswith('/home/liftorbit-ci/liftorbit-migration/'): return 'LIFTORBIT_MIGRATION'
+                  if value.startswith('/opt/liftorbit/'): return 'LIFTORBIT_STAGING'
+                  if value.startswith('/home/liftorbit-ci/'): return 'CI_HOME_OTHER'
+                  if value.startswith('/usr/') or value.startswith('/opt/'): return 'SYSTEM'
+                  return 'OTHER'
+              try: cwd=os.readlink(str(proc/'cwd'))
+              except OSError: cwd=''
+              try: exe=os.readlink(str(proc/'exe'))
+              except OSError: exe=''
+              try: argv=(proc/'cmdline').read_bytes().decode('utf8','replace').split(chr(0))
+              except OSError: argv=[]
+              try: cgroup=(proc/'cgroup').read_text(errors='replace')
+              except OSError: cgroup=''
+              parent=next((x.split()[1] for x in status_text.splitlines() if x.startswith('PPid:')),'unknown')
+              print('OVH_LISTENER_PID',pid)
+              print('OVH_LISTENER_OWNED_BY_CI',str(same_user).lower())
+              print('OVH_LISTENER_CWD_CLASS',classify_path(cwd))
+              print('OVH_LISTENER_EXE_CLASS',classify_path(exe))
+              print('OVH_LISTENER_ARG_CLASS','bun' if any('bun' in x.lower() for x in argv[:2]) else 'other')
+              print('OVH_LISTENER_ARG_LIFTORBIT',str(any('liftorbit' in x.lower() for x in argv)).lower())
+              print('OVH_LISTENER_ARG_APP',str(any('app' in x.lower() for x in argv)).lower())
+              print('OVH_LISTENER_CONTAINERIZED',str(any(x in cgroup for x in ('docker','containerd','kubepods'))).lower())
+              print('OVH_LISTENER_PARENT_PID',parent)
+          else:
+              print('OVH_LISTENER_PID_NOT_VISIBLE')
           for suffix in ('/__bridge_health','/'):
               try:
                   with urllib.request.urlopen('http://127.0.0.1:18082'+suffix,timeout=3) as response:
