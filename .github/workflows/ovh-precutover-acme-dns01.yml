@@ -1,0 +1,120 @@
+name: OVH migration - preissue HTTPS certificate via Cloudflare DNS-01
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-precutover-acme-dns01.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ovh-precutovertls-acme
+  cancel-in-progress: false
+jobs:
+  preissue:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Install ACME DNS-01 client on isolated runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/liftorbit-certbot-venv"
+          "$RUNNER_TEMP/liftorbit-certbot-venv/bin/pip" -q install --disable-pip-version-check certbot certbot-dns-cloudflare
+      - name: Issue real public certificate with temporary DNS TXT challenges and stage it securely on OVH
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          for key in CF_TOKEN OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            [[ -n "${!key:-}" ]] || exit 2
+          done
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf 'dns_cloudflare_api_token = %s\n' "$CF_TOKEN" > "$work/cloudflare.ini"
+          chmod 0600 "$work/cloudflare.ini"
+          base="$RUNNER_TEMP/liftorbit-certbot-venv/bin/certbot"
+          "$base" certonly --non-interactive --agree-tos \
+            --email manager@liftorbit.app \
+            --dns-cloudflare --dns-cloudflare-credentials "$work/cloudflare.ini" \
+            --dns-cloudflare-propagation-seconds 50 \
+            --preferred-challenges dns \
+            --key-type ecdsa --elliptic-curve secp256r1 \
+            --config-dir "$work/config" --work-dir "$work/work" --logs-dir "$work/logs" \
+            -d liftorbit.app -d app.liftorbit.app > "$work/certbot-output.log" 2>&1 || {
+              code=$?
+              echo "OVH_ACME_DNS01_ISSUANCE_FAILED code=$code"
+              python3 - "$work/certbot-output.log" <<'PY'
+          import pathlib,sys
+          s=pathlib.Path(sys.argv[1]).read_text(errors='replace').lower()
+          for label,phrase in (
+              ('DNS_PERMISSION','not authorized'),
+              ('DNS_PROPAGATION','dns problem'),
+              ('CHALLENGE_FAILED','challenge failed'),
+              ('RATE_LIMIT','rate limit'),
+              ('ACCOUNT_ISSUE','invalid email'),
+              ('ACME_REJECTED','some challenges have failed')):
+              if phrase in s: print('OVH_ACME_SAFE_ERROR',label)
+          PY
+              exit "$code"
+            }
+          cert="$work/config/live/liftorbit.app/fullchain.pem"
+          private="$work/config/live/liftorbit.app/privkey.pem"
+          [[ -s "$cert" && -s "$private" ]] || { echo 'OVH_ACME_CERT_OUTPUT_MISSING'; exit 3; }
+          openssl x509 -in "$cert" -noout -checkend 2592000 > /dev/null || {
+            echo 'OVH_ACME_CERT_EXPIRY_TOO_SOON'; exit 3;
+          }
+          python3 - "$cert" <<'PY'
+          import ssl,sys
+          data=ssl._ssl._test_decode_cert(sys.argv[1])
+          names={x[1] for x in data.get('subjectAltName',[]) if x[0]=='DNS'}
+          if names!={'liftorbit.app','app.liftorbit.app'}:
+              raise SystemExit('OVH_ACME_SAN_DOMAIN_MISMATCH')
+          print('OVH_ACME_BOTH_DOMAINS_CERTIFIED')
+          PY
+          openssl x509 -in "$cert" -pubkey -noout > "$work/pubkey-cert"
+          openssl pkey -in "$private" -pubout > "$work/pubkey-key"
+          cmp -s "$work/pubkey-cert" "$work/pubkey-key" || {
+            echo 'OVH_ACME_CERT_KEY_MISMATCH'; exit 3;
+          }
+          cp -L "$cert" "$work/fullchain.pem"
+          cp -L "$private" "$work/privkey.pem"
+          chmod 0600 "$work/fullchain.pem" "$work/privkey.pem"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/ovh.key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/ovh.hosts"
+          chmod 0600 "$work/ovh.key" "$work/ovh.hosts"
+          opts=(-i "$work/ovh.key" -o IdentitiesOnly=yes -o BatchMode=yes \
+                -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/ovh.hosts")
+          target="$OVH_USER@$OVH_HOST"
+          folder="tls-precutover-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$folder" =~ ^tls-precutover-[0-9]+-[0-9]+$ ]] || exit 3
+          ssh "${opts[@]}" "$target" "CERT_RELEASE='$folder' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$CERT_RELEASE" =~ ^tls-precutover-[0-9]+-[0-9]+$ ]] || exit 3
+          dir="$HOME/liftorbit-migration/tls/$CERT_RELEASE"
+          mkdir -p "$dir"
+          chmod 0700 "$HOME/liftorbit-migration/tls" "$dir"
+          [[ ! -e "$dir/fullchain.pem" && ! -e "$dir/privkey.pem" ]] || exit 4
+          REMOTE
+          remote="/home/liftorbit-ci/liftorbit-migration/tls/$folder"
+          scp -q "${opts[@]}" "$work/fullchain.pem" "$work/privkey.pem" "$target:$remote/"
+          ssh "${opts[@]}" "$target" "CERT_RELEASE='$folder' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          [[ "$CERT_RELEASE" =~ ^tls-precutover-[0-9]+-[0-9]+$ ]] || exit 3
+          dir="$HOME/liftorbit-migration/tls/$CERT_RELEASE"
+          chmod 0600 "$dir/fullchain.pem" "$dir/privkey.pem"
+          openssl x509 -in "$dir/fullchain.pem" -noout -checkend 2592000 > /dev/null
+          openssl x509 -in "$dir/fullchain.pem" -pubkey -noout > "$dir/public-cert.tmp"
+          openssl pkey -in "$dir/privkey.pem" -pubout > "$dir/public-key.tmp"
+          cmp -s "$dir/public-cert.tmp" "$dir/public-key.tmp"
+          rm -f "$dir/public-cert.tmp" "$dir/public-key.tmp"
+          echo 'OVH_PRECUTOVER_CERT_AND_KEY_VERIFIED_ON_VPS'
+          REMOTE
+          echo 'OVH_PRECUTOVER_ACME_CERTIFICATE_STAGED_PRIVATELY'
