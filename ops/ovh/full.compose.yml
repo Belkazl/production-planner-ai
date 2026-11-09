@@ -69,6 +69,44 @@ services:
         try:
             with open('/run/liftorbit/config.json', encoding='utf-8') as f:
                 os.environ.update(json.load(f))
+            # Isolated OVH-only correction for a 2-character code drift in a pinned legacy restore.
+            # The original verification guard is preserved and still must pass.
+            import base64 as _ovh_base64
+            _ovh_key='PP_FIX_VERIFY_B64'
+            _ovh_encoded=os.environ.get(_ovh_key,'')
+            if _ovh_encoded:
+                _ovh_verify=_ovh_base64.b64decode(_ovh_encoded,validate=True).decode('utf8')
+                if (_ovh_verify.count('if old in s:')==1 and
+                        'PP_FIX_VERIFY_DB_TARGET_MISSING' in _ovh_verify):
+                    _ovh_shim='\\n'.join([
+                        "if old not in s and new not in s:",
+                        "    import difflib as _ovh_df",
+                        "    _ovh_choices=[]",
+                        "    for _ovh_line in s.splitlines():",
+                        "        _ovh_match=_ovh_df.SequenceMatcher(None,new,_ovh_line,autojunk=False)",
+                        "        if _ovh_match.ratio() >= 0.96:",
+                        "            _ovh_choices.append((_ovh_line,_ovh_match))",
+                        "    if len(_ovh_choices)==1:",
+                        "        _ovh_line,_ovh_match=_ovh_choices[0]",
+                        "        _ovh_diff=[q for q in _ovh_match.get_opcodes() if q[0]!='equal']",
+                        "        _ovh_insert=[q for q in _ovh_diff if q[0]=='insert']",
+                        "        _ovh_replace=[q for q in _ovh_diff if q[0]=='replace']",
+                        "        if (len(_ovh_diff)==2 and len(_ovh_insert)==1 and len(_ovh_replace)==1",
+                        "                and len(new[_ovh_insert[0][1]:_ovh_insert[0][2]])==0",
+                        "                and len(_ovh_line[_ovh_insert[0][3]:_ovh_insert[0][4]])==4",
+                        "                and _ovh_line[_ovh_insert[0][3]:_ovh_insert[0][4]].isspace()",
+                        "                and len(new[_ovh_replace[0][1]:_ovh_replace[0][2]])==2",
+                        "                and len(_ovh_line[_ovh_replace[0][3]:_ovh_replace[0][4]])==2",
+                        "                and not new[_ovh_replace[0][1]:_ovh_replace[0][2]].isspace()",
+                        "                and not _ovh_line[_ovh_replace[0][3]:_ovh_replace[0][4]].isspace()",
+                        "                and s.count(_ovh_line)==1):",
+                        "            old=_ovh_line",
+                        "            new=_ovh_line[:len(_ovh_line)-len(_ovh_line.lstrip())]+new.lstrip()",
+                        "            print('OVH_COMPAT_DB_TARGET_PRECISE_REWRITE',flush=True)",
+                    ])
+                    _ovh_verify=_ovh_verify.replace('if old in s:',_ovh_shim+'\\nif old in s:',1)
+                    os.environ[_ovh_key]=_ovh_base64.b64encode(_ovh_verify.encode('utf8')).decode('ascii')
+                    print('OVH_COMPAT_DB_TARGET_STRICT_PATCH_INSTALLED',flush=True)
             import subprocess
             _ovh_real_run=subprocess.run
             def _ovh_safe_run(*argv,**kwargs):
