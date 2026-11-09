@@ -1,0 +1,111 @@
+name: LiftOrbit OVH - automatic HTTPS certificate renewal
+on:
+  schedule:
+    - cron: '37 3 * * 0'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ovh-cert-renew.yml]
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-ovh-certificate-renewal
+  cancel-in-progress: false
+jobs:
+  renew-if-needed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check direct OVH certificate expiry without Cloudflare
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if timeout 18 openssl s_client -connect 51.255.163.121:443 \
+               -servername liftorbit.app -showcerts </dev/null 2>/dev/null |
+             openssl x509 -noout -checkend 3024000 >/dev/null 2>&1; then
+            echo 'renew=false' >> "$GITHUB_OUTPUT"
+            echo 'LIFTORBIT_PUBLIC_CERT_VALID_MORE_THAN_35_DAYS'
+          else
+            echo 'renew=true' >> "$GITHUB_OUTPUT"
+            echo 'LIFTORBIT_PUBLIC_CERT_RENEWAL_NEEDED'
+          fi
+      - name: Install DNS-01 certificate client
+        if: steps.check.outputs.renew == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/liftorbit-certbot"
+          "$RUNNER_TEMP/liftorbit-certbot/bin/pip" -q install \
+            --disable-pip-version-check certbot certbot-dns-cloudflare
+      - name: Issue and apply a new certificate through restricted OVH helper
+        if: steps.check.outputs.renew == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == 51.255.163.121 && "$OVH_USER" == liftorbit-ci ]] || exit 2
+          for k in CLOUDFLARE_API_TOKEN OVH_SSH_PRIVATE_KEY OVH_SSH_KNOWN_HOSTS; do
+            [[ -n "${!k:-}" ]] || { echo "LIFTORBIT_RENEW_SECRET_UNAVAILABLE $k"; exit 2; }
+          done
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf 'dns_cloudflare_api_token = %s\n' "$CLOUDFLARE_API_TOKEN" > "$work/cloudflare.ini"
+          chmod 600 "$work/cloudflare.ini"
+          "$RUNNER_TEMP/liftorbit-certbot/bin/certbot" certonly --non-interactive --agree-tos \
+            --email manager@liftorbit.app \
+            --dns-cloudflare --dns-cloudflare-credentials "$work/cloudflare.ini" \
+            --dns-cloudflare-propagation-seconds 50 \
+            --preferred-challenges dns \
+            --key-type ecdsa --elliptic-curve secp256r1 \
+            --config-dir "$work/config" --work-dir "$work/work" --logs-dir "$work/logs" \
+            -d liftorbit.app -d app.liftorbit.app > "$work/certbot.log" 2>&1 || {
+              echo 'LIFTORBIT_CERT_RENEWAL_ACME_FAILED'; exit 3;
+            }
+          cert="$work/config/live/liftorbit.app/fullchain.pem"
+          priv="$work/config/live/liftorbit.app/privkey.pem"
+          openssl x509 -in "$cert" -noout -checkend 2592000
+          openssl x509 -in "$cert" -pubkey -noout > "$work/pubcert"
+          openssl pkey -in "$priv" -pubout > "$work/pubkey"
+          cmp -s "$work/pubcert" "$work/pubkey"
+          python3 - "$cert" <<'PY'
+          import ssl,sys
+          data=ssl._ssl._test_decode_cert(sys.argv[1])
+          names={x[1] for x in data.get('subjectAltName',[]) if x[0]=='DNS'}
+          assert names=={'liftorbit.app','app.liftorbit.app'}
+          print('LIFTORBIT_CERT_BOTH_PUBLIC_DOMAINS_VERIFIED')
+          PY
+          cp -L "$cert" "$work/fullchain.pem"
+          cp -L "$priv" "$work/privkey.pem"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$work/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$work/hosts"
+          chmod 600 "$work/fullchain.pem" "$work/privkey.pem" "$work/key" "$work/hosts"
+          opts=(-i "$work/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/hosts")
+          target="$OVH_USER@$OVH_HOST"
+          remote="$HOME/liftorbit-migration/tls"
+          ssh "{opts[@]}" "$target" 'set -e; umask 077; mkdir -p "$HOME/liftorbit-migration/tls/renewal-current"; chmod 700 "$HOME/liftorbit-migration/tls/renewal-current"'
+          dest="/home/liftorbit-ci/liftorbit-migration/tls/renewal-current"
+          scp -q "{opts[@]}" "$work/fullchain.pem" "$target:$dest/fullchain.pem.new"
+          scp -q "{opts[@]}" "$work/privkey.pem" "$target:$dest/privkey.pem.new"
+          ssh "{opts[@]}" "$target" 'set -e; umask 077;
+            dir="$HOME/liftorbit-migration/tls/renewal-current";
+            test -f "$dir/fullchain.pem.new" && test -f "$dir/privkey.pem.new";
+            mv -f "$dir/fullchain.pem.new" "$dir/fullchain.pem";
+            mv -f "$dir/privkey.pem.new" "$dir/privkey.pem";
+            chmod 600 "$dir/fullchain.pem" "$dir/privkey.pem";
+            sudo -n /usr/local/sbin/liftorbit-cutover-ops refresh-cert;
+            sudo -n /usr/local/sbin/liftorbit-edge-ops smoke'
+          for host in liftorbit.app app.liftorbit.app; do
+            endpoint='/health'
+            [[ "$host" == app.liftorbit.app ]] && endpoint='/__bridge_health'
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 16 \
+              --resolve "$host:443:51.255.163.121" "https://$host$endpoint" > /dev/null
+          done
+          echo 'LIFTORBIT_OVH_CERTIFICATE_AUTOMATICALLY_RENEWED_AND_VERIFIED'
