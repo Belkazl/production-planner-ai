@@ -1,0 +1,38 @@
+name: OVH migration - fresh read-only Railway PostgreSQL backups
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-refresh-railway-backups.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ovh-railway-production-pg-dump
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 58
+    steps:
+      - name: Checkout pinned migration backup script
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check backup script shell syntax
+        run: bash -n ops/ovh/backup-railway-postgres-via-ovh.sh
+      - name: Install Railway CLI for read-only credentials
+        run: npm install --global @railway/cli
+      - name: Back up both live Railway PostgreSQL databases to protected OVH files
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          bash ops/ovh/backup-railway-postgres-via-ovh.sh
+      - name: Ensure local temporary backup fragments are destroyed
+        if: always()
+        run: |
+          echo 'Backup script uses a private temporary directory with automatic cleanup'
