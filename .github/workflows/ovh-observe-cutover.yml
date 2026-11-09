@@ -1,0 +1,65 @@
+name: LiftOrbit - observe production cutover state
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-observe-cutover.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Read OVH cutover state and Cloudflare current routing
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          t=$(mktemp -d)
+          trap 'rm -rf "$t"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$t/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$t/hosts"
+          chmod 600 "$t/key" "$t/hosts"
+          ssh -i "$t/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$t/hosts" \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          sudo -n /usr/local/sbin/liftorbit-cutover-ops status
+          sudo -n /usr/local/sbin/liftorbit-edge-ops status
+          if test -f "$HOME/liftorbit-migration/backups/final-write-frozen.marker"; then
+            echo 'LIFTORBIT_SOURCE_FREEZE_MARKER_PRESENT'
+          else
+            echo 'LIFTORBIT_SOURCE_FREEZE_MARKER_ABSENT'
+          fi
+          if test -f "$HOME/liftorbit-migration/backups/final-selected.txt"; then
+            echo 'LIFTORBIT_FINAL_BACKUP_POINTER_PRESENT'
+          else
+            echo 'LIFTORBIT_FINAL_BACKUP_POINTER_ABSENT'
+          fi
+          REMOTE
+          python3 - <<'PY'
+          import json,os,urllib.parse,urllib.request
+          tok=os.environ['CF_TOKEN']
+          def get(path):
+              with urllib.request.urlopen(urllib.request.Request(
+                  'https://api.cloudflare.com/client/v4/'+path,
+                  headers={'Authorization':'Bearer '+tok},method='GET'),timeout=15) as r:
+                  data=json.load(r)
+              assert data['success']
+              return data['result']
+          zones=get('zones?'+urllib.parse.urlencode({'name':'liftorbit.app'}))
+          zone=next(z['id'] for z in zones if z['name']=='liftorbit.app')
+          for name in ('liftorbit.app','app.liftorbit.app'):
+              rs=get('zones/'+zone+'/dns_records?'+urllib.parse.urlencode({'name':name}))
+              actual=[r for r in rs if r.get('name')==name and r.get('type') in ('A','CNAME','AAAA')]
+              if len(actual)!=1:raise SystemExit('DNS_UNEXPECTED_RECORD_LAYOUT')
+              r=actual[0]
+              print('LIFTORBIT_DNS_CURRENT',name,'type='+r['type'],
+                    'ovh='+str(r.get('content')=='51.255.163.121').lower())
+          PY
