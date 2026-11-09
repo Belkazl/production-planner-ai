@@ -156,49 +156,63 @@ jobs:
             test "$tables" -ge "$minimum"
             echo "INTEGRATION_DB_RESTORED $service tables=$tables"
           done
-      - name: Classify the legacy private planner startup in a disposable container
+      - name: Classify the exact patched planner shell command in disposable container
         shell: bash
         run: |
           set -euo pipefail
           sudo docker run --rm --network liftorbit-ovh-staging_backend \
             -v /opt/liftorbit/secrets/planner.json:/run/liftorbit/config.json:ro \
             --entrypoint python3 liftorbit/planner:ovh-staging -c "$(cat <<'PY'
-          import json,os,re,shlex,subprocess
+          import ast,json,os,re,shlex,subprocess
           data=json.load(open('/run/liftorbit/config.json'))
           env=dict(os.environ)
           env.update(data)
-          code=data.get('D_START_GOOD','')
-          toks=shlex.split(code)
-          if len(toks)!=3 or toks[0]!='sh':
-              print('OVH_LEGACY_PROBE_UNEXPECTED_SHELL_SHAPE')
-              raise SystemExit(0)
-          script=toks[2]
-          allowed={'apt-get','python3','test','base64','printf','cat','mkdir','cd','echo','sh','bash','sleep','pip','pg_isready','psql','export','true','false','touch','chmod','cp','exec','exit'}
+          core=shlex.split(data.get('D_START_GOOD',''))
+          tree=ast.parse(data.get('PP_CAP_BATCH_BOOT_V2',''))
+          nodes=[n for n in ast.walk(tree) if isinstance(n,ast.Call)
+                 and isinstance(n.func,ast.Attribute) and n.func.attr=='replace'
+                 and getattr(n,'lineno',0)==68 and len(n.args)>=2]
+          if len(core)!=3 or len(nodes)!=1:
+              raise SystemExit('OVH_PATCHED_LEGACY_PROBE_SHAPE_INVALID')
+          n=nodes[0]
+          if not all(isinstance(x,ast.Constant) and isinstance(x.value,str) for x in n.args[:2]):
+              raise SystemExit('OVH_PATCHED_LEGACY_PROBE_REPLACEMENT_DYNAMIC')
+          old,new=[a.value for a in n.args[:2]]
+          count=n.args[2].value if len(n.args)>=3 and isinstance(n.args[2],ast.Constant) else 1
+          cmd=core[2].replace(old,new,count)
+          print('OVH_PATCHED_LEGACY_PROBE_MATCH_COUNT',core[2].count(old))
+          allowed={'apt-get','python3','test','base64','printf','cat','mkdir','cd','echo','sh','bash',
+                   'sleep','pip','pg_isready','psql','export','true','false','touch','chmod',
+                   'cp','exec','exit','env'}
           try:
-              result=subprocess.run(['sh','-x','-c',script],env=env,
-                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=50)
+              result=subprocess.run(['sh','-x','-c',cmd],env=env,
+                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35)
               err=result.stderr.decode('utf8','replace')
               out=result.stdout.decode('utf8','replace')
-              print('OVH_LEGACY_PROBE_EXIT',result.returncode)
-              print('OVH_LEGACY_PROBE_STDERR_BYTES',len(err))
-              print('OVH_LEGACY_PROBE_STDOUT_BYTES',len(out))
+              print('OVH_PATCHED_PROBE_EXIT',result.returncode)
+              print('OVH_PATCHED_PROBE_STDERR_BYTES',len(err))
+              print('OVH_PATCHED_PROBE_STDOUT_BYTES',len(out))
               traces=[line for line in err.splitlines() if line.startswith('+ ')]
-              print('OVH_LEGACY_PROBE_TRACE_COUNT',len(traces))
-              for line in traces[-7:]:
+              print('OVH_PATCHED_PROBE_TRACE_COUNT',len(traces))
+              for line in traces[-8:]:
                   m=re.match(r'\+\s*(\S+)',line)
-                  cmd=(m.group(1).rsplit('/',1)[-1] if m else 'OTHER')
-                  print('OVH_LEGACY_PROBE_LAST_COMMAND',cmd if cmd in allowed else 'OTHER')
-              recognized=('ModuleNotFoundError','ImportError','FileNotFoundError','PermissionError',
-                          'SyntaxError','IndentationError','ConnectionRefusedError','OperationalError',
-                          'KeyError','ValueError','TypeError','RuntimeError','OSError','NameError','AttributeError')
-              print('OVH_LEGACY_PROBE_EXCEPTION_TYPES',','.join(s for s in recognized if re.search(r'\b'+re.escape(s)+r'\b',err)) or 'NONE')
+                  p=(m.group(1).rsplit('/',1)[-1] if m else 'OTHER')
+                  print('OVH_PATCHED_PROBE_LAST_COMMAND',p if p in allowed else 'OTHER')
+              recognized=('ModuleNotFoundError','ImportError','FileNotFoundError',
+                          'PermissionError','SyntaxError','IndentationError','ConnectionRefusedError',
+                          'OperationalError','KeyError','ValueError','TypeError','RuntimeError',
+                          'OSError','NameError','AttributeError','AssertionError')
+              print('OVH_PATCHED_PROBE_EXCEPTION_TYPES',
+                    ','.join(t for t in recognized if re.search(r'\b'+re.escape(t)+r'\b',err)) or 'NONE')
               for label,phrase in [('TRACEBACK','Traceback (most recent call last)'),
-                                   ('BASE64_INVALID','base64: invalid input'),('MISSING_FILE','No such file'),
-                                   ('MISSING_MODULE','No module named'),('DATABASE','connection refused'),
-                                   ('PASSWORD','password authentication failed'),('PIP','pip install')]:
-                  if phrase.lower() in err.lower(): print('OVH_LEGACY_PROBE_DIAG',label)
+                                   ('BASE64_INVALID','base64: invalid input'),('MISSING_FILE','no such file'),
+                                   ('MISSING_MODULE','no module named'),('DATABASE','connection refused'),
+                                   ('PASSWORD','password authentication failed'),('BIND','address already in use'),
+                                   ('SHELL_SYNTAX','syntax error'),('NO_SPACE','no space left'),
+                                   ('PERMISSION','permission denied'),('PIP','pip install')]:
+                  if phrase.lower() in err.lower(): print('OVH_PATCHED_PROBE_DIAG',label)
           except subprocess.TimeoutExpired:
-              print('OVH_LEGACY_PROBE_STAYED_RUNNING_50_SECONDS')
+              print('OVH_PATCHED_PROBE_STAYED_RUNNING_35_SECONDS')
           PY
           )"
       - name: Start production-pinned planner, auth, GA and application
