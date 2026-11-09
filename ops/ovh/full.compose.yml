@@ -217,6 +217,28 @@ services:
                                 print('OVH_FIX_DB_NEAREST','label='+_name,
                                       'line='+str(_best[1]),'lines='+str(_best[2]),
                                       'similarity_per_mille='+str(round(_best[0]*1000)),flush=True)
+                                _closest='\n'.join(_lines[_best[1]-1:_best[1]-1+_best[2]])
+                                print('OVH_FIX_DB_CANDIDATE','label='+_name,
+                                      'chars='+str(len(_closest)),
+                                      'strip_equal='+str(_anchor.strip()==_closest.strip()).lower(),
+                                      'whitespace_normal_equal='+str(''.join(_anchor.split())==''.join(_closest.split())).lower(),flush=True)
+                                try:
+                                    import textwrap as _tw
+                                    _pa=_ast.dump(_ast.parse(_tw.dedent(_anchor)),include_attributes=False)
+                                    _pb=_ast.dump(_ast.parse(_tw.dedent(_closest)),include_attributes=False)
+                                    print('OVH_FIX_DB_AST','label='+_name,'equal='+str(_pa==_pb).lower(),flush=True)
+                                except SyntaxError:
+                                    print('OVH_FIX_DB_AST','label='+_name,'parse_failed=true',flush=True)
+                                if _name=='new':
+                                    _seq=_df.SequenceMatcher(None,_anchor,_closest,autojunk=False)
+                                    for _tag,_a0,_a1,_b0,_b1 in [q for q in _seq.get_opcodes() if q[0]!='equal'][:8]:
+                                        _left=_anchor[_a0:_a1]
+                                        _right=_closest[_b0:_b1]
+                                        print('OVH_FIX_DB_DIFF','op='+_tag,
+                                              'expected_chars='+str(len(_left)),
+                                              'actual_chars='+str(len(_right)),
+                                              'expected_whitespace='+str(_left.isspace()).lower(),
+                                              'actual_whitespace='+str(_right.isspace()).lower(),flush=True)
                                 for _term,_tag in (('DATABASE_URL','DATABASE_URL'),('postgres','POSTGRES'),
                                                    ('railway','RAILWAY'),('OVH','OVH'),
                                                    ('PP_','PP'),('dbname','DBNAME'),
