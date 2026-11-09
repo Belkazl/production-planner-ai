@@ -295,7 +295,7 @@ jobs:
                               _parent=[node for node in ast.walk(_tree)
                                        if isinstance(node,(ast.If,ast.Try)) and node.lineno<=_n.lineno <=getattr(node,'end_lineno',_n.lineno)]
                               for _item in sorted(_parent,key=lambda x:getattr(x,'end_lineno',0)-x.lineno)[:2]:
-                                  _anon=_HideAnchorLiterals().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_item))))
+                                  _anon=_HideLiterals().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_item))))
                                   print('OVH_DB_TARGET_GUARD_ANON',_key,
                                         ast.unparse(_anon).replace(chr(10),' ')[:500])
           
