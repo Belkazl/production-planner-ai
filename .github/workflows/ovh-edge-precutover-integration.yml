@@ -1,0 +1,78 @@
+name: OVH migration - Caddy pre-cutover HTTPS edge integration test
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-edge-precutover-integration.yml]
+permissions:
+  contents: read
+jobs:
+  staging:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Static bash and Caddy Compose validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/edge/bootstrap-edge.sh ops/ovh/edge/liftorbit-edge-ops
+          docker compose -f ops/ovh/edge/edge.compose.yml config --quiet
+      - name: Build isolated mock upstreams on localhost only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/liftorbit-ovh-edge-mock.py <<'PY'
+          import threading,time
+          from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  code=200 if self.path in ('/health','/__bridge_health','/') else 404
+                  self.send_response(code)
+                  self.send_header('content-type','application/json')
+                  self.end_headers()
+                  self.wfile.write(b'{"ok":true}')
+              def log_message(self,*args): pass
+          for port in (18080,18082):
+              thread=threading.Thread(target=ThreadingHTTPServer(('127.0.0.1',port),Handler).serve_forever,daemon=True)
+              thread.start()
+          while True: time.sleep(2)
+          PY
+          python3 /tmp/liftorbit-ovh-edge-mock.py > /tmp/liftorbit-ovh-edge-mock.log 2>&1 &
+          echo $! > /tmp/liftorbit-ovh-edge-mock.pid
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:18080/health > /dev/null && curl -fsS http://127.0.0.1:18082/__bridge_health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 3
+      - name: Run pinned one-time root bootstrap on disposable GitHub host
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo bash ops/ovh/edge/bootstrap-edge.sh "$GITHUB_SHA"
+          sudo /usr/local/sbin/liftorbit-edge-ops status
+          sudo /usr/local/sbin/liftorbit-edge-ops smoke
+          echo 'OVH_EDGE_ISOLATED_BOOTSTRAP_SUCCEEDED'
+      - name: Confirm public networking is blocked before cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=$(hostname -I | tr ' ' '\n' | grep -E '^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$' | head -n1)
+          test -n "$target"
+          for host in liftorbit.app app.liftorbit.app; do
+            status=$(curl -k --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+              --connect-timeout 4 --max-time 15 --resolve "$host:443:$target" "https://$host/")
+            test "$status" = 403 || { echo "OVH_EDGE_ISOLATION_FAILED $host $status"; exit 4; }
+            echo "OVH_EDGE_REMOTE_HOST_DENIED $host"
+          done
+          echo 'OVH_EDGE_PRECUTOVER_SECURITY_SMOKE_OK'
+      - name: Remove disposable edge and local mock service
+        if: always()
+        shell: bash
+        run: |
+          sudo docker compose -f ops/ovh/edge/edge.compose.yml down --volumes || true
+          if test -f /tmp/liftorbit-ovh-edge-mock.pid; then
+            kill "$(cat /tmp/liftorbit-ovh-edge-mock.pid)" 2>/dev/null || true
+          fi
+          sudo rm -f /etc/sudoers.d/91-liftorbit-ci-edge /usr/local/sbin/liftorbit-edge-ops
