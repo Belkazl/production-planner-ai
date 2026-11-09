@@ -270,13 +270,20 @@ jobs:
           # Compare the expected etalon write anchor with the actual protected runtime text.
           # Locate the exact database-target error in protected runtime source, without printing source.
           # Print only redacted statements of the 16-line DB target validator.
+          class _DbLocalRedactor(ast.NodeTransformer):
+              def visit_Constant(self,node):
+                  if isinstance(node.value,str):
+                      return ast.copy_location(ast.Constant(value='REDACTED_LEN_'+str(len(node.value))),node)
+                  if isinstance(node.value,(int,float)):
+                      return ast.copy_location(ast.Constant(value=0),node)
+                  return node
           _raw=data.get('PP_FIX_VERIFY_B64','')
           if isinstance(_raw,str) and _raw:
               try:
                   _verify=base64.b64decode(_raw,validate=True).decode('utf8')
                   _vtree=ast.parse(_verify)
                   for _ix,_statement in enumerate(_vtree.body,1):
-                      _masked=_DbHide().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_statement))))
+                      _masked=_DbLocalRedactor().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_statement))))
                       _str=ast.unparse(_masked).replace(chr(10),' ')
                       print('OVH_DB_VERIFY_AST_REDACTED',_ix,type(_statement).__name__,_str[:900])
               except Exception as _err:
