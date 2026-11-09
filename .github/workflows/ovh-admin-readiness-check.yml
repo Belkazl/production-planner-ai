@@ -72,6 +72,26 @@ jobs:
               echo 'OVH_SERVER_SIX_SERVICE_SMOKE_INCOMPLETE'
             fi
           fi
+          # Verify independently staged marketing landing, without exposing content or secrets.
+          python3 - <<'PY'
+          import json,urllib.request
+          for key,url in (('home','http://127.0.0.1:18080/'),
+                          ('health','http://127.0.0.1:18080/health')):
+              try:
+                  with urllib.request.urlopen(url,timeout=5) as response:
+                      status=response.status
+                      body=response.read(4096) if key=='health' else b''
+                  print('OVH_LANDING_HTTP',key,status)
+                  if key=='health':
+                      try:
+                          data=json.loads(body.decode('utf8'))
+                          print('OVH_LANDING_SERVICE_IDENTITY_OK',
+                                str(data.get('service')=='prodplan-landing-v1' and data.get('ok') is True).lower())
+                      except Exception:
+                          print('OVH_LANDING_SERVICE_IDENTITY_OK false')
+              except Exception as error:
+                  print('OVH_LANDING_HTTP',key,'unreachable',type(error).__name__)
+          PY
           # Diagnose only loopback port ownership, no application data or privileged changes.
           python3 - <<'PY'
           import re,socket,subprocess,urllib.request,urllib.error
