@@ -268,6 +268,13 @@ jobs:
                       print('OVH_PATCH_NEW_TOKENS',' '.join(safe(t) for t in toks[:30]))
           # Resolve why the protected etalon restore aborts: emit structural statistics only.
           # Compare the expected etalon write anchor with the actual protected runtime text.
+          class _HideAnchorLiterals(ast.NodeTransformer):
+              def visit_Constant(self,node):
+                  if isinstance(node.value,str):
+                      return ast.copy_location(ast.Constant(value='STR_LEN_'+str(len(node.value))),node)
+                  if isinstance(node.value,(int,float)):
+                      return ast.copy_location(ast.Constant(value=0),node)
+                  return node
           import difflib
           _boot=data.get('PP_RESTORE_ETALON_BOOT_V1','')
           _cap=data.get('PP_CAP_BATCH_BOOT_V2','')
@@ -300,10 +307,8 @@ jobs:
                             'replacement='+str(_term in _replacement).lower(),
                             'cap='+str(_term in _cap).lower())
                   for _part,_val in (('needle',_needle),('replacement',_replacement)):
-                      print('OVH_ANCHOR_PY_PARSE',_part,
-                            'valid='+str((lambda v: v)('TBD')))
                       try:
-                          _anonymous=ast.unparse(_HideLiterals().visit(ast.parse(_val)))
+                          _anonymous=ast.unparse(_HideAnchorLiterals().visit(ast.parse(_val)))
                           print('OVH_ANCHOR_AST_ANON',_part,_anonymous.replace(chr(10),' ')[:700])
                       except SyntaxError:
                           print('OVH_ANCHOR_AST_ANON',_part,'NOT_STANDALONE_PYTHON')
