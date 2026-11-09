@@ -269,6 +269,19 @@ jobs:
           # Resolve why the protected etalon restore aborts: emit structural statistics only.
           # Compare the expected etalon write anchor with the actual protected runtime text.
           # Locate the exact database-target error in protected runtime source, without printing source.
+          # Print only redacted statements of the 16-line DB target validator.
+          _raw=data.get('PP_FIX_VERIFY_B64','')
+          if isinstance(_raw,str) and _raw:
+              try:
+                  _verify=base64.b64decode(_raw,validate=True).decode('utf8')
+                  _vtree=ast.parse(_verify)
+                  for _ix,_statement in enumerate(_vtree.body,1):
+                      _masked=_DbHide().visit(ast.fix_missing_locations(ast.parse(ast.unparse(_statement))))
+                      _str=ast.unparse(_masked).replace(chr(10),' ')
+                      print('OVH_DB_VERIFY_AST_REDACTED',_ix,type(_statement).__name__,_str[:900])
+              except Exception as _err:
+                  print('OVH_DB_VERIFY_AST_FAILED',type(_err).__name__)
+          
           _needle='PP_FIX_VERIFY_DB_TARGET_MISSING'
           class _DbHide(ast.NodeTransformer):
               def visit_Constant(self,node):
