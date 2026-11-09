@@ -170,6 +170,9 @@ services:
                             ('ENV','env')) if term in _message]
                         print('OVH_ACTUAL_BATCH_RUNTIME_HINTS',','.join(_signals) if _signals else 'NONE',flush=True)
                         print('OVH_ACTUAL_BATCH_RUNTIME_MESSAGE_LENGTH',len(_messages[-1]),flush=True)
+                        _code=_messages[-1].strip()
+                        if _re.fullmatch(r'PP_[A-Z][A-Z0-9_]{4,70}_(?:MISSING|INVALID|FAILED|REQUIRED)',_code):
+                            print('OVH_ACTUAL_BATCH_SAFE_ERROR_CODE',_code,flush=True)
                     _trace=[]
                     for _row in err.splitlines():
                         if _row.lstrip().startswith('File "') and ', line ' in _row:

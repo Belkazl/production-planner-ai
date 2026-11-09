@@ -286,6 +286,7 @@ jobs:
                   r'OVH_ACTUAL_BATCH_TMP_RELATION len=[0-9]{1,3} exists=(?:true|false)',
                   r'OVH_ACTUAL_BATCH_RUNTIME_HINTS (?:NONE|[A-Z_,]{1,150})',
                   r'OVH_ACTUAL_BATCH_RUNTIME_MESSAGE_LENGTH [0-9]{1,8}',
+                  r'OVH_ACTUAL_BATCH_SAFE_ERROR_CODE PP_[A-Z][A-Z0-9_]{4,70}_(?:MISSING|INVALID|FAILED|REQUIRED)',
                   r'OVH_ACTUAL_BATCH_TRACE_LINES (?:NONE|[0-9,]{1,150})',
               )
               if any(re.fullmatch(p,line) for p in actual_patterns):
