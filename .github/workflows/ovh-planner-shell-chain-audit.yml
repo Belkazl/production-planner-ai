@@ -154,4 +154,32 @@ jobs:
                           constants.append(n.value)
               print('OVH_BOOT_AST',key,'call_shape='+','.join(calls[:45]))
               print('OVH_BOOT_AST_KEYS',key,','.join(constants[:45]) or 'none')
+          for key in ('PP_SETUP_ACTIVE_PATCH_B64','PP_CAP_BATCH_BOOT_V2','PP_GENERIC_CORE_B64'):
+              raw=data.get(key)
+              if not isinstance(raw,str): continue
+              try:
+                  decoded=base64.b64decode(raw,validate=True).decode('utf8','replace') if key.endswith('_B64') else raw
+              except ValueError: decoded=''
+              print('OVH_PATCH_SHAPE',key,'lines='+str(len(decoded.splitlines())),
+                    'chars='+str(len(decoded)),
+                    'has_D_START='+str('D_START_GOOD' in decoded).lower(),
+                    'has_subprocess='+str('subprocess' in decoded).lower(),
+                    'has_env='+str('os.environ' in decoded).lower())
+              try:
+                  tr=ast.parse(decoded)
+              except SyntaxError:
+                  print('OVH_PATCH_PARSE',key,'not_python')
+                  continue
+              for line_number in (567,568,569,570,571,572,573,574,575):
+                  matches=[n for n in ast.walk(tr) if getattr(n,'lineno',0)==line_number]
+                  if not matches: continue
+                  calls=[]
+                  for n in matches:
+                      if isinstance(n,ast.Call):
+                          f=n.func
+                          c=f.attr if isinstance(f,ast.Attribute) else f.id if isinstance(f,ast.Name) else 'OTHER'
+                          if re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,35}',c): calls.append(c)
+                  print('OVH_PATCH_LINE_SHAPE',key,'line='+str(line_number),
+                        'kinds='+','.join(sorted(set(type(n).__name__ for n in matches))[:16]),
+                        'calls='+','.join(calls[:12]))
           PY
