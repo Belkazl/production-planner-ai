@@ -179,6 +179,52 @@ services:
                             _num=_row.rsplit(', line ',1)[-1].split(',',1)[0].strip()
                             if _num.isdigit(): _trace.append(_num)
                     print('OVH_ACTUAL_BATCH_TRACE_LINES',','.join(_trace[-8:]) if _trace else 'NONE',flush=True)
+                    # Analyze the missing DB-target replacement without exposing code, path or user data.
+                    try:
+                        import base64 as _b64,ast as _ast,difflib as _df
+                        from pathlib import Path as _Path
+                        _source=_b64.b64decode(_os.environ.get('PP_FIX_VERIFY_B64',''),validate=True).decode('utf8')
+                        _tree=_ast.parse(_source)
+                        _vars={}
+                        for _stmt in _tree.body:
+                            if not isinstance(_stmt,_ast.Assign) or len(_stmt.targets)!=1 or not isinstance(_stmt.targets[0],_ast.Name): continue
+                            _name=_stmt.targets[0].id
+                            if _name in ('old','new') and isinstance(_stmt.value,_ast.Constant) and isinstance(_stmt.value.value,str):
+                                _vars[_name]=_stmt.value.value
+                            if _name=='p' and isinstance(_stmt.value,_ast.Call) and _stmt.value.args and isinstance(_stmt.value.args[0],_ast.Constant):
+                                _vars['p']=_stmt.value.args[0].value
+                        _raw_path=_vars.get('p','')
+                        _path=_Path(_raw_path)
+                        if not (isinstance(_raw_path,str) and _raw_path.startswith('/tmp/') and '..' not in _path.parts and not _path.is_symlink() and _path.is_file()):
+                            print('OVH_FIX_DB_SOURCE_INVALID_PATH',flush=True)
+                        else:
+                            _body=_path.read_text(encoding='utf8')
+                            _old=_vars.get('old','')
+                            _new=_vars.get('new','')
+                            print('OVH_FIX_DB_SOURCE',
+                                  'chars='+str(len(_body)),'lines='+str(len(_body.splitlines())),
+                                  'old_count='+str(_body.count(_old) if _old else 0),
+                                  'new_count='+str(_body.count(_new) if _new else 0),flush=True)
+                            _lines=_body.splitlines()
+                            for _name,_anchor in (('old',_old),('new',_new)):
+                                if not _anchor: continue
+                                _best=(0.,0,0)
+                                for _i in range(len(_lines)):
+                                    for _span in range(1,min(7,len(_lines)-_i)+1):
+                                        _chunk='\\n'.join(_lines[_i:_i+_span])
+                                        _ratio=_df.SequenceMatcher(None,_anchor,_chunk,autojunk=False).ratio()
+                                        if _ratio>_best[0]: _best=(_ratio,_i+1,_span)
+                                print('OVH_FIX_DB_NEAREST','label='+_name,
+                                      'line='+str(_best[1]),'lines='+str(_best[2]),
+                                      'similarity_per_mille='+str(round(_best[0]*1000)),flush=True)
+                                for _term,_tag in (('DATABASE_URL','DATABASE_URL'),('postgres','POSTGRES'),
+                                                   ('railway','RAILWAY'),('OVH','OVH'),
+                                                   ('PP_','PP'),('dbname','DBNAME'),
+                                                   ('host','HOST'),('sqlite','SQLITE')):
+                                    print('OVH_FIX_DB_TERM','label='+_name,'term='+_tag,
+                                          'present='+str(_term.lower() in _anchor.lower()).lower(),flush=True)
+                    except BaseException as _problem:
+                        print('OVH_FIX_DB_DIAG_EXCEPTION',type(_problem).__name__,flush=True)
                     paths=list(dict.fromkeys(_re.findall(r'/tmp/[A-Za-z0-9_.-]+',err)))
                     for name in paths[:9]:
                         print('OVH_ACTUAL_BATCH_TMP_RELATION',
