@@ -101,7 +101,7 @@ def main():
     print("OVH_FINAL_REAL_CERT_STAGED_WITH_PRODUCTION_CADDY_ONLY")
     write(ROOT / "admin/render-secrets.py", renderer, 0o700)
     write("/usr/local/sbin/liftorbit-cutover-ops", code, 0o700)
-    sudoers = b"""liftorbit-ci ALL=(root) NOPASSWD: /usr/local/sbin/liftorbit-cutover-ops status, /usr/local/sbin/liftorbit-cutover-ops prepare, /usr/local/sbin/liftorbit-cutover-ops import, /usr/local/sbin/liftorbit-cutover-ops promote, /usr/local/sbin/liftorbit-cutover-ops rollback
+    sudoers = b"""liftorbit-ci ALL=(root) NOPASSWD: /usr/local/sbin/liftorbit-cutover-ops status, /usr/local/sbin/liftorbit-cutover-ops prepare, /usr/local/sbin/liftorbit-cutover-ops import, /usr/local/sbin/liftorbit-cutover-ops promote, /usr/local/sbin/liftorbit-cutover-ops rollback, /usr/local/sbin/liftorbit-cutover-ops refresh-cert
 """
     sudoers_file = Path("/etc/sudoers.d/92-liftorbit-ci-cutover")
     sudoers_tmp = Path("/etc/sudoers.d/92-liftorbit-ci-cutover.tmp")
