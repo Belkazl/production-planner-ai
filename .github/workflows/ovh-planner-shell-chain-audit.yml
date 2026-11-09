@@ -199,4 +199,22 @@ jobs:
                       if any(w in row for w in ('D_START_GOOD','subprocess.run','subprocess.Popen','PP_CAP_BATCH_BOOT')):
                           tags=[w for w in ('D_START_GOOD','subprocess.run','subprocess.Popen','PP_CAP_BATCH_BOOT') if w in row]
                           print('OVH_CAP_RELEVANT_LINE',i,','.join(tags),'length='+str(len(row)))
+          if isinstance(cap,str):
+              try: tree=ast.parse(cap)
+              except SyntaxError: tree=None
+              if tree:
+                  class RedactStrings(ast.NodeTransformer):
+                      def visit_Constant(self,node):
+                          if isinstance(node.value,str): return ast.copy_location(ast.Constant(value='HIDDEN_LITERAL'),node)
+                          if isinstance(node.value,(int,float)): return ast.copy_location(ast.Constant(value=0),node)
+                          return node
+                  printed=set()
+                  for n in ast.walk(tree):
+                      if 64<=getattr(n,'lineno',0)<=69 and type(n).__name__ in ('Assign','Expr','If','AugAssign','Return','Raise'):
+                          key=(n.lineno,type(n).__name__)
+                          if key in printed: continue
+                          printed.add(key)
+                          clean=RedactStrings().visit(ast.fix_missing_locations(ast.parse(ast.unparse(n))))
+                          anonymized=ast.unparse(clean).replace('\n',' ')
+                          print('OVH_CAP_TAIL_AST',n.lineno,type(n).__name__,anonymized[:420])
           PY
