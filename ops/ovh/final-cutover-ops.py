@@ -223,6 +223,35 @@ def status():
         print("OVH_CUTOVER_STATE", filename, (STATE / filename).is_file())
     print(run(["/usr/local/sbin/liftorbit-ops", "status"]).stdout.decode().strip())
 
+def refresh_certificate():
+    if not (STATE / "promote.done").is_file():
+        fail("CERT_RENEWAL_REQUIRES_PRODUCTION_CUTOVER")
+    incoming = SOURCE / "tls/renewal-current"
+    full = incoming / "fullchain.pem"
+    key = incoming / "privkey.pem"
+    if any(not p.is_file() or p.is_symlink() for p in (full, key)):
+        fail("CERT_RENEWAL_FILES_MISSING")
+    run(["openssl", "x509", "-in", str(full), "-noout", "-checkend", "2592000"])
+    domains = run(["openssl", "x509", "-in", str(full),
+                   "-noout", "-ext", "subjectAltName"]).stdout.decode()
+    if "DNS:liftorbit.app" not in domains or "DNS:app.liftorbit.app" not in domains:
+        fail("CERT_RENEWAL_SAN_MISMATCH")
+    pub1 = run(["openssl", "x509", "-in", str(full), "-noout", "-pubkey"]).stdout
+    pub2 = run(["openssl", "pkey", "-in", str(key), "-pubout"]).stdout
+    if pub1 != pub2: fail("CERT_RENEWAL_KEY_MISMATCH")
+    destination = BASE / "edge/config"
+    for original, name in ((full, "fullchain.pem"), (key, "privkey.pem")):
+        target = destination / name
+        pending = destination / (name + ".renewal")
+        if pending.exists() or target.is_symlink(): fail("CERT_RENEWAL_PATH_UNSAFE")
+        pending.write_bytes(original.read_bytes())
+        pending.chmod(0o600)
+        pending.replace(target)
+    run(["docker", "compose", "-f", str(BASE / "edge/edge.compose.yml"),
+         "up", "-d", "--force-recreate", "--no-deps", "caddy"])
+    run(["/usr/local/sbin/liftorbit-edge-ops", "smoke"])
+    print("OVH_CUTOVER_PRODUCTION_CERTIFICATE_REFRESHED")
+
 def main():
     if os.geteuid() != 0 or len(sys.argv) != 2: fail("ROOT_AND_ONE_ACTION_REQUIRED")
     os.umask(0o077)
@@ -233,6 +262,7 @@ def main():
     elif action == "import": stage_import()
     elif action == "promote": promote()
     elif action == "rollback": recover()
+    elif action == "refresh-cert": refresh_certificate()
     else: fail("ACTION_NOT_PERMITTED")
 
 if __name__ == "__main__":
