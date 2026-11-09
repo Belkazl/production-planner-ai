@@ -1,5 +1,13 @@
 name: OVH migration - bootstrap shell and compose review
 on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths:
+      - .github/workflows/ovh-bootstrap-lint.yml
+      - ops/ovh/bootstrap-vps.sh
+      - ops/ovh/liftorbit-ops
+      - ops/ovh/full.compose.yml
+      - ops/ovh/render-secrets.py
   pull_request:
     branches: [main]
     paths:
@@ -12,7 +20,7 @@ permissions:
   contents: read
 jobs:
   lint:
-    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108'
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-migration-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     steps:
