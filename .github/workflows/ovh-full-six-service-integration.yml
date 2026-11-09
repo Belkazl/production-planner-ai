@@ -64,7 +64,7 @@ jobs:
           host="$OVH_USER@$OVH_HOST"
           # Stream protected JSON directly through the SSH connection, never logs.
           ssh "${opts[@]}" "$host" 'tar -cf - -C "$HOME/liftorbit-migration/production/current" gateway.json auth-gateway.json auth-app.json ga-worker.json postgres.json postgres-me4i.json' | tar -xf - -C "$work/config"
-          remote="/home/liftorbit-ci/liftorbit-migration/backups/backup-42475681877-1"
+          remote="/home/liftorbit-ci/liftorbit-migration/backups/backup-42610789251-1"
           for f in postgres.dump postgres-me4i.dump SHA256SUMS.txt; do
             scp -q "${opts[@]}" "$host:$remote/$f" "$work/backups/$f"
           done
