@@ -1,0 +1,97 @@
+name: OVH staging - reconcile after one-time root bootstrap
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths:
+      - .github/workflows/ovh-staging-reconcile.yml
+permissions:
+  contents: read
+concurrency:
+  group: ovh-staging-reconcile
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - name: Inspect and reconcile private OVH staging without DNS or Railway changes
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$OVH_HOST" == '51.255.163.121' && "$OVH_USER" == 'liftorbit-ci' ]] || exit 2
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
+          chmod 0600 "$dir/key" "$dir/hosts"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$dir/hosts" -o ServerAliveInterval=45 \
+            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          helper=/usr/local/sbin/liftorbit-ops
+          echo 'OVH_RECONCILE_READINESS_CHECK'
+          test -x "$helper" || { echo 'OVH_ROOT_BOOTSTRAP_HELPER_ABSENT'; exit 2; }
+          sudo -n -l "$helper" update >/dev/null 2>&1 || { echo 'OVH_RESTRICTED_UPDATE_NOT_AUTHORIZED'; exit 2; }
+          sudo -n -l "$helper" status >/dev/null 2>&1 || { echo 'OVH_RESTRICTED_STATUS_NOT_AUTHORIZED'; exit 2; }
+          for name in app auth ga planner; do
+            if test -d "/opt/liftorbit/sources/$name"; then
+              echo "OVH_PRIVATE_BUILD_CONTEXT $name present"
+            else
+              echo "OVH_PRIVATE_BUILD_CONTEXT $name missing"
+            fi
+          done
+          for name in app auth ga planner; do
+            case "$name" in
+              app) src=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current ;;
+              *) src=/home/liftorbit-ci/liftorbit-migration/sources/current/$name ;;
+            esac
+            if [[ "$name" == planner ]]; then src=/home/liftorbit-ci/liftorbit-migration/sources/planner; fi
+            if test -f "$src/Dockerfile"; then
+              echo "OVH_STAGED_BUILD_SOURCE $name present"
+            else
+              echo "OVH_STAGED_BUILD_SOURCE $name missing"
+            fi
+          done
+          echo 'OVH_BEFORE_RECONCILIATION'
+          sudo -n "$helper" status
+          log=$(mktemp /tmp/liftorbit-private-reconcile.XXXXXX)
+          trap 'rm -f "$log"' EXIT
+          if timeout 1450 sudo -n "$helper" update > "$log" 2>&1; then
+            echo 'OVH_STAGING_RECONCILIATION_COMMAND_SUCCEEDED'
+          else
+            result=$?
+            echo "OVH_STAGING_RECONCILIATION_COMMAND_FAILED code=$result"
+            python3 - "$log" <<'PY'
+          import pathlib,sys
+          s=pathlib.Path(sys.argv[1]).read_text(errors='replace').lower()
+          patterns={
+            'MISSING_BUILD_CONTEXT':'unable to prepare context',
+            'MISSING_SOURCE':'missing_dockerfile',
+            'BUILD_FAILED':'failed to solve',
+            'DEPENDENCY_ERROR':'dependency failed',
+            'PIP_FAILED':'could not find a version',
+            'RESOURCE_LIMIT':'no space left',
+            'CONTAINER_NOT_HEALTHY':'unhealthy',
+            'DOCKER_DAEMON':'cannot connect to the docker daemon',
+          }
+          for label,p in patterns.items():
+              if p in s: print('OVH_STAGING_REPAIR_ERROR_CLASS',label)
+          print('OVH_STAGING_PRIVATE_LOG_RETAINED',False)
+          PY
+          fi
+          echo 'OVH_AFTER_RECONCILIATION'
+          sudo -n "$helper" status
+          if sudo -n "$helper" smoke; then
+            echo 'OVH_STAGING_ALL_SIX_HEALTHY'
+          else
+            echo 'OVH_STAGING_STILL_INCOMPLETE'
+            exit 1
+          fi
+          REMOTE
