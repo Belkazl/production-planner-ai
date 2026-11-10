@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """Synthetic-account acceptance for OVH async GA, no customer project access."""
 import json, secrets, time, urllib.error, urllib.request, uuid, sys
-import http.cookiejar
 
 base = "http://127.0.0.1:18082"
-jar = http.cookiejar.CookieJar()
-client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+session_cookie = ""
+client = urllib.request.build_opener()
 def call(path, method="GET", payload=None):
+    global session_cookie
     head={"Origin":"https://app.liftorbit.app", "Sec-Fetch-Site":"same-origin", "Accept":"application/json"}
+    if session_cookie: head["Cookie"]=session_cookie
     raw=None
     if payload is not None:
         head["Content-Type"]="application/json"
         raw=json.dumps(payload,separators=(",",":")).encode()
     req=urllib.request.Request(base+path,method=method,headers=head,data=raw)
     try:
-        with client.open(req,timeout=30) as resp:code=resp.status; body=resp.read(250000)
+        with client.open(req,timeout=30) as resp:
+            code=resp.status; body=resp.read(250000)
+            if path=="/api/auth/register" and resp.headers.get("set-cookie"):
+                session_cookie=resp.headers["set-cookie"].split(";")[0]
     except urllib.error.HTTPError as e:code=e.code;body=e.read(250000)
     try:value=json.loads(body)
     except:value={}
@@ -44,7 +48,7 @@ def sample():
 try:
     user="ovh-async-"+uuid.uuid4().hex+"@liftorbit.invalid"
     status,data=call("/api/auth/register","POST",{"email":user,"password":secrets.token_urlsafe(32),"company":"Migration GA QA"})
-    verify(status==200 and data.get("ok") and len(jar)>0,"synthetic_user_registered",status)
+    verify(status==200 and data.get("ok") and bool(session_cookie),"synthetic_user_registered",status)
     model=sample(); project="ovh-qa-"+uuid.uuid4().hex
     storage={"prodplan.projects.v2":json.dumps([{"id":project,"name":"QA","model":model}]),
              "prodplan.project.active.v2":project}
