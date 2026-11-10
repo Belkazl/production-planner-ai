@@ -62,6 +62,18 @@ jobs:
                   raise SystemExit('PRODUCTION_DNS_WRONG_ORIGIN_'+name.replace('.','_'))
               print('PRODUCTION_DNS_OVH_CONFIRMED',name)
           PY
+          # Five repeated checks of both Cloudflare and the direct OVH origin, safe/read-only.
+          for attempt in 1 2 3 4 5; do
+            for spec in 'liftorbit.app:/health' 'app.liftorbit.app:/__bridge_health'; do
+              host="${spec%%:*}"; path="${spec#*:}"
+              curl --fail --silent --show-error --connect-timeout 5 --max-time 18 \
+                "https://$host$path" -o /dev/null
+              curl --fail --silent --show-error --connect-timeout 5 --max-time 18 \
+                --resolve "$host:443:51.255.163.121" "https://$host$path" -o /dev/null
+              echo "REPEATED_CLOUDFLARE_AND_DIRECT_OVH_HEALTH_OK $host attempt=$attempt"
+            done
+            sleep 1
+          done
           echo 'LIFTORBIT_PRODUCTION_PUBLIC_SMOKE_COMPLETE'
 
 # Read-only follow-up diagnostic 2026-11-10, Cloudflare 502.
