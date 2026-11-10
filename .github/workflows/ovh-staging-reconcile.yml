@@ -40,10 +40,10 @@ jobs:
           printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
           printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
           chmod 0600 "$dir/key" "$dir/hosts"
-          node ops/ops/ovh/patch-runtime-origins.mjs app
-          before=$(sha256sum app/auth-runtime.js | awk '{print $1}')
-          node ops/ops/ovh/repair-planner-ui.mjs app
-          after=$(sha256sum app/auth-runtime.js | awk '{print $1}')
+          before=$(sha256sum app/baselines/2026-10-10/aps-setup-bridge/index.ts | awk '{print $1}')
+          node ops/ops/ovh/repair-async-ga.mjs app
+          after=$(sha256sum app/baselines/2026-10-10/aps-setup-bridge/index.ts | awk '{print $1}')
+          python3 -m py_compile ops/ops/ovh/test-async-ga.py
           [[ "$before" =~ ^[a-f0-9]{64}$ && "$after" =~ ^[a-f0-9]{64}$ ]] || exit 2
           run="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           [[ "$run" =~ ^[0-9]+-[1-9][0-9]*$ ]] || exit 2
@@ -51,8 +51,9 @@ jobs:
           ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
             "$OVH_USER@$OVH_HOST" "umask 077; mkdir -p '$repair'; chmod 700 '$repair'"
           scp -q -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
-            app/auth-runtime.js "$OVH_USER@$OVH_HOST:$repair/auth-runtime.js.new"
-          echo 'OVH_VERIFIED_PLANNER_UI_REPAIR_TRANSFERRED'
+            app/baselines/2026-10-10/aps-setup-bridge/index.ts "$OVH_USER@$OVH_HOST:$repair/baseline-index.ts.new"
+          scp -q -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts"             ops/ops/ovh/test-async-ga.py "$OVH_USER@$OVH_HOST:$repair/test-async-ga.py"
+          echo 'OVH_VERIFIED_ASYNC_GA_REPAIR_TRANSFERRED'
           ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$dir/hosts" -o ServerAliveInterval=45 \
             "$OVH_USER@$OVH_HOST" "RUN='$run' BEFORE='$before' AFTER='$after' bash -se" <<'REMOTE'
@@ -85,21 +86,21 @@ jobs:
           # Only replace the one exact, reviewed source file; never touch databases.
           patchdir="$HOME/liftorbit-migration/repairs/$RUN"
           src="$HOME/liftorbit-migration/sources/ovh-app/current"
-          file="$src/auth-runtime.js"
+          file="$src/baselines/2026-10-10/aps-setup-bridge/index.ts"
           [[ "$RUN" =~ ^[0-9]+-[1-9][0-9]*$ && "$BEFORE" =~ ^[a-f0-9]{64}$ && "$AFTER" =~ ^[a-f0-9]{64}$ ]] || exit 2
-          test -f "$file" && test -w "$src" && test ! -L "$file" || exit 4
+          test -f "$file" && test -w "$(dirname "$file")" && test ! -L "$file" || exit 4
           [[ "$(sha256sum "$file" | awk '{print $1}')" == "$BEFORE" ]] || { echo 'OVH_REPAIR_OLD_SOURCE_HASH_MISMATCH'; exit 4; }
-          [[ "$(sha256sum "$patchdir/auth-runtime.js.new" | awk '{print $1}')" == "$AFTER" ]] || exit 4
-          cp "$file" "$patchdir/auth-runtime.js.before"
-          chmod 600 "$patchdir/auth-runtime.js.before"
-          cp "$patchdir/auth-runtime.js.new" "$file.next"
+          [[ "$(sha256sum "$patchdir/baseline-index.ts.new" | awk '{print $1}')" == "$AFTER" ]] || exit 4
+          cp "$file" "$patchdir/baseline-index.ts.before"
+          chmod 600 "$patchdir/baseline-index.ts.before"
+          cp "$patchdir/baseline-index.ts.new" "$file.next"
           mv -f "$file.next" "$file"
-          echo 'OVH_AUTHENTICATED_UI_PATCH_APPLIED_TO_STAGED_SOURCE'
+          echo 'OVH_ASYNC_GA_PATCH_APPLIED_TO_STAGED_SOURCE'
           echo 'OVH_BEFORE_RECONCILIATION'
           sudo -n "$helper" status
           log=$(mktemp /tmp/liftorbit-private-reconcile.XXXXXX)
           rollback=yes
-          trap 'rc=$?; rm -f "$log"; if [[ "$rc" -ne 0 && "$rollback" == yes ]]; then cp "$patchdir/auth-runtime.js.before" "$file"; echo "OVH_UI_REPAIR_FAILED_RESTORING_OLD_SOURCE"; timeout 1100 sudo -n "$helper" update > "$patchdir/rollback.log" 2>&1 && echo "OVH_UI_REPAIR_OLD_IMAGE_RESTORED" || echo "OVH_UI_REPAIR_ROLLBACK_REQUIRES_ATTENTION"; fi; exit "$rc"' EXIT
+          trap 'rc=$?; rm -f "$log"; if [[ "$rc" -ne 0 && "$rollback" == yes ]]; then cp "$patchdir/baseline-index.ts.before" "$file"; echo "OVH_UI_REPAIR_FAILED_RESTORING_OLD_SOURCE"; timeout 1100 sudo -n "$helper" update > "$patchdir/rollback.log" 2>&1 && echo "OVH_UI_REPAIR_OLD_IMAGE_RESTORED" || echo "OVH_UI_REPAIR_ROLLBACK_REQUIRES_ATTENTION"; fi; exit "$rc"' EXIT
           if timeout 1450 sudo -n "$helper" update > "$log" 2>&1; then
             echo 'OVH_STAGING_RECONCILIATION_COMMAND_SUCCEEDED'
           else
@@ -161,6 +162,8 @@ jobs:
           assert code==401,'SESSION_REVOKE_FAILED'
           print('OVH_REAL_AUTHENTICATED_LOGIN_HTML_LOGOUT_PASS')
           PY
+          echo 'OVH_START_GA_PRODUCTION_ACCEPTANCE_WITH_SYNTHETIC_ACCOUNT'
+          python3 "$patchdir/test-async-ga.py"
           rollback=no
-          echo 'OVH_AUTHENTICATED_UI_PRODUCTION_REPAIR_VERIFIED'
+          echo 'OVH_ASYNC_GA_PRODUCTION_REPAIR_VERIFIED'
           REMOTE
