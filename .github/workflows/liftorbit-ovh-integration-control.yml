@@ -71,6 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           node ops/ops/ovh/patch-runtime-origins.mjs app
+          node ops/ops/ovh/repair-planner-ui.mjs app
           sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
           sudo mkdir -p /opt/liftorbit/sources/planner
           sudo cp -a ops/ops/ovh/planner/. /opt/liftorbit/sources/planner/
@@ -164,6 +165,7 @@ jobs:
               print('INTEGRATION_AUTH_ME',status,flush=True)
               status,_,body=call('/?utm_source=chatgpt.com',cookie=cookie)
               print('INTEGRATION_AUTH_ROOT',status,'html='+str(body.lstrip().startswith(b'<!doctype')),'bridge_error='+str(b'bridge_unavailable' in body),flush=True)
+              if status!=200 or not body.lstrip().startswith(b'<!doctype') or b'bridge_unavailable' in body: raise SystemExit('AUTHENTICATED_PLANNER_HTML_STILL_BROKEN')
           PY
           cid=$(sudo docker compose -f /opt/liftorbit/full.compose.yml ps -q app)
           if [[ -n "$cid" ]]; then
