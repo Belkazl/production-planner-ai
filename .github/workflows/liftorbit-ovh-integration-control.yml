@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           node ops/ops/ovh/patch-runtime-origins.mjs app
           node ops/ops/ovh/repair-planner-ui.mjs app
+          node ops/ops/ovh/repair-async-ga.mjs app
           sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
           sudo mkdir -p /opt/liftorbit/sources/planner
           sudo cp -a ops/ops/ovh/planner/. /opt/liftorbit/sources/planner/
@@ -181,6 +182,9 @@ jobs:
           '
           fi
           exit 0
+      - name: Verify synthetic-account async GA model, job progress and completion
+        shell: bash
+        run: python3 ops/ops/ovh/test-async-ga.py
       - name: Sanitize failure diagnostics (no raw user-data logs)
         if: failure()
         shell: bash
