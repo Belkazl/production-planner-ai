@@ -46,12 +46,7 @@ jobs:
           for path in ('/','/?utm_source=chatgpt.com'):
               code,ct,ishtml,bridge,auth,body=request(path)
               print('OVH_AUTH_ROOT',path,'http='+str(code),'html='+str(ishtml),'bridge_error='+str(bridge),'auth_error='+str(auth),'content_type='+ct.split(';')[0])
-          off={'ppOptGuard':'off','ppStrict':'off','ppMotion':'off','ppEquipFix':'off','ppPoll':'off','ppKpi':'off'}
-          for enabled in (0,1,2,3,4,5,6):
-              params={k:v for i,(k,v) in enumerate(off.items()) if i>=enabled}
-              path='/?'+__import__('urllib.parse',fromlist=['urlencode']).urlencode(params)
-              code,ct,ishtml,bridge,auth,body=request(path)
-              print('OVH_FEATURE_ISOLATION enabled='+str(enabled),'http='+str(code),'html='+str(ishtml),'bridge_error='+str(bridge))
+              if code!=200 or not ishtml or bridge: raise SystemExit('PUBLIC_AUTHENTICATED_HTML_REGRESSION')
           request('/api/auth/logout','POST',{})
           print('OVH_AUTH_DIAGNOSTIC_COMPLETE')
           PY
