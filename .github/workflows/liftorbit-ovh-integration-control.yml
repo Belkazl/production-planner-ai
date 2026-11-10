@@ -74,6 +74,7 @@ jobs:
           node ops/ops/ovh/repair-planner-ui.mjs app
           node ops/ops/ovh/repair-async-ga.mjs app
           python3 -m py_compile ops/ops/ovh/test-async-ga.py
+          # Synthetic account session cookie is explicitly retained in local test
           sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
           sudo mkdir -p /opt/liftorbit/sources/planner
           sudo cp -a ops/ops/ovh/planner/. /opt/liftorbit/sources/planner/
