@@ -25,7 +25,7 @@ def verify(yes,label,detail=""):
     print("OVH_GA_ACCEPTANCE_PASS",label,flush=True)
 
 def sample():
-    eid="QA_EQ",pid="QA_PERSON",mid="QA_PAINT",tp="QA_TP"
+    eid,pid,mid,tp="QA_EQ","QA_PERSON","QA_PAINT","QA_TP"
     req=lambda typ,ref:{"resource_type":typ,"match_mode":"specific","resource_ref":ref,"resource_refs":[ref],"quantity":1}
     return {"scheduler_mode":"resource","start":"2026-11-10T08:00:00",
         "equipment":[{"id":eid,"name":"Station","kind":"workstation","capacity":10,"capacity_unit":"pcs"}],
