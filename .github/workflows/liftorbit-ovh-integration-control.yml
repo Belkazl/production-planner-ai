@@ -116,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           cfg=/opt/liftorbit/full.compose.yml
-          sudo docker compose -f "$cfg" up -d --build planner-gateway auth-gateway ga-worker app
+          sudo env COMPOSE_BAKE=false docker compose -f "$cfg" up -d --build planner-gateway auth-gateway ga-worker app
           echo 'INTEGRATION_FULL_COMPOSE_UP_COMPLETED'
           for name in planner-gateway auth-gateway ga-worker app; do
             cid=$(sudo docker compose -f "$cfg" ps -q "$name")
