@@ -123,7 +123,13 @@ jobs:
           for name in planner-gateway auth-gateway ga-worker app; do
             cid=$(sudo docker compose -f "$cfg" ps -q "$name")
             test -n "$cid"
-            state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid")
+            state=starting
+            for attempt in {1..80}; do
+              state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")
+              if [[ "$state" == healthy ]]; then break; fi
+              if [[ "$state" == unhealthy || "$state" == exited || "$state" == dead ]]; then break; fi
+              sleep 2
+            done
             echo "INTEGRATION_SERVICE_HEALTH $name=$state"
             test "$state" = healthy
           done
