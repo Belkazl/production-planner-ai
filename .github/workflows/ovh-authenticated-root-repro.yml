@@ -1,0 +1,51 @@
+name: LiftOrbit - reproduce authenticated page failure on OVH
+on:
+  push:
+    branches: [ops/railway-migration-20261108]
+    paths: [.github/workflows/ovh-authenticated-root-repro.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Check guest page, authenticated page and session without printing credentials
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.error,http.cookiejar,json,secrets,uuid
+          base='https://app.liftorbit.app'
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          def request(path,method='GET',data=None):
+              head={'Origin':base,'Sec-Fetch-Site':'same-origin','Accept':'text/html,application/json','User-Agent':'LiftOrbit migration authenticated smoke'}
+              body=None
+              if data is not None:
+                  head['Content-Type']='application/json'
+                  body=json.dumps(data).encode()
+              r=urllib.request.Request(base+path,headers=head,method=method,data=body)
+              try:
+                  with opener.open(r,timeout=27) as resp: code=resp.status;ct=resp.headers.get('content-type','');raw=resp.read(18000)
+              except urllib.error.HTTPError as e:code=e.code;ct=e.headers.get('content-type','');raw=e.read(18000)
+              text=raw.decode('utf8','replace')
+              safe=(text.lstrip().startswith('<!doctype') or text.lstrip().startswith('<html'))
+              bridge_error='bridge_unavailable' in text
+              auth_error='authentication_service_unavailable' in text
+              return code,ct,safe,bridge_error,auth_error,text
+          code,ct,ishtml,bridge,auth,body=request('/?utm_source=chatgpt.com')
+          print('OVH_GUEST_ROOT',code,'html='+str(ishtml),'bridge_error='+str(bridge))
+          user='migration-verification-'+uuid.uuid4().hex+'@liftorbit.invalid'
+          pw=secrets.token_urlsafe(40)
+          code,ct,ishtml,bridge,auth,body=request('/api/auth/register','POST',{'email':user,'password':pw,'company':'Migration test'})
+          print('OVH_REGISTER',code,'cookies='+str(len(jar)))
+          if code!=200 or len(jar)==0:raise SystemExit('AUTH_REGISTER_NOT_WORKING')
+          code,ct,ishtml,bridge,auth,body=request('/api/auth/me')
+          print('OVH_AUTH_ME',code)
+          for path in ('/','/?utm_source=chatgpt.com'):
+              code,ct,ishtml,bridge,auth,body=request(path)
+              print('OVH_AUTH_ROOT',path,'http='+str(code),'html='+str(ishtml),'bridge_error='+str(bridge),'auth_error='+str(auth),'content_type='+ct.split(';')[0])
+          request('/api/auth/logout','POST',{})
+          print('OVH_AUTH_DIAGNOSTIC_COMPLETE')
+          PY
