@@ -71,7 +71,7 @@ jobs:
           result=json.loads(body)
           print('OVH_GA_START',code,'ok='+str(result.get('ok')),'started='+str(result.get('started')),'error='+str(result.get('error'))[:70],'operations='+str(len(result.get('operations') or [])))
           complete=code==200 and result.get('ok') is True and len(result.get('operations') or [])>0
-          if not complete and code!=202:raise SystemExit('PUBLIC_GA_START_RESULT_INVALID')
+          if not complete and not (code in (200,202) and result.get('ok') is True and result.get('started') is True):raise SystemExit('PUBLIC_GA_START_RESULT_INVALID')
           import time
           for attempt in range(0 if complete else 75):
               time.sleep(2)
