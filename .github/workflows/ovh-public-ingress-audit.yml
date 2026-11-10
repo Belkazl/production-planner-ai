@@ -77,6 +77,40 @@ jobs:
           except Exception:
               print('OVH_LE_CERT_PRESENT unknown')
           PY
+          echo 'OVH_DIAG_UPTIME'; uptime
+          echo 'OVH_DIAG_MEMORY'; free -m
+          echo 'OVH_DIAG_DISK'; df -h /
+          echo 'OVH_DIAG_SOCKETS'; ss -s
+          echo 'OVH_DIAG_ALLOWED_SUDO_ACTIONS'
+          sudo -n -l | grep -E '(liftorbit-|NOPASSWD)' | sed -E 's/[[:space:]]+/ /g' | head -n 24 || true
+          echo 'OVH_DIAG_LOCAL_STATUS'
+          for spec in 'landing:18080:/health' 'app:18082:/__bridge_health' 'app_root:18082:/'; do
+            IFS=: read -r name port path <<< "$spec"
+            for attempt in 1 2 3; do
+              result=$(curl -s -o /dev/null -w '%{http_code} time=%{time_total}' --max-time 10 "http://127.0.0.1:$port$path" || true)
+              echo "OVH_DIAG_LOCAL $name attempt=$attempt $result"
+            done
+          done
+          echo 'OVH_DIAG_LOCAL_CADDY_HTTPS'
+          for spec in 'liftorbit.app:/health' 'app.liftorbit.app:/__bridge_health' 'app.liftorbit.app:/'; do
+            host="${spec%%:*}"; path="${spec#*:}"
+            for attempt in 1 2 3; do
+              result=$(curl --noproxy '*' -s -o /dev/null -w '%{http_code} time=%{time_total}' --max-time 12 --resolve "$host:443:127.0.0.1" "https://$host$path" || true)
+              echo "OVH_DIAG_CADDY $host $path attempt=$attempt $result"
+            done
+          done
           REMOTE
+          echo 'PUBLIC_CLOUDFLARE_VS_DIRECT_OVH'
+          for spec in 'liftorbit.app:/health' 'app.liftorbit.app:/__bridge_health' 'app.liftorbit.app:/' 'app.liftorbit.app:/?utm_source=chatgpt.com'; do
+            host="${spec%%:*}"; path="${spec#*:}"
+            for route in cloudflare ovh-origin; do
+              for attempt in 1 2 3; do
+                opts=()
+                if [[ "$route" == ovh-origin ]]; then opts=(--resolve "$host:443:51.255.163.121"); fi
+                result=$(curl --silent --show-error --max-time 15 --connect-timeout 5 "${opts[@]}" -o /dev/null -w 'status=%{http_code} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total} remote=%{remote_ip}' "https://$host$path" 2>&1 || true)
+                echo "PUBLIC_ROUTE $host $path $route attempt=$attempt $result"
+              done
+            done
+          done
 
 # Read-only follow-up diagnostic 2026-11-10, Cloudflare 502.
