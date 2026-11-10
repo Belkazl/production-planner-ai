@@ -72,6 +72,8 @@ jobs:
           set -euo pipefail
           node ops/ops/ovh/patch-runtime-origins.mjs app
           sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
+          sudo mkdir -p /opt/liftorbit/sources/planner
+          sudo cp -a ops/ops/ovh/planner/. /opt/liftorbit/sources/planner/
           sudo cp -a app/. /opt/liftorbit/sources/app/
           sudo cp -a auth/ga_python_workers/qa_auth/. /opt/liftorbit/sources/auth/
           sudo cp -a ga/ga_python_workers/. /opt/liftorbit/sources/ga/
