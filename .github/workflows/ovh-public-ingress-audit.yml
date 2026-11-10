@@ -78,3 +78,5 @@ jobs:
               print('OVH_LE_CERT_PRESENT unknown')
           PY
           REMOTE
+
+# Read-only follow-up diagnostic 2026-11-10, Cloudflare 502.
