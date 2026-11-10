@@ -63,3 +63,5 @@ jobs:
               print('PRODUCTION_DNS_OVH_CONFIRMED',name)
           PY
           echo 'LIFTORBIT_PRODUCTION_PUBLIC_SMOKE_COMPLETE'
+
+# Read-only follow-up diagnostic 2026-11-10, Cloudflare 502.
