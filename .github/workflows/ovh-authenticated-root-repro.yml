@@ -68,11 +68,12 @@ jobs:
           print('OVH_MODEL_LOAD',code)
           if code!=200 or 'TEST_ORDER_A' not in body:raise SystemExit('PUBLIC_AUTH_MODEL_LOAD_FAILED')
           code,_,_,_,_,body=request('/api/plan','POST',{'generations':8,'population':12,'seed':4,'__pp_async_start':True})
-          print('OVH_GA_START',code)
-          if code!=202:raise SystemExit('PUBLIC_GA_ASYNC_START_FAILED')
+          result=json.loads(body)
+          print('OVH_GA_START',code,'ok='+str(result.get('ok')),'started='+str(result.get('started')),'error='+str(result.get('error'))[:70],'operations='+str(len(result.get('operations') or [])))
+          complete=code==200 and result.get('ok') is True and len(result.get('operations') or [])>0
+          if not complete and code!=202:raise SystemExit('PUBLIC_GA_START_RESULT_INVALID')
           import time
-          complete=False
-          for attempt in range(75):
+          for attempt in range(0 if complete else 75):
               time.sleep(2)
               code,_,_,_,_,body=request('/api/plan-progress')
               if code!=200:raise SystemExit('PUBLIC_GA_PROGRESS_FAILED')
