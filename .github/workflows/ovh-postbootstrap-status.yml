@@ -36,3 +36,5 @@ jobs:
           sudo -n /usr/local/sbin/liftorbit-edge-ops status
           echo OVH_POSTBOOTSTRAP_SCOPED_ACCESS_AND_STACK_VERIFIED
           REMOTE
+
+# On-demand diagnostic recheck after 2026-11-10 502 report.
