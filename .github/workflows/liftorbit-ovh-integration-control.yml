@@ -129,6 +129,48 @@ jobs:
           status=$(curl -s -o /dev/null -w '%{http_code}' -m 12 http://127.0.0.1:18082/)
           test "$status" = 200 || test "$status" = 302 || test "$status" = 303
           echo "OVH_SIX_SERVICE_INTEGRATION_SMOKE_OK http_status=$status"
+      - name: Diagnose authenticated planner HTML in disposable restored stack (no customer writes)
+        shell: bash
+        run: |
+          set +e
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json,uuid,secrets
+          base='http://127.0.0.1:18082'
+          h={'Origin':'https://app.liftorbit.app','Sec-Fetch-Site':'same-origin','Accept':'text/html,application/json'}
+          def call(path,method='GET',data=None,cookie=None):
+              headers=dict(h)
+              if cookie:headers['Cookie']=cookie
+              if data is not None:headers['Content-Type']='application/json'
+              req=urllib.request.Request(base+path,method=method,headers=headers,data=json.dumps(data).encode() if data is not None else None)
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as r:return r.status,r.headers,r.read(12000)
+              except urllib.error.HTTPError as e:return e.code,e.headers,e.read(12000)
+          status,_,body=call('/')
+          print('INTEGRATION_GUEST_HTML',status,'html='+str(body.lstrip().startswith(b'<!doctype')),flush=True)
+          user='migration-disposable-'+uuid.uuid4().hex+'@liftorbit.invalid'
+          status,headers,body=call('/api/auth/register','POST',{'email':user,'password':secrets.token_urlsafe(36),'company':'Disposable QA'})
+          cookie=headers.get('set-cookie','').split(';')[0]
+          print('INTEGRATION_REGISTER',status,'has_cookie='+str(bool(cookie)),flush=True)
+          if status==200 and cookie:
+              status,_,body=call('/api/auth/me',cookie=cookie)
+              print('INTEGRATION_AUTH_ME',status,flush=True)
+              status,_,body=call('/?utm_source=chatgpt.com',cookie=cookie)
+              print('INTEGRATION_AUTH_ROOT',status,'html='+str(body.lstrip().startswith(b'<!doctype')),'bridge_error='+str(b'bridge_unavailable' in body),flush=True)
+          PY
+          cid=$(sudo docker compose -f /opt/liftorbit/full.compose.yml ps -q app)
+          if [[ -n "$cid" ]]; then
+            sudo docker logs --tail 350 "$cid" 2>&1 | python3 -c '
+          import re,sys
+          for line in sys.stdin:
+              if "APS_BRIDGE_ERROR" in line:
+                  chunk=line.split("APS_BRIDGE_ERROR",1)[1].strip()[:170]
+                  if re.fullmatch(r"[A-Za-z0-9_.,:() \\-]+",chunk) and "@" not in chunk and "password" not in chunk.lower():
+                      print("INTEGRATION_SAFE_BRIDGE_ERROR",chunk)
+                  else:
+                      print("INTEGRATION_BRIDGE_ERROR_NOT_SAFE_TO_PRINT")
+          '
+          fi
+          exit 0
       - name: Sanitize failure diagnostics (no raw user-data logs)
         if: failure()
         shell: bash
