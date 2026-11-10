@@ -70,6 +70,7 @@ jobs:
           code,_,_,_,_,body=request('/api/plan','POST',{'generations':8,'population':12,'seed':4,'__pp_async_start':True})
           result=json.loads(body)
           print('OVH_GA_START',code,'ok='+str(result.get('ok')),'started='+str(result.get('started')),'error='+str(result.get('error'))[:70],'operations='+str(len(result.get('operations') or [])))
+          print('OVH_GA_START_FIELDS',','.join(sorted(result.keys())),'job_id_present='+str(bool(result.get('job_id'))))
           complete=code==200 and result.get('ok') is True and len(result.get('operations') or [])>0
           if not complete and not (code in (200,202) and result.get('ok') is True and result.get('started') is True):raise SystemExit('PUBLIC_GA_START_RESULT_INVALID')
           import time
@@ -78,7 +79,8 @@ jobs:
               code,_,_,_,_,body=request('/api/plan-progress')
               if code!=200:raise SystemExit('PUBLIC_GA_PROGRESS_FAILED')
               data=json.loads(body)
-              if data.get('running'):continue
+              if attempt in (0,3,9,19,39):print('OVH_GA_PROGRESS',attempt,'phase='+str(data.get('phase')),'running='+str(data.get('running')),'error='+str(data.get('error'))[:60])
+              if data.get('running') or (data.get('phase') in ('idle','queued','starting') and attempt<40):continue
               if data.get('success') and len((data.get('result') or {}).get('operations') or [])>0:
                   complete=True;print('OVH_GA_COMPLETED_WITH_OPERATIONS',len(data['result']['operations']));break
               raise SystemExit('PUBLIC_GA_FINAL_STATUS_'+str(data.get('phase')))
