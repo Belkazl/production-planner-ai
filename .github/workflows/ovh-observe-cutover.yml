@@ -63,3 +63,5 @@ jobs:
               print('LIFTORBIT_DNS_CURRENT',name,'type='+r['type'],
                     'ovh='+str(r.get('content')=='51.255.163.121').lower())
           PY
+
+# Read-only follow-up diagnostic 2026-11-10, Cloudflare 502.
