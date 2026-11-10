@@ -14,6 +14,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 28
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/railway-migration-20261108
+          path: ops
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: app
+          persist-credentials: false
       - name: Inspect and reconcile private OVH staging without DNS or Railway changes
         shell: bash
         env:
@@ -30,9 +40,22 @@ jobs:
           printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$dir/key"
           printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$dir/hosts"
           chmod 0600 "$dir/key" "$dir/hosts"
+          node ops/ops/ovh/patch-runtime-origins.mjs app
+          before=$(sha256sum app/auth-runtime.js | awk '{print $1}')
+          node ops/ops/ovh/repair-planner-ui.mjs app
+          after=$(sha256sum app/auth-runtime.js | awk '{print $1}')
+          [[ "$before" =~ ^[a-f0-9]{64}$ && "$after" =~ ^[a-f0-9]{64}$ ]] || exit 2
+          run="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$run" =~ ^[0-9]+-[1-9][0-9]*$ ]] || exit 2
+          repair="/home/liftorbit-ci/liftorbit-migration/repairs/$run"
+          ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
+            "$OVH_USER@$OVH_HOST" "umask 077; mkdir -p '$repair'; chmod 700 '$repair'"
+          scp -q -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/hosts" \
+            app/auth-runtime.js "$OVH_USER@$OVH_HOST:$repair/auth-runtime.js.new"
+          echo 'OVH_VERIFIED_PLANNER_UI_REPAIR_TRANSFERRED'
           ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$dir/hosts" -o ServerAliveInterval=45 \
-            "$OVH_USER@$OVH_HOST" 'bash -se' <<'REMOTE'
+            "$OVH_USER@$OVH_HOST" "RUN='$run' BEFORE='$before' AFTER='$after' bash -se" <<'REMOTE'
           set -euo pipefail
           umask 077
           helper=/usr/local/sbin/liftorbit-ops
@@ -59,10 +82,24 @@ jobs:
               echo "OVH_STAGED_BUILD_SOURCE $name missing"
             fi
           done
+          # Only replace the one exact, reviewed source file; never touch databases.
+          patchdir="$HOME/liftorbit-migration/repairs/$RUN"
+          src="$HOME/liftorbit-migration/sources/ovh-app/current"
+          file="$src/auth-runtime.js"
+          [[ "$RUN" =~ ^[0-9]+-[1-9][0-9]*$ && "$BEFORE" =~ ^[a-f0-9]{64}$ && "$AFTER" =~ ^[a-f0-9]{64}$ ]] || exit 2
+          test -f "$file" && test -w "$src" && test ! -L "$file" || exit 4
+          [[ "$(sha256sum "$file" | awk '{print $1}')" == "$BEFORE" ]] || { echo 'OVH_REPAIR_OLD_SOURCE_HASH_MISMATCH'; exit 4; }
+          [[ "$(sha256sum "$patchdir/auth-runtime.js.new" | awk '{print $1}')" == "$AFTER" ]] || exit 4
+          cp "$file" "$patchdir/auth-runtime.js.before"
+          chmod 600 "$patchdir/auth-runtime.js.before"
+          cp "$patchdir/auth-runtime.js.new" "$file.next"
+          mv -f "$file.next" "$file"
+          echo 'OVH_AUTHENTICATED_UI_PATCH_APPLIED_TO_STAGED_SOURCE'
           echo 'OVH_BEFORE_RECONCILIATION'
           sudo -n "$helper" status
           log=$(mktemp /tmp/liftorbit-private-reconcile.XXXXXX)
-          trap 'rm -f "$log"' EXIT
+          rollback=yes
+          trap 'rc=$?; rm -f "$log"; if [[ "$rc" -ne 0 && "$rollback" == yes ]]; then cp "$patchdir/auth-runtime.js.before" "$file"; echo "OVH_UI_REPAIR_FAILED_RESTORING_OLD_SOURCE"; timeout 1100 sudo -n "$helper" update > "$patchdir/rollback.log" 2>&1 && echo "OVH_UI_REPAIR_OLD_IMAGE_RESTORED" || echo "OVH_UI_REPAIR_ROLLBACK_REQUIRES_ATTENTION"; fi; exit "$rc"' EXIT
           if timeout 1450 sudo -n "$helper" update > "$log" 2>&1; then
             echo 'OVH_STAGING_RECONCILIATION_COMMAND_SUCCEEDED'
           else
@@ -85,13 +122,45 @@ jobs:
               if p in s: print('OVH_STAGING_REPAIR_ERROR_CLASS',label)
           print('OVH_STAGING_PRIVATE_LOG_RETAINED',False)
           PY
+            exit 1
           fi
           echo 'OVH_AFTER_RECONCILIATION'
           sudo -n "$helper" status
-          if sudo -n "$helper" smoke; then
-            echo 'OVH_STAGING_ALL_SIX_HEALTHY'
-          else
-            echo 'OVH_STAGING_STILL_INCOMPLETE'
-            exit 1
-          fi
+          healthy=no
+          for attempt in {1..75}; do
+            if sudo -n "$helper" smoke > /dev/null 2>&1; then healthy=yes; break; fi
+            sleep 2
+          done
+          [[ "$healthy" == yes ]] || exit 6
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json,uuid,secrets
+          base='http://127.0.0.1:18082'
+          headers={'Origin':'https://app.liftorbit.app','Sec-Fetch-Site':'same-origin','Accept':'text/html,application/json'}
+          def req(path,method='GET',data=None,cookie=''):
+              h=dict(headers)
+              if cookie:h['Cookie']=cookie
+              if data is not None:h['Content-Type']='application/json'
+              q=urllib.request.Request(base+path,headers=h,method=method,data=None if data is None else json.dumps(data).encode())
+              try:
+                  with urllib.request.urlopen(q,timeout=25) as r:return r.status,r.headers,r.read(160000)
+              except urllib.error.HTTPError as e:return e.code,e.headers,e.read(160000)
+          code,head,body=req('/api/auth/register','POST',{'email':'ovh-acceptance-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'OVH UI test'})
+          cookie=head.get('set-cookie','').split(';')[0]
+          assert code==200 and cookie,'REGISTER_FAILED'
+          code,_,_=req('/api/auth/me',cookie=cookie)
+          assert code==200,'SESSION_FAILED'
+          for path in ('/','/?utm_source=chatgpt.com'):
+              code,head,body=req(path,cookie=cookie)
+              assert code==200 and body.lstrip().lower().startswith(b'<!doctype'),'AUTHENTICATED_HTML_FAILED'
+              assert b'bridge_unavailable' not in body,'BRIDGE_UNAVAILABLE'
+              assert head.get('x-liftorbit-ui')=='native-planner-compat','COMPATIBILITY_FALLBACK_NOT_USED'
+              print('OVH_AUTHENTICATED_HTML_FIXED',path)
+          code,_,_=req('/api/auth/logout','POST',{},cookie=cookie)
+          assert code==200,'LOGOUT_FAILED'
+          code,_,_=req('/api/auth/me',cookie=cookie)
+          assert code==401,'SESSION_REVOKE_FAILED'
+          print('OVH_REAL_AUTHENTICATED_LOGIN_HTML_LOGOUT_PASS')
+          PY
+          rollback=no
+          echo 'OVH_AUTHENTICATED_UI_PRODUCTION_REPAIR_VERIFIED'
           REMOTE
