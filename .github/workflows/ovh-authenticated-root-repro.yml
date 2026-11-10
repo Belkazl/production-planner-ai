@@ -47,6 +47,41 @@ jobs:
               code,ct,ishtml,bridge,auth,body=request(path)
               print('OVH_AUTH_ROOT',path,'http='+str(code),'html='+str(ishtml),'bridge_error='+str(bridge),'auth_error='+str(auth),'content_type='+ct.split(';')[0])
               if code!=200 or not ishtml or bridge: raise SystemExit('PUBLIC_AUTHENTICATED_HTML_REGRESSION')
+          # Isolated synthetic model - no production customer project is read or modified.
+          req=lambda kind,r:{'resource_type':kind,'match_mode':'specific','resource_ref':r,'resource_refs':[r],'quantity':1}
+          model={'scheduler_mode':'resource','start':'2026-11-10T08:00:00',
+            'equipment':[{'id':'TEST_EQ','name':'Station','kind':'workstation','capacity':10,'capacity_unit':'pcs'}],
+            'employees':[{'id':'TEST_EMP','name':'Test worker','role':'operator','shift':'day'}],
+            'shifts':{'day':[['08:00','12:00'],['13:00','17:00']]},
+            'orders':[{'id':'TEST_ORDER_A','quantity':5,'unit':'pcs','technical_process_id':'TEST_TP','parameters':{'color':'A'}},
+                      {'id':'TEST_ORDER_B','quantity':5,'unit':'pcs','technical_process_id':'TEST_TP','parameters':{'color':'B'}}],
+            'technical_processes':[{'id':'TEST_TP','name':'Assembly','operations':[{'id':'TEST_OP','name':'Press','sequence':1,'duration_min':30,'setup_parameter':'color','resource_requirements':[req('equipment','TEST_EQ'),req('employee','TEST_EMP'),{'resource_type':'material','resource_ref':'TEST_M','resource_refs':['TEST_M'],'quantity':1,'consumption_rule':'per_unit'}]}]}],
+            'materials':[{'id':'TEST_M','name':'Paint','unit':'kg','initial_stock':20,'deliveries':[]}],
+            'setup_rules':[{'id':'TEST_AB','setup_parameter':'color','equipment_ref':'*','from_state':'A','to_state':'B','duration_min':15},
+                           {'id':'TEST_BA','setup_parameter':'color','equipment_ref':'*','from_state':'B','to_state':'A','duration_min':15}]}
+          project='ovh-model-'+uuid.uuid4().hex
+          storage={'prodplan.projects.v2':json.dumps([{'id':project,'name':'Migration QA','model':model}]),'prodplan.project.active.v2':project}
+          code,_,_,_,_,body=request('/api/db-storage','POST',{'storage':storage})
+          print('OVH_SAVE_PROJECT',code)
+          if code!=200:raise SystemExit('PUBLIC_AUTH_PROJECT_SAVE_FAILED')
+          code,_,_,_,_,body=request('/api/model')
+          print('OVH_MODEL_LOAD',code)
+          if code!=200 or 'TEST_ORDER_A' not in body:raise SystemExit('PUBLIC_AUTH_MODEL_LOAD_FAILED')
+          code,_,_,_,_,body=request('/api/plan','POST',{'generations':8,'population':12,'seed':4,'__pp_async_start':True})
+          print('OVH_GA_START',code)
+          if code!=202:raise SystemExit('PUBLIC_GA_ASYNC_START_FAILED')
+          import time
+          complete=False
+          for attempt in range(75):
+              time.sleep(2)
+              code,_,_,_,_,body=request('/api/plan-progress')
+              if code!=200:raise SystemExit('PUBLIC_GA_PROGRESS_FAILED')
+              data=json.loads(body)
+              if data.get('running'):continue
+              if data.get('success') and len((data.get('result') or {}).get('operations') or [])>0:
+                  complete=True;print('OVH_GA_COMPLETED_WITH_OPERATIONS',len(data['result']['operations']));break
+              raise SystemExit('PUBLIC_GA_FINAL_STATUS_'+str(data.get('phase')))
+          if not complete:raise SystemExit('PUBLIC_GA_RUN_TIMEOUT')
           request('/api/auth/logout','POST',{})
           print('OVH_AUTH_DIAGNOSTIC_COMPLETE')
           PY
