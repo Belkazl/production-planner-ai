@@ -51,7 +51,9 @@ async function ppSafePlannerUiForAuthenticatedUser(req){
   if(!originalTransport||originalTransport.split(transient).length!==2||raw.split("</head>").length!==2)throw error;
   const gaTransport=originalTransport.replace(transient,
    "if(data.running||data.phase==='fresh_ready'||data.phase==='fresh_starting'||data.phase==='queued')continue;");
-  const restoredNative=raw.replace(legacyFetch,safePost).replace("</head>",gaTransport+"</head>");
+  const legacyPoll="timer=setInterval(poll,220)";
+  if(raw.split(legacyPoll).length!==2)throw error;
+  const restoredNative=raw.replace(legacyFetch,safePost).replace(legacyPoll,"timer=setInterval(poll,2000)").replace("</head>",gaTransport+"</head>");
   // The verified upstream fallback was missing all etalon UI modules. Restore
   // *the same frozen module assets already built into the pinned app* without
   // changing models, saved plans, auth, database persistence or GA endpoints.
