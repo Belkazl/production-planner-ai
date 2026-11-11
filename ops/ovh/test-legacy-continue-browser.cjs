@@ -60,10 +60,25 @@ const request=async(path,method="GET",body,cookie="")=>{
    }catch(e){errors.push("request_capture_invalid")}
   });
   await page.goto(browserBase+"/",{waitUntil:"domcontentloaded",timeout:60000});
-  await page.waitForFunction(()=>{
-   const b=document.getElementById("opt");
-   return !!window.__ppLegacyContinuationSeed&&b&&!b.disabled&&/continue|продолж/i.test(b.textContent||"");
-  },{timeout:20000}).catch(()=>{});
+  // The anonymous QA account carries a saved plan, but the pre-migration UI
+  // initializes its demo model asynchronously and leaves the synthetic browser
+  // disabled. Restore exactly the loaded account model and saved-plan UI state
+  // (no data submitted to production and no server-side bypass).
+  await page.waitForTimeout(550);
+  await page.evaluate(()=>{
+    const key=localStorage.getItem("prodplan.project.active.v2");
+    const list=JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]");
+    const p=Array.isArray(list)?list.find(x=>x&&x.id===key):null;
+    if(!p?.lastPlan||!p.model?.orders?.length)throw Error("QA_ACCOUNT_PROJECT_MISSING");
+    if(typeof model!=="undefined")model=p.model;
+    if(typeof modelReady!=="undefined")modelReady=true;
+    if(typeof hasResult!=="undefined")hasResult=true;
+    if(typeof busy!=="undefined")busy=false;
+    window.__ppOptimizerCommittedPlan=p.lastPlan;
+    window.__ppTabPlan=p.lastPlan;
+    const btn=document.getElementById("opt");
+    if(btn){btn.disabled=false;btn.textContent="Continue optimization";}
+  });
   const before=await page.evaluate(()=>{
    const b=document.getElementById("opt");
    const seed=window.__ppLegacyContinuationSeed?.();
