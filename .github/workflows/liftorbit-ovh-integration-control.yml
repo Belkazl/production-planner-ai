@@ -364,13 +364,16 @@ jobs:
                 await page.locator('#opt').click({timeout:6000});
                 await page.waitForTimeout(9000);
               }
-              console.log('BROWSER_ROUTE_AFTER',JSON.stringify(await page.evaluate(()=>({
+              const after=await page.evaluate(()=>({
                 validator:document.getElementById('validator')?.textContent?.trim().slice(0,110),
                 badge:document.getElementById('valid')?.textContent?.trim().slice(0,80),
                 button:document.getElementById('opt')?.textContent?.trim().slice(0,75),
                 disabled:document.getElementById('opt')?.disabled,
                 freshMode:!!window.__ppFreshRestartMode
-              }))));
+              }));
+              console.log('BROWSER_ROUTE_AFTER',JSON.stringify(after));
+              if(after.validator==='ga_fresh_starting'||after.badge==='GA error')
+                throw Error('GA_TRANSITION_MISCLASSIFIED_AS_FAILURE');
               console.log('BROWSER_ROUTE_NETWORK',JSON.stringify(routes.filter(x=>x.method!=='GET'||x.status>=400).slice(-30)));
               console.log('BROWSER_PLAN_HTTP_METHODS',JSON.stringify(planMethods));
               if(!planMethods.includes('POST')||planMethods.includes('GET')||
