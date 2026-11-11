@@ -68,11 +68,16 @@ try:
       break
     last=r
   print("HIGH_VOLUME_GA_TEST phases",json.dumps(phases),flush=True)
-  if last is not None and last.get("running"):
-    status,r,ms=call("/api/optimizer-stop","POST",{})
-    check(status==200 and r.get("ok") is True,"stop_heavy_job",str(ms)+"ms")
-    status,r,ms=call("/api/plan-progress")
-    check(status==200 and r.get("ok"),"progress_after_stop",str(ms)+"ms")
+  if last is None:
+    status,r,ms=call("/api/optimizer-reset","POST",{})
+    check(status==200 and r.get("ok"),"fresh_reset_after_completion",str(ms)+"ms")
+    status,r,ms=call("/api/plan","POST",{"generations":500,"population":64,"seed":7,
+      "__pp_async_start":True,"__pp_fresh_recovery":True})
+    check(status==202 and r.get("started"),"long_ga_started_for_cancellation",str(ms)+"ms")
+  status,r,ms=call("/api/optimizer-stop","POST",{})
+  check(status==200 and r.get("ok") is True,"stop_heavy_job",str(ms)+"ms")
+  status,r,ms=call("/api/plan-progress")
+  check(status==200 and r.get("ok"),"progress_after_stop",str(ms)+"ms")
   print("HIGH_VOLUME_GA_TEST_OK",flush=True)
 except Exception as e:
   print("HIGH_VOLUME_GA_TEST_FAILED",type(e).__name__,str(e)[:100],flush=True)
