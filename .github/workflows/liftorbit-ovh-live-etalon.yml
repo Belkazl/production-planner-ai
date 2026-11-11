@@ -106,9 +106,17 @@ jobs:
             echo 'ETALON_UPDATE_FAILED'
             exit 7
           fi
-          if ! sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null 2>&1; then
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null 2>&1; then
+              healthy=yes
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$healthy" != yes ]]; then
             restore
-            echo 'ETALON_SMOKE_FAILED'
+            echo 'ETALON_SMOKE_FAILED_AFTER_READINESS_RETRIES'
             exit 8
           fi
           test "$(sha "$staged")" = "$new" || { restore; exit 9; }
