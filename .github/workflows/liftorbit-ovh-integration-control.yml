@@ -74,7 +74,8 @@ jobs:
           node ops/ops/ovh/repair-planner-ui.mjs app
           node ops/ops/ovh/repair-ga-state.mjs app
           node ops/ops/ovh/repair-ga-load.mjs app
-          node --test ops/ops/ovh/ga-state-recovery.test.mjs ops/ops/ovh/ga-load.test.mjs
+          node ops/ops/ovh/repair-continuation.mjs app
+          node --test ops/ops/ovh/ga-state-recovery.test.mjs ops/ops/ovh/ga-load.test.mjs ops/ops/ovh/ga-legacy-continue.test.mjs
           node ops/ops/ovh/repair-async-ga.mjs app
           python3 -m py_compile ops/ops/ovh/test-async-ga.py
           # Synthetic account session cookie is explicitly retained in local test
@@ -398,6 +399,10 @@ jobs:
         shell: bash
         run: |
           python3 ops/ops/ovh/test-high-volume-ga.py
+      - name: Test pre-migration saved-plan continuation and account state on disposable GA
+        shell: bash
+        run: |
+          python3 ops/ops/ovh/test-legacy-continuation.py
       - name: Sanitize failure diagnostics (no raw user-data logs)
         if: failure()
         shell: bash
