@@ -1,4 +1,5 @@
 name: LiftOrbit production GA state diagnostic (isolated synthetic tenant)
+# Post-deployment check of fresh GA state after OVH recovery patch.
 on:
   push:
     branches: [main]
