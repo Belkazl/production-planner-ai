@@ -43,7 +43,7 @@ async function ppSafePlannerUiForAuthenticatedUser(req){
   const legacyStart="const url='/api/plan?generations=120&population=80&continue='";
   const legacyFetch="fetch(url,{cache:'no-store'})";
   if(raw.split(legacyStart).length!==2||raw.split(legacyFetch).length!==2)throw error;
-  const safePost="fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify((()=>{const q=new URL(url,location.href).searchParams;return {generations:Math.min(60,Math.max(1,Number(q.get('generations'))||60)),population:Math.min(32,Math.max(2,Number(q.get('population'))||32)),continue:q.get('continue')==='1',seed:Number(q.get('seed'))||1729,objective:q.get('objective')||'duration'};})()),cache:'no-store'})";
+  const safePost="fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify((()=>{const q=new URL(url,location.href).searchParams;return {generations:Math.min(60,Math.max(1,Number(q.get('generations'))||60)),population:Math.min(32,Math.max(2,Number(q.get('population'))||32)),continue:q.get('continue')==='1',__pp_fresh_recovery:q.get('continue')!=='1',seed:Number(q.get('seed'))||1729,objective:q.get('objective')||'duration'};})()),cache:'no-store'})";
   const originalTransport=typeof PP_ASYNC_PLAN_INLINE==="string"?PP_ASYNC_PLAN_INLINE:"";
   const transient="if(data.running)continue;";
   // Fresh-start bridge can legitimately return fresh_starting before the first
