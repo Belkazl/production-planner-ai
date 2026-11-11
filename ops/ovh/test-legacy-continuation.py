@@ -3,8 +3,8 @@
 
 No user data is accessed or modified. Synthetic account only.
 """
-import json,uuid,secrets,time,urllib.request,urllib.error,sys
-BASE="http://127.0.0.1:18082"
+import json,uuid,secrets,time,urllib.request,urllib.error,sys,os
+BASE=os.environ.get("PP_TEST_BASE","http://127.0.0.1:18082")
 cookie=""
 def call(path,method="GET",body=None):
     global cookie
