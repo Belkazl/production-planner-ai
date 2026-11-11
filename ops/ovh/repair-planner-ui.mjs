@@ -35,10 +35,26 @@ async function ppSafePlannerUiForAuthenticatedUser(req){
   if(!type.includes("text/html"))throw error;
   const raw=await upstream.text();
   if(!/<!doctype html|<html[\\s>]/i.test(raw)||!/<\\/body>/i.test(raw))throw error;
-  return new Response(raw,{
+  // The verified upstream fallback was missing all etalon UI modules. Restore
+  // *the same frozen module assets already built into the pinned app* without
+  // changing models, saved plans, auth, database persistence or GA endpoints.
+  const modules=[
+    ["gantt",typeof PP_GANTT_INLINE==="string"?PP_GANTT_INLINE:""],
+    ["secondary",typeof PP_SECONDARY_GANTTS_INLINE==="string"?PP_SECONDARY_GANTTS_INLINE:""],
+    ["stop",typeof PP_STOP_INLINE==="string"?PP_STOP_INLINE:""],
+    ["details",typeof PP_GANTT_DETAILS_INLINE==="string"?PP_GANTT_DETAILS_INLINE:""],
+    ["orders",typeof PP_ORDER_STACKED_UI_INLINE==="string"?PP_ORDER_STACKED_UI_INLINE:""],
+    ["restart",typeof PP_START_OVER_INLINE==="string"?PP_START_OVER_INLINE:""],
+    ["documents",typeof PP_DOCUMENTS_INLINE==="string"?PP_DOCUMENTS_INLINE:""],
+    ["language",typeof PP_LANGUAGE_INLINE==="string"?PP_LANGUAGE_INLINE:""]
+  ];
+  const required=["gantt","stop","restart","language"];
+  if(required.some(name=>!modules.find(m=>m[0]===name)?.[1]))throw error;
+  const enhanced=raw.replace("</body>",modules.map(m=>m[1]).join("")+"</body>");
+  return new Response(enhanced,{
    status:200,
    headers:{"content-type":"text/html; charset=utf-8",
-            "cache-control":"no-store","x-liftorbit-ui":"native-planner-compat"}
+            "cache-control":"no-store","x-liftorbit-ui":"etalon-modules-compat"}
   });
  }
 }
