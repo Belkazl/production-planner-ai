@@ -1,0 +1,122 @@
+name: Restore LiftOrbit approved etalon UI on OVH
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-live-etalon.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+
+jobs:
+  controlled-repair:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'release(liftorbit): restore etalon UI on OVH with guarded rollback')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 3601d811ba6b6cb2decacde44c2de078d0b6a27a
+          path: prior
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 24e793902111ca103a2ab4a6b58f45a6d538c79d
+          path: repaired
+          persist-credentials: false
+      - name: Verify previous and new production compatibility scripts differ in one file only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          node prior/ops/ovh/patch-runtime-origins.mjs old/app
+          node prior/ops/ovh/repair-planner-ui.mjs old/app
+          node repaired/ops/ovh/patch-runtime-origins.mjs new/app
+          node repaired/ops/ovh/repair-planner-ui.mjs new/app
+          node --check old/app/auth-runtime.js
+          node --check new/app/auth-runtime.js
+          test "$(diff -qr old/app new/app | wc -l)" -eq 1
+          diff -qr old/app new/app | grep -Eq '^Files old/app/auth-runtime.js and new/app/auth-runtime.js differ$'
+          grep -q 'etalon-modules-compat' new/app/auth-runtime.js
+          grep -q 'pp-ovh-etalon-state-restore' new/app/auth-runtime.js
+          sha256sum old/app/auth-runtime.js | awk '{print $1}' > old.sha
+          sha256sum new/app/auth-runtime.js | awk '{print $1}' > new.sha
+          echo 'ETALON_REPAIR_CODE_SINGLE_FILE_VALIDATED'
+      - name: Guarded OVH production source update and automatic rollback on failure
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          old=$(cat old.sha)
+          new=$(cat new.sha)
+          # Upload to an unprivileged staging file; no live mutation yet.
+          scp -q "${opts[@]}" new/app/auth-runtime.js "$target:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/auth-runtime.js.etalon.next"
+          ssh "${opts[@]}" "$target" "bash -s -- '$old' '$new'" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          old="$1"; new="$2"
+          root="$HOME/liftorbit-migration"
+          staged="$root/sources/ovh-app/current/auth-runtime.js"
+          incoming="$root/sources/ovh-app/auth-runtime.js.etalon.next"
+          backup="$root/patch-backups/etalon-ui-auth-runtime-before-20261111.js"
+          mkdir -p "$root/patch-backups"
+          test -f "$staged" && test -f "$incoming"
+          sha() { sha256sum "$1" | awk '{print $1}'; }
+          test "$(sha "$incoming")" = "$new" || { echo 'ETALON_UPLOAD_HASH_MISMATCH'; exit 4; }
+          test "$(sha "$staged")" = "$old" || { echo 'ETALON_PRODUCTION_SOURCE_DRIFT_ABORTED'; exit 5; }
+          # Never delete customer data, modify databases, or touch DNS.
+          sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null || { echo 'ETALON_PREDEPLOY_HEALTH_NOT_READY'; exit 6; }
+          cp -p "$staged" "$backup"
+          test "$(sha "$backup")" = "$old"
+          mv "$incoming" "$staged"
+          restore() {
+            cp -p "$backup" "$staged"
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$root/patch-backups/etalon-rollback-private.log" 2>&1 || true
+            sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null 2>&1 || true
+            echo 'ETALON_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          if ! sudo -n /usr/local/sbin/liftorbit-ops update > "$root/patch-backups/etalon-update-private.log" 2>&1; then
+            restore
+            echo 'ETALON_UPDATE_FAILED'
+            exit 7
+          fi
+          if ! sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null 2>&1; then
+            restore
+            echo 'ETALON_SMOKE_FAILED'
+            exit 8
+          fi
+          test "$(sha "$staged")" = "$new" || { restore; exit 9; }
+          echo 'ETALON_OVH_UPDATE_HEALTHY_DATABASE_UNCHANGED'
+          REMOTE
+      - name: Verify public TLS health and unauthenticated account boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 https://app.liftorbit.app/__bridge_health > /dev/null
+          status=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me)
+          test "$status" = 401 || { echo 'ETALON_AUTH_BOUNDARY_BAD'; exit 2; }
+          echo 'ETALON_PUBLIC_TLS_AUTH_BOUNDARY_OK'
