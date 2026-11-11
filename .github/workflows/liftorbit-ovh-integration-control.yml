@@ -257,7 +257,7 @@ jobs:
                 const b=document.getElementById('opt');
                 return {
                   authenticated:!!document.getElementById('planView'),
-                  ganttScript:!!window.__PP_GANTT_TOOL_V2__,
+                  ganttScript:!!window.__PP_GANTT_TOOL_V2_INSTALLED__,
                   ganttStage:!!document.getElementById('ppGanttToolV2'),
                   ganttBars:document.querySelectorAll('.pg2-bar').length,
                   restartInstalled:!!window.__ppFreshOptimizerUiInstalled,
@@ -265,7 +265,16 @@ jobs:
                   languageInstalled:!!window.__PP_LANGUAGE__,
                   buttonExists:!!b,
                   buttonDisabled:b?.disabled??null,
-                  buttonLabel:b?.textContent?.trim().slice(0,45)
+                  buttonLabel:b?.textContent?.trim().slice(0,45),
+                  modelReady:typeof modelReady==='undefined'?null:!!modelReady,
+                  hasResult:typeof hasResult==='undefined'?null:!!hasResult,
+                  modelOrders:typeof model==='undefined'?null:((model?.orders||[]).length),
+                  modelReadyCheck:(()=>{try{return typeof model_ready==='function'?model_ready(model):null}catch(e){return 'error'}})(),
+                  visiblePlan:!!(window.__ppTabPlan||window.__ppOptimizerCommittedPlan),
+                  modelRevision:typeof model==='undefined'?null:model?.revision??null,
+                  optimizeOnclick:typeof b?.onclick==='function',
+                  validBadge:document.getElementById('valid')?.textContent?.trim().slice(0,48),
+                  metaStatus:document.getElementById('meta')?.textContent?.trim().slice(0,55)
                 };
               });
               console.log('ETALON_BROWSER_UI_STATE',JSON.stringify({http:response.status(),...state,pageErrors:errors.length}));
