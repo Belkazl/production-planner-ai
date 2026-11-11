@@ -1,5 +1,5 @@
 name: LiftOrbit OVH integration control - isolated six-service check
-# Runner validates OVH compatibility against pinned sources; no production writes.
+# Runner validates the corrected etalon state-restoration script in a disposable six-service clone.
 on:
   push:
     branches: [main]
