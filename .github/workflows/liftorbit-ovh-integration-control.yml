@@ -292,6 +292,7 @@ jobs:
           const {randomUUID,randomBytes}=require('node:crypto');
           (async()=>{
             const base='http://127.0.0.1:18082';
+            const browserBase='http://localhost:18082';
             const headers={'content-type':'application/json',origin:'https://app.liftorbit.app','sec-fetch-site':'same-origin'};
             const email='route-qa-'+randomUUID()+'@liftorbit.invalid';
             const rr=await fetch(base+'/api/auth/register',{method:'POST',headers,body:JSON.stringify({email,password:randomBytes(32).toString('hex'),company:'Route QA'})});
@@ -322,7 +323,7 @@ jobs:
                 if(status>=400){try{const data=await r.json();err=String(data.error||'').slice(0,75)}catch{}}
                 routes.push({method:r.request().method(),path:u.pathname,status,...(err?{error:err}:{})});
               });
-              await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:60000});
+              await page.goto(browserBase+'/',{waitUntil:'domcontentloaded',timeout:60000});
               await page.waitForTimeout(1300);
               const before=await page.evaluate(()=>({
                 modelOrders:typeof model==='undefined'?null:model?.orders?.length,
