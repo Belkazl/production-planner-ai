@@ -1,5 +1,5 @@
 name: LiftOrbit OVH integration control - isolated six-service check
-# Runner executes only after the explicitly scoped migration workflow changes.
+# Runner validates OVH compatibility against pinned sources; no production writes.
 on:
   push:
     branches: [main]
