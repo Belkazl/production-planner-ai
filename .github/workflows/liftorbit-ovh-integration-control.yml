@@ -334,6 +334,20 @@ jobs:
                 apiInOnclick:[...new Set((document.getElementById('opt')?.onclick?.toString()||'').match(/\/api\/[a-z0-9_/-]+/g)||[])].slice(0,15)
               }));
               console.log('BROWSER_ROUTE_BEFORE',JSON.stringify(before));
+              const planSource=await page.evaluate(()=>{
+                const found=[];
+                for(const tag of document.scripts){
+                  const code=String(tag.textContent||"");
+                  const needle="/api/plan";let index=-1,count=0;
+                  while((index=code.indexOf(needle,index+1))>=0 && count++<8){
+                    const section=code.slice(Math.max(0,index-210),Math.min(code.length,index+250));
+                    found.push({script:tag.id||"inline",section:section.replace(/\s+/g," ").slice(0,460)});
+                  }
+                }
+                return found.slice(0,16);
+              });
+              console.log('BROWSER_PLAN_CALL_SOURCE',JSON.stringify(planSource));
+
               await page.evaluate(()=>{
                 // Synthetic QA model is known to the account API; bypass the
                 // legacy demo-ready flag solely in this disposable browser.
