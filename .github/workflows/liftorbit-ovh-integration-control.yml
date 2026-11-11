@@ -284,6 +284,71 @@ jobs:
             }finally{await browser.close()}
           })().catch(e=>{console.error('ETALON_BROWSER_FAILED',e.message);process.exit(1)})
           NODE
+      - name: Diagnose browser optimization API routing with a disposable tenant
+        shell: bash
+        run: |
+          node <<'NODE'
+          const {chromium}=require('playwright');
+          const {randomUUID,randomBytes}=require('node:crypto');
+          (async()=>{
+            const base='http://127.0.0.1:18082';
+            const headers={'content-type':'application/json',origin:'https://app.liftorbit.app','sec-fetch-site':'same-origin'};
+            const email='route-qa-'+randomUUID()+'@liftorbit.invalid';
+            const rr=await fetch(base+'/api/auth/register',{method:'POST',headers,body:JSON.stringify({email,password:randomBytes(32).toString('hex'),company:'Route QA'})});
+            const cookie=(rr.headers.get('set-cookie')||'').split(';')[0];
+            if(rr.status!==200||!cookie)throw Error('QA_REGISTER_FAILED '+rr.status);
+            const eq='EQ1',person='EMP1',tp='TP1';
+            const requirement=(type,id)=>({resource_type:type,match_mode:'specific',resource_ref:id,resource_refs:[id],quantity:1});
+            const model={
+              scheduler_mode:'resource',start:'2026-11-10T08:00:00',equipment:[{id:eq,name:'Test station',kind:'workstation',capacity:10,capacity_unit:'pcs'}],
+              employees:[{id:person,name:'Operator',shift:'day'}],shifts:{day:[['08:00','12:00'],['13:00','17:00']]},
+              orders:[{id:'ORDER_A',quantity:5,unit:'pcs',technical_process_id:tp,parameters:{color:'A'}},{id:'ORDER_B',quantity:5,unit:'pcs',technical_process_id:tp,parameters:{color:'B'}}],
+              technical_processes:[{id:tp,name:'Assembly',operations:[{id:'OP1',name:'Press',sequence:1,duration_min:30,resource_requirements:[requirement('equipment',eq),requirement('employee',person)]}]}],
+              setup_rules:[],materials:[]
+            };
+            const project='route-qa-'+randomUUID();
+            const storage={'prodplan.projects.v2':JSON.stringify([{id:project,name:'QA TEST',model,revision:1}]),'prodplan.project.active.v2':project};
+            const saved=await fetch(base+'/api/db-storage',{method:'POST',headers:{...headers,cookie},body:JSON.stringify({storage})});
+            console.log('BROWSER_ROUTE_STORAGE',saved.status);
+            if(!saved.ok)throw Error('QA_STORAGE_FAILED');
+            const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+            try{
+              const context=await browser.newContext({viewport:{width:1500,height:930},extraHTTPHeaders:{cookie,origin:'https://app.liftorbit.app','sec-fetch-site':'same-origin'}});
+              const page=await context.newPage(),routes=[],pageErrors=[];
+              page.on('pageerror',e=>pageErrors.push(String(e.message||e).split(':')[0].slice(0,45)));
+              page.on('response',async r=>{
+                const u=new URL(r.url());if(!u.pathname.startsWith('/api/'))return;
+                const status=r.status();let err='';
+                if(status>=400){try{const data=await r.json();err=String(data.error||'').slice(0,75)}catch{}}
+                routes.push({method:r.request().method(),path:u.pathname,status,...(err?{error:err}:{})});
+              });
+              await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:60000});
+              await page.waitForTimeout(1300);
+              const before=await page.evaluate(()=>({
+                modelOrders:typeof model==='undefined'?null:model?.orders?.length,
+                modelReady:typeof modelReady==='undefined'?null:modelReady,
+                planButtonDisabled:document.getElementById('opt')?.disabled,
+                planButtonText:document.getElementById('opt')?.textContent?.trim().slice(0,70),
+                rootText:document.getElementById('validator')?.textContent?.trim().slice(0,90),
+                apiInOnclick:[...new Set((document.getElementById('opt')?.onclick?.toString()||'').match(/\/api\/[a-z0-9_/-]+/g)||[])].slice(0,15)
+              }));
+              console.log('BROWSER_ROUTE_BEFORE',JSON.stringify(before));
+              const btn=page.locator('#opt');
+              if(!await btn.isDisabled()){
+                await btn.click({timeout:6000});
+                await page.waitForTimeout(9000);
+                console.log('BROWSER_ROUTE_AFTER',JSON.stringify(await page.evaluate(()=>({
+                  validator:document.getElementById('validator')?.textContent?.trim().slice(0,110),
+                  badge:document.getElementById('valid')?.textContent?.trim().slice(0,80),
+                  button:document.getElementById('opt')?.textContent?.trim().slice(0,75),
+                  disabled:document.getElementById('opt')?.disabled
+                }))));
+              }else console.log('BROWSER_ROUTE_BUTTON_DISABLED');
+              console.log('BROWSER_ROUTE_NETWORK',JSON.stringify(routes.filter(x=>x.method!=='GET'||x.status>=400).slice(-30)));
+              console.log('BROWSER_ROUTE_PAGE_ERRORS',JSON.stringify(pageErrors.slice(0,8)));
+            }finally{await browser.close()}
+          })().catch(e=>{console.error('BROWSER_ROUTE_DIAGNOSTIC_FAILED',String(e.message||e).slice(0,120));process.exit(1)})
+          NODE
       - name: Verify synthetic-account async GA model, job progress and completion
         shell: bash
         run: python3 ops/ops/ovh/test-async-ga.py
