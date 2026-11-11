@@ -1,4 +1,4 @@
-name: Restore LiftOrbit approved etalon UI and GA progress on OVH
+name: Restore LiftOrbit legacy GA continuation on OVH
 on:
   push:
     branches: [main]
