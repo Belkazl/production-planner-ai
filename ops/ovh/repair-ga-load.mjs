@@ -40,6 +40,10 @@ async function ppReadAccountModel(req) {
 async function ppReadAccountModelUncached(req) {
  const session=ppAccountModelSession(req);`,
   "deduplicate_same_request_progress_model"
+],[
+  " if(!state||state.completed){",
+  " if((!state||state.completed)&&!(typeof Bun!==\"undefined\"&&Bun.env.PP_PY_GA_WORKERS_ENABLED===\"1\")){",
+  "allow_terminal_ga_result_from_account_scoped_python_worker"
 ]]);
 patch("python-ga-upstream.mjs",[[
   "    try{await save(principal,state)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}",
