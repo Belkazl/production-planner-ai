@@ -44,13 +44,52 @@ async function ppSafePlannerUiForAuthenticatedUser(req){
     ["stop",typeof PP_STOP_INLINE==="string"?PP_STOP_INLINE:""],
     ["details",typeof PP_GANTT_DETAILS_INLINE==="string"?PP_GANTT_DETAILS_INLINE:""],
     ["orders",typeof PP_ORDER_STACKED_UI_INLINE==="string"?PP_ORDER_STACKED_UI_INLINE:""],
-    ["restart",typeof PP_START_OVER_INLINE==="string"?PP_START_OVER_INLINE:""],
+    ["restart",typeof PP_START_OVER_INLINE==="string"?PP_START_OVER_INLINE.replace("Сохранённая оптимизация|Saved optimization","Сохранённая оптимизация|Сохранённый расчёт|Saved optimization|Saved calculation"):""],
     ["documents",typeof PP_DOCUMENTS_INLINE==="string"?PP_DOCUMENTS_INLINE:""],
     ["language",typeof PP_LANGUAGE_INLINE==="string"?PP_LANGUAGE_INLINE:""]
   ];
   const required=["gantt","stop","restart","language"];
   if(required.some(name=>!modules.find(m=>m[0]===name)?.[1]))throw error;
-  const enhanced=raw.replace("</body>",modules.map(m=>m[1]).join("")+"</body>");
+  const restoreExistingPlan=`
+<script id="pp-ovh-etalon-state-restore">
+(function(){
+ "use strict";
+ let lastKey="",attempts=0;
+ function restore(){
+  if(++attempts>20)return;
+  try{
+   const key=localStorage.getItem("prodplan.project.active.v2");
+   const projects=JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]");
+   const project=Array.isArray(projects)?projects.find(p=>p&&p.id===key):null;
+   const plan=window.__ppTabPlan||window.__ppOptimizerCommittedPlan||project?.lastPlan;
+   const ops=plan&&(plan.operations||plan.generic_operations||[]);
+   if(!key||!project||!plan||plan.valid===false||!Array.isArray(ops)||!ops.length)return;
+   if(Number.isFinite(Number(plan._revision))&&Number(plan._revision)!==Number(project.revision))return;
+   if(typeof renderPlan==="function"&&lastKey!==key){
+    renderPlan(plan);lastKey=key;
+    window.__ppTabPlan=plan;
+    window.__ppOptimizerCommittedPlan=plan;
+   }
+   const button=document.getElementById("opt");
+   const busyNow=window.__PP_STOP_DEBUG__?.().running===true;
+   const ready=typeof model!=="undefined"&&!!model&&Array.isArray(model.orders)&&model.orders.length>0&&
+      (Array.isArray(model.equipment)&&model.equipment.length>0||
+       Array.isArray(model.autoclaves)&&model.autoclaves.length>0);
+   if(!button||busyNow||!ready)return;
+   if(typeof modelReady!=="undefined")modelReady=true;
+   if(typeof hasResult!=="undefined")hasResult=true;
+   if(typeof busy!=="undefined")busy=false;
+   button.disabled=false;
+   button.textContent="Продолжить оптимизацию";
+   const badge=document.getElementById("valid");
+   if(badge&&/Нужны данные|Data required|Waiting for data/i.test(badge.textContent||""))
+     badge.textContent="Готово к расчёту";
+  }catch(e){console.warn("PP_ETALON_STATE_RESTORE_SKIPPED",String(e).slice(0,90))}
+ }
+ for(const delay of [0,200,800,1600,3000])setTimeout(restore,delay);
+})();
+</script>`;
+  const enhanced=raw.replace("</body>",modules.map(m=>m[1]).join("")+restoreExistingPlan+"</body>");
   return new Response(enhanced,{
    status:200,
    headers:{"content-type":"text/html; charset=utf-8",
