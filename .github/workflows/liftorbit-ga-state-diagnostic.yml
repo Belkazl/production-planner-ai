@@ -1,0 +1,64 @@
+name: LiftOrbit production GA state diagnostic (isolated synthetic tenant)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-state-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  ga-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Safely exercise auth and GA-state from a disposable account
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,uuid,secrets
+          base='https://app.liftorbit.app'
+          cookie=''
+          def request(path,method='GET',payload=None):
+            global cookie
+            headers={'origin':base,'sec-fetch-site':'same-origin','accept':'application/json'}
+            if cookie:headers['cookie']=cookie
+            data=None
+            if payload is not None:
+              headers['content-type']='application/json'
+              data=json.dumps(payload,separators=(',',':')).encode()
+            req=urllib.request.Request(base+path,headers=headers,data=data,method=method)
+            try:
+              with urllib.request.urlopen(req,timeout=18) as r:
+                code=r.status;body=r.read(8192)
+                if path=='/api/auth/register':cookie=(r.headers.get('set-cookie') or '').split(';')[0]
+            except urllib.error.HTTPError as e:
+              code=e.code;body=e.read(8192)
+            try:d=json.loads(body)
+            except:d={}
+            print('PRODUCTION_GA_DIAGNOSTIC',path,method,'status',code,'error',str(d.get('error','none'))[:60],flush=True)
+            return code,d
+          email='ovh-ga-probe-'+uuid.uuid4().hex+'@liftorbit.invalid'
+          code,_=request('/api/auth/register','POST',{'email':email,'password':secrets.token_urlsafe(32),'company':'Temporary isolated QA'})
+          if code!=200 or not cookie:raise SystemExit('DIAG_REGISTER_UNAVAILABLE')
+          code,_=request('/api/plan-progress')
+          if code!=200:raise SystemExit('DIAG_PROGRESS_UNAVAILABLE')
+          code,_=request('/api/model')
+          if code!=200:raise SystemExit('DIAG_MODEL_UNAVAILABLE')
+          model={'scheduler_mode':'resource','start':'2026-11-11T08:00:00',
+            'equipment':[{'id':'Q_EQ','name':'Q Machine','kind':'workstation','capacity':10,'capacity_unit':'pcs'}],
+            'employees':[{'id':'Q_EMP','name':'Q Operator','shift':'day'}],
+            'shifts':{'day':[['08:00','12:00'],['13:00','17:00']]},
+            'orders':[{'id':'Q_ORDER','quantity':4,'unit':'pcs','technical_process_id':'Q_TP','parameters':{'color':'A'}}],
+            'technical_processes':[{'id':'Q_TP','name':'Q Process','operations':[{'id':'Q_OP','name':'Press','sequence':1,'duration_min':30,'resource_requirements':[{'resource_type':'equipment','match_mode':'specific','resource_ref':'Q_EQ','resource_refs':['Q_EQ'],'quantity':1},{'resource_type':'employee','match_mode':'specific','resource_ref':'Q_EMP','resource_refs':['Q_EMP'],'quantity':1}]}]}],
+            'setup_rules':[],'materials':[]}
+          p='ga-probe-'+uuid.uuid4().hex
+          code,_=request('/api/db-storage','POST',{'storage':{'prodplan.projects.v2':json.dumps([{'id':p,'name':'Q','model':model}]),'prodplan.project.active.v2':p}})
+          if code!=200:raise SystemExit('DIAG_STORAGE_UNAVAILABLE')
+          code,_=request('/api/model')
+          if code!=200:raise SystemExit('DIAG_OWNED_MODEL_UNAVAILABLE')
+          code,_=request('/api/plan','POST',{'generations':2,'population':4,'seed':1,'__pp_async_start':True})
+          if code!=202:raise SystemExit('DIAG_GA_START_UNAVAILABLE')
+          code,_=request('/api/plan-progress')
+          if code!=200:raise SystemExit('DIAG_GA_PROGRESS_UNAVAILABLE')
+          print('PRODUCTION_GA_STATE_DIAGNOSTIC_OK',flush=True)
+          PY
