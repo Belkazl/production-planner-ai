@@ -1,0 +1,35 @@
+name: LiftOrbit public saved-plan continuation acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-public-legacy-continuation-verify.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7b5c464f3dd4d2d1395411514b70a5283e0fad82
+          path: ops
+          persist-credentials: false
+      - name: Verify public health and authentication boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 https://app.liftorbit.app/__bridge_health > /dev/null
+          status=$(curl --silent -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me)
+          test "$status" = 401
+          echo 'LIVE_GA_LEGACY_PUBLIC_HEALTH_AND_AUTH_OK'
+      - name: Test continued GA from pre-migration saved plan using disposable account
+        shell: bash
+        env:
+          PP_TEST_BASE: https://app.liftorbit.app
+        run: |
+          set -euo pipefail
+          python3 ops/ops/ovh/test-legacy-continuation.py
+          echo 'LIVE_GA_LEGACY_CONTINUATION_AND_PERSISTENCE_OK'
