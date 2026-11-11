@@ -25,12 +25,12 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 3601d811ba6b6cb2decacde44c2de078d0b6a27a
+          ref: 24e793902111ca103a2ab4a6b58f45a6d538c79d
           path: prior
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 24e793902111ca103a2ab4a6b58f45a6d538c79d
+          ref: 4217386cadd04d6a8defc6d793ffbf83a8decce7
           path: repaired
           persist-credentials: false
       - name: Verify previous and new production compatibility scripts differ in one file only
