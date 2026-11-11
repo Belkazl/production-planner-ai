@@ -68,6 +68,22 @@ try:
       break
     last=r
   print("HIGH_VOLUME_GA_TEST phases",json.dumps(phases),flush=True)
+  # Exercise real same-account GA continuation (not a new search).
+  # The completed run must seed a second worker using its persisted portable state.
+  status,r,ms=call("/api/plan","POST",{"generations":3,"population":6,"seed":9,
+    "continue":True,"objective":"duration","__pp_async_start":True})
+  check(status==202 and r.get("started"),"continuation_start_from_completed_plan","status="+str(status)+" error="+str(r.get("error","none"))[:55])
+  resumed=False
+  for attempt in range(10):
+    time.sleep(2)
+    status,r,ms=call("/api/plan-progress")
+    check(status==200 and r.get("ok"),"continuation_progress_"+str(attempt),"status="+str(status)+" error="+str(r.get("error","none"))[:55])
+    if not r.get("running"):
+      check(r.get("success") and isinstance(r.get("result"),dict) and len(r["result"].get("operations",[]))>0,
+        "continuation_completed",str(r.get("phase"))+":"+str(r.get("error")))
+      resumed=True
+      break
+  check(resumed,"continuation_second_ga_run")
   if last is None:
     status,r,ms=call("/api/optimizer-reset","POST",{})
     check(status==200 and r.get("ok"),"fresh_reset_after_completion",str(ms)+"ms")
