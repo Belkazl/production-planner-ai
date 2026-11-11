@@ -15,10 +15,10 @@ def call(path,method="GET",body=None):
   started=time.monotonic()
   try:
     with urllib.request.urlopen(req,timeout=30) as r:
-      status=r.status;raw=r.read(200000)
+      status=r.status;raw=r.read(18_000_000)
       if path=="/api/auth/register":cookie=(r.headers.get("set-cookie") or "").split(";")[0]
   except urllib.error.HTTPError as e:
-    status=e.code;raw=e.read(200000)
+    status=e.code;raw=e.read(18_000_000)
   try:obj=json.loads(raw)
   except:obj={}
   return status,obj,round((time.monotonic()-started)*1000)
