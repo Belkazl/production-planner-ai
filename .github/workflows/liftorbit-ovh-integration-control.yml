@@ -222,7 +222,8 @@ jobs:
                 "async_transport":'id="ppAsyncPlanTransport"' in body,
                 "native_gantt":'id="ganttScroll"' in body,
                 "etalon_decision":"function ppIncumbentDecision(a,b){" in body,
-                "strict_incumbent":"function ppIncumbentCurrentPlan(){let saved=null;" in body
+                "strict_incumbent":"function ppIncumbentCurrentPlan(){let saved=null;" in body,
+                "saved_plan_restore":'id="pp-ovh-etalon-state-restore"' in body
               }
               print("ETALON_PROBE",name,"status="+str(code),
                     "ui="+str(h.get("x-liftorbit-ui","none")),
