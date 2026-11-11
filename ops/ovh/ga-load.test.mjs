@@ -28,6 +28,7 @@ function harness(){
  const upstream=createPythonGAUpstream({
   enabled:true,origin:"http://qa-ga-worker.railway.internal:8080",
   token:"test-only-unique-secret-length-32-abcdefg",
+  upstreamUrl:req=>"https://invalid.invalid"+new URL(req.url).pathname,
   sessionKey:async req=>req.headers.get("cookie")?.replace("session=","")||"",
   verifyLogin:async req=>/^session=tenant[AB]$/.test(req.headers.get("cookie")||""),
   readAccountModel:async()=>model,
