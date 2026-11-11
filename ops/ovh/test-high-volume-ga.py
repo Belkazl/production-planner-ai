@@ -52,7 +52,7 @@ try:
   storage={"prodplan.projects.v2":json.dumps([{"id":project,"name":"Synthetic high volume","model":m}]),
        "prodplan.project.active.v2":project,"qa.synthetic.saved_plans":json.dumps(saved)}
   status,r,ms=call("/api/db-storage","POST",{"storage":storage})
-  check(status==200 and r.get("ok"),"saved_many_large_plans",str(round(len(json.dumps(storage))/1e6,2))+"MB")
+  check(status==200 and r.get("ok"),"saved_many_large_plans","status="+str(status)+" error="+str(r.get("error","none"))[:50]+" size="+str(round(len(json.dumps(storage))/1e6,2))+"MB")
   status,r,ms=call("/api/auth/me");check(status==200,"fast_session_verification",str(ms)+"ms")
   status,r,ms=call("/api/model");check(status==200 and len(r.get("model",{}).get("orders",[]))==12,"large_model_loaded",str(ms)+"ms")
   status,r,ms=call("/api/plan","POST",{"generations":2,"population":4,"seed":4,"__pp_async_start":True})
