@@ -315,8 +315,9 @@ jobs:
             const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
             try{
               const context=await browser.newContext({viewport:{width:1500,height:930},extraHTTPHeaders:{cookie,origin:'https://app.liftorbit.app','sec-fetch-site':'same-origin'}});
-              const page=await context.newPage(),routes=[],pageErrors=[];
+              const page=await context.newPage(),routes=[],planMethods=[],pageErrors=[];
               page.on('pageerror',e=>pageErrors.push(String(e.message||e).split(':')[0].slice(0,45)));
+              page.on('request',req=>{const u=new URL(req.url());if(u.pathname==='/api/plan')planMethods.push(req.method());});
               page.on('response',async r=>{
                 const u=new URL(r.url());if(!u.pathname.startsWith('/api/'))return;
                 const status=r.status();let err='';
@@ -371,6 +372,11 @@ jobs:
                 freshMode:!!window.__ppFreshRestartMode
               }))));
               console.log('BROWSER_ROUTE_NETWORK',JSON.stringify(routes.filter(x=>x.method!=='GET'||x.status>=400).slice(-30)));
+              console.log('BROWSER_PLAN_HTTP_METHODS',JSON.stringify(planMethods));
+              if(!planMethods.includes('POST')||planMethods.includes('GET')||
+                 routes.some(x=>x.path==='/api/plan'&&x.status>=400))
+                throw Error('NATIVE_GA_GET_ROUTE_REGRESSION');
+
               console.log('BROWSER_ROUTE_PAGE_ERRORS',JSON.stringify(pageErrors.slice(0,8)));
             }finally{await browser.close()}
           })().catch(e=>{console.error('BROWSER_ROUTE_DIAGNOSTIC_FAILED',String(e.message||e).slice(0,120));process.exit(1)})
