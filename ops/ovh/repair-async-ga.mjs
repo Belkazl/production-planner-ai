@@ -24,7 +24,11 @@ const restartSource=readFileSync(restart,"utf8");
 const progressAnchor="const data=await r.json();if(fresh){";
 const terminal="const data=await r.json();if(data?.ok&&data.running===false&&[\u0027completed\u0027,\u0027cancelled\u0027,\u0027failed\u0027,\u0027timed_out\u0027,\u0027interrupted\u0027,\u0027stale\u0027,\u0027invalid\u0027].includes(data.phase)){const run=ppActiveObjectiveRuns.get(ppSecureSessionKey(req));if(run)run.completed=true;}if(fresh){";
 if(restartSource.split(progressAnchor).length!==2)throw Error("ASYNC_RESTART_PROGRESS_ANCHOR_NOT_UNIQUE");
-const nextRestart=restartSource.replace(progressAnchor,terminal);
-if(!nextRestart.includes("run.completed=true;"))throw Error("ASYNC_TERMINAL_SYNC_MISSING");
+const freshGuard="(!state.seenRunning&&!data.running))return jsonifyBridge(";
+const finishedGuard="(!state.seenRunning&&!data.running&&!data.success))return jsonifyBridge(";
+if(restartSource.split(freshGuard).length!==2)throw Error("ASYNC_FRESH_SUCCESS_GUARD_ANCHOR");
+const nextRestart=restartSource.replace(progressAnchor,terminal).replace(freshGuard,finishedGuard);
+if(!nextRestart.includes("run.completed=true;")||!nextRestart.includes(finishedGuard))
+ throw Error("ASYNC_TERMINAL_SYNC_MISSING");
 writeFileSync(restart,nextRestart);
 console.log("OVH_ASYNC_GA_202_AND_TENANT_TERMINAL_PROGRESS_REPAIRED");
