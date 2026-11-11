@@ -16,7 +16,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import json,urllib.request,urllib.error,uuid,secrets
+          import json,urllib.request,urllib.error,uuid,secrets,time
           base='https://app.liftorbit.app'
           cookie=''
           def request(path,method='GET',payload=None):
@@ -30,10 +30,10 @@ jobs:
             req=urllib.request.Request(base+path,headers=headers,data=data,method=method)
             try:
               with urllib.request.urlopen(req,timeout=18) as r:
-                code=r.status;body=r.read(8192)
+                code=r.status;body=r.read(1000000)
                 if path=='/api/auth/register':cookie=(r.headers.get('set-cookie') or '').split(';')[0]
             except urllib.error.HTTPError as e:
-              code=e.code;body=e.read(8192)
+              code=e.code;body=e.read(1000000)
             try:d=json.loads(body)
             except:d={}
             print('PRODUCTION_GA_DIAGNOSTIC',path,method,'status',code,'error',str(d.get('error','none'))[:60],flush=True)
@@ -59,7 +59,20 @@ jobs:
           if code!=200:raise SystemExit('DIAG_OWNED_MODEL_UNAVAILABLE')
           code,_=request('/api/plan','POST',{'generations':2,'population':4,'seed':1,'__pp_async_start':True})
           if code!=202:raise SystemExit('DIAG_GA_START_UNAVAILABLE')
-          code,_=request('/api/plan-progress')
-          if code!=200:raise SystemExit('DIAG_GA_PROGRESS_UNAVAILABLE')
+          completed=False
+          for attempt in range(18):
+            time.sleep(1)
+            code,d=request('/api/plan-progress')
+            if code!=200:raise SystemExit('DIAG_GA_PROGRESS_UNAVAILABLE')
+            if d.get('success') and isinstance(d.get('result'),dict) and d['result'].get('operations'):
+              completed=True
+              print('PRODUCTION_GA_FULL_CYCLE_COMPLETED',flush=True)
+              break
+            if d.get('phase') in ('failed','timed_out','interrupted','invalid'):
+              raise SystemExit('DIAG_GA_WORKER_TERMINAL_FAILURE')
+          if not completed:raise SystemExit('DIAG_GA_DID_NOT_COMPLETE')
+          code,d=request('/api/optimizer-reset','POST',{})
+          if code!=200 or not d.get('ok'):raise SystemExit('DIAG_GA_RESET_AFTER_COMPLETION_FAILED')
+          print('PRODUCTION_GA_RESET_AFTER_COMPLETION_OK',flush=True)
           print('PRODUCTION_GA_STATE_DIAGNOSTIC_OK',flush=True)
           PY
