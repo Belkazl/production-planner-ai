@@ -392,6 +392,10 @@ jobs:
             }finally{await browser.close()}
           })().catch(e=>{console.error('BROWSER_ROUTE_DIAGNOSTIC_FAILED',String(e.message||e).slice(0,120));process.exit(1)})
           NODE
+      - name: Browser-verify continuation of pre-migration saved plan
+        shell: bash
+        run: |
+          node ops/ops/ovh/test-legacy-continue-browser.cjs
       - name: Verify synthetic-account async GA model, job progress and completion
         shell: bash
         run: python3 ops/ops/ovh/test-async-ga.py
