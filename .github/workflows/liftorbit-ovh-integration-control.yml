@@ -73,7 +73,8 @@ jobs:
           node ops/ops/ovh/patch-runtime-origins.mjs app
           node ops/ops/ovh/repair-planner-ui.mjs app
           node ops/ops/ovh/repair-ga-state.mjs app
-          node --test ops/ops/ovh/ga-state-recovery.test.mjs
+          node ops/ops/ovh/repair-ga-load.mjs app
+          node --test ops/ops/ovh/ga-state-recovery.test.mjs ops/ops/ovh/ga-load.test.mjs
           node ops/ops/ovh/repair-async-ga.mjs app
           python3 -m py_compile ops/ops/ovh/test-async-ga.py
           # Synthetic account session cookie is explicitly retained in local test
@@ -337,6 +338,10 @@ jobs:
                 apiInOnclick:[...new Set((document.getElementById('opt')?.onclick?.toString()||'').match(/\/api\/[a-z0-9_/-]+/g)||[])].slice(0,15)
               }));
               console.log('BROWSER_ROUTE_BEFORE',JSON.stringify(before));
+              const cad=await page.evaluate(()=>Array.from(document.scripts).some(s=>String(s.textContent||'').includes('timer=setInterval(poll,2000)')));
+              console.log('BROWSER_GA_POLL_2_SECONDS',cad);
+              if(!cad)throw Error('GA_POLL_INTERVAL_NOT_TWO_SECONDS');
+
               const planSource=await page.evaluate(()=>{
                 const found=[];
                 for(const tag of document.scripts){
