@@ -72,6 +72,8 @@ jobs:
           set -euo pipefail
           node ops/ops/ovh/patch-runtime-origins.mjs app
           node ops/ops/ovh/repair-planner-ui.mjs app
+          node ops/ops/ovh/repair-ga-state.mjs app
+          node --test ops/ops/ovh/ga-state-recovery.test.mjs
           node ops/ops/ovh/repair-async-ga.mjs app
           python3 -m py_compile ops/ops/ovh/test-async-ga.py
           # Synthetic account session cookie is explicitly retained in local test
