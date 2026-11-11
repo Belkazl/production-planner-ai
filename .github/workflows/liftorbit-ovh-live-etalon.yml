@@ -48,7 +48,7 @@ jobs:
           node --check new/app/auth-runtime.js
           diff -qr old/app new/app > "$RUNNER_TEMP/etalon-diff" || test "$?" -eq 1
           test "$(wc -l < "$RUNNER_TEMP/etalon-diff")" -eq 1
-          grep -Eq '^Files old/app/auth-runtime.js and new/app/auth-runtime.js differ
+          grep -Fqx "Files old/app/auth-runtime.js and new/app/auth-runtime.js differ" "$RUNNER_TEMP/etalon-diff"
           grep -q 'etalon-modules-compat' new/app/auth-runtime.js
           grep -q 'pp-ovh-etalon-state-restore' new/app/auth-runtime.js
           sha256sum old/app/auth-runtime.js | awk '{print $1}' > old.sha
