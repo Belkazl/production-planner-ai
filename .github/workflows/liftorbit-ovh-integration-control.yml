@@ -1,5 +1,5 @@
 name: LiftOrbit OVH integration control - isolated six-service check
-# Runner validates the corrected etalon state-restoration script in a disposable six-service clone.
+# Runner validates 12-order GA load, complete large storage responses, and etalon behavior in a disposable six-service clone.
 on:
   push:
     branches: [main]
