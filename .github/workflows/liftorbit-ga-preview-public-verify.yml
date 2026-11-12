@@ -1,4 +1,4 @@
-name: LiftOrbit public GA intermediate previews acceptance
+name: LiftOrbit public GA preview and duration consistency diagnostic
 # Verify newly deployed previews with a disposable account; no customer data is accessed.
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: eedb50acd2cdeae61ad98f483baddd73a640d426
+          ref: 3ddcd58045043c5e35cd0234e617047c8980541e
           path: ops
           persist-credentials: false
       - name: Check public HTTPS and login protection
