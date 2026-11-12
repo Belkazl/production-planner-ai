@@ -7,7 +7,7 @@ const patch=readFileSync(new URL("./repair-planner-ui.mjs",import.meta.url),"utf
 const transport=readFileSync("app/async-plan-transport.js","utf8");
 const match=patch.match(/const gaProgressRecovery=(\[[^\n]+\]);/);
 assert(match,"recovery specification should exist");
-const replacements=JSON.parse(match[1]);
+const replacements=JSON.parse(match[1].replaceAll("\\\\","\\"));
 function patchedTransport(){
  let source=transport;
  for(const [before,after] of replacements){
