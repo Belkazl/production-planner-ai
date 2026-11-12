@@ -1,0 +1,154 @@
+name: LiftOrbit guarded OVH live GA previews release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-live-preview-release.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): publish verified live GA intermediate plans on OVH')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: b3ac9541ea9c6cdb7a5a8188f4417ab323115c62
+          path: prior
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a028364f5c0d27a50b4852722409ae86a2176abb
+          path: repaired
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: pinned-ga
+          persist-credentials: false
+      - name: Verify scope, syntax and content hashes of preview-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app old/ga new/ga
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp -a pinned-ga/ga_python_workers/. old/ga/
+          cp -a pinned-ga/ga_python_workers/. new/ga/
+          for side in old new; do
+            if [[ "$side" == old ]]; then base=prior; else base=repaired; fi
+            node "$base/ops/ovh/patch-runtime-origins.mjs" "$side/app"
+            node "$base/ops/ovh/repair-planner-ui.mjs" "$side/app"
+            node "$base/ops/ovh/repair-ga-state.mjs" "$side/app"
+            node "$base/ops/ovh/repair-ga-load.mjs" "$side/app"
+            node "$base/ops/ovh/repair-continuation.mjs" "$side/app"
+            node "$base/ops/ovh/repair-async-ga.mjs" "$side/app"
+          done
+          python3 repaired/ops/ovh/repair-ga-live-previews.py new/ga
+          node --check old/app/auth-runtime.js
+          node --check new/app/auth-runtime.js
+          python3 -m py_compile new/ga/ga_workers/full_runtime_adapter.py new/ga/ga_workers/manager.py
+          diff -qr old/app new/app > "$RUNNER_TEMP/app-diff" || test "$?" -eq 1
+          diff -qr old/ga new/ga > "$RUNNER_TEMP/ga-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/app-diff")" -eq 1
+          grep -Fqx 'Files old/app/auth-runtime.js and new/app/auth-runtime.js differ' "$RUNNER_TEMP/app-diff"
+          test "$(wc -l < "$RUNNER_TEMP/ga-diff")" -eq 1
+          grep -Fqx 'Files old/ga/ga_workers/full_runtime_adapter.py and new/ga/ga_workers/full_runtime_adapter.py differ' "$RUNNER_TEMP/ga-diff"
+          grep -q '__PP_OVH_LIVE_PREVIEW_BRIDGE__' new/app/auth-runtime.js
+          grep -q '_live_scheduler_preview' new/ga/ga_workers/full_runtime_adapter.py
+          sha256sum old/app/auth-runtime.js | cut -d' ' -f1 > old.auth.sha
+          sha256sum new/app/auth-runtime.js | cut -d' ' -f1 > new.auth.sha
+          sha256sum old/ga/ga_workers/full_runtime_adapter.py | cut -d' ' -f1 > old.ga.sha
+          sha256sum new/ga/ga_workers/full_runtime_adapter.py | cut -d' ' -f1 > new.ga.sha
+          echo 'GA_LIVE_PREVIEW_EXACT_TWO_FILE_PATCH_VALIDATED'
+      - name: Apply precisely two source files on OVH with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldAuth=$(cat old.auth.sha)
+          newAuth=$(cat new.auth.sha)
+          oldGA=$(cat old.ga.sha)
+          newGA=$(cat new.ga.sha)
+          appDir=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          gaDir=/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers
+          scp -q "${opts[@]}" new/app/auth-runtime.js "$target:$appDir/auth-runtime.js.preview.next"
+          scp -q "${opts[@]}" new/ga/ga_workers/full_runtime_adapter.py "$target:$gaDir/full_runtime_adapter.py.preview.next"
+          ssh "${opts[@]}" "$target" "bash -s -- '$oldAuth' '$newAuth' '$oldGA' '$newGA'" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/auth-runtime.js"
+          ga="$root/sources/current/ga/ga_workers/full_runtime_adapter.py"
+          nextApp="$root/sources/ovh-app/auth-runtime.js.preview.next"
+          nextGa="$root/sources/current/ga/ga_workers/full_runtime_adapter.py.preview.next"
+          backup="$root/patch-backups/ga-live-previews-20261112"
+          oldAuth="$1";newAuth="$2";oldGA="$3";newGA="$4"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          mkdir -p "$backup"
+          for path in "$app" "$ga" "$nextApp" "$nextGa"; do test -f "$path"; done
+          test "$(sha "$app")" = "$oldAuth" || { echo 'GA_PREVIEW_AUTH_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$ga")" = "$oldGA" || { echo 'GA_PREVIEW_GA_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$nextApp")" = "$newAuth" || { echo 'GA_PREVIEW_APP_UPLOAD_HASH_MISMATCH'; exit 5; }
+          test "$(sha "$nextGa")" = "$newGA" || { echo 'GA_PREVIEW_GA_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null || { echo 'GA_PREVIEW_PREDEPLOY_UNHEALTHY_ABORT'; exit 6; }
+          cp -p "$app" "$backup/auth-runtime.js"
+          cp -p "$ga" "$backup/full_runtime_adapter.py"
+          test "$(sha "$backup/auth-runtime.js")" = "$oldAuth"
+          test "$(sha "$backup/full_runtime_adapter.py")" = "$oldGA"
+          restore() {
+            trap - ERR
+            cp -p "$backup/auth-runtime.js" "$app" || true
+            cp -p "$backup/full_runtime_adapter.py" "$ga" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_PREVIEW_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap restore ERR
+          mv "$nextApp" "$app"
+          mv "$nextGa" "$ga"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_PREVIEW_POSTDEPLOY_SMOKE_UNHEALTHY'; false; }
+          test "$(sha "$app")" = "$newAuth" && test "$(sha "$ga")" = "$newGA"
+          trap - ERR
+          echo 'GA_REAL_INTERMEDIATE_PREVIEWS_OVH_UPDATED_HEALTHY'
+          REMOTE
+      - name: Verify public HTTPS and unauthenticated access boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 18 https://app.liftorbit.app/__bridge_health > /dev/null
+          status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me)
+          test "$status" = 401
+          echo 'GA_REAL_INTERMEDIATE_PREVIEWS_PUBLIC_HEALTHY'
