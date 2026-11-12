@@ -47,12 +47,15 @@ async function ppSafePlannerUiForAuthenticatedUser(req){
   if(raw.split(legacyStart).length!==2||raw.split(legacyFetch).length!==2)throw error;
   const safePost="fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify((()=>{const q=new URL(url,location.href).searchParams;const continuing=q.get('continue')==='1';return {generations:Math.min(60,Math.max(1,Number(q.get('generations'))||60)),population:Math.min(32,Math.max(2,Number(q.get('population'))||32)),continue:continuing,resume_plan:continuing&&window.__ppLegacyContinuationSeed?window.__ppLegacyContinuationSeed():null,__pp_fresh_recovery:!continuing,seed:Number(q.get('seed'))||1729,objective:q.get('objective')||'duration'};})()),cache:'no-store'})";
   const originalTransport=typeof PP_ASYNC_PLAN_INLINE==="string"?PP_ASYNC_PLAN_INLINE:"";
-  const transient="if(data.running)continue;";
-  // Fresh-start bridge can legitimately return fresh_starting before the first
-  // GA worker progress tick. This is NOT a final error or failed calculation.
-  if(!originalTransport||originalTransport.split(transient).length!==2||raw.split("</head>").length!==2)throw error;
-  const gaTransport=originalTransport.replace(transient,
-   "if(data.running||data.phase==='fresh_ready'||data.phase==='fresh_starting'||data.phase==='queued')continue;");
+  // A transient empty/non-JSON proxy response must not finish the running GA.
+  // Retry the same authenticated route; do not mutate or replace the plan.
+  const gaProgressRecovery=JSON.parse(decodeURIComponent("%5B%5B%22const%20deadline%3DDate.now()%2B15*60*1000%3Blet%20transient%3D0%3B%22%2C%22const%20deadline%3DDate.now()%2B15*60*1000%3Blet%20transient%3D0%2CbadProgressAt%3D0%3B%22%5D%2C%5B%22if(signal%3F.aborted)throw%20err%3Bif(%2B%2Btransient%3C5)continue%3B%22%2C%22if(signal%3F.aborted)throw%20err%3Bif(!badProgressAt)badProgressAt%3DDate.now()%3Bif(Date.now()-badProgressAt%3C60000)continue%3B%22%5D%2C%5B%22if(!data)%7B%5Cn%20%20%20%20if(%2B%2Btransient%3C5)continue%3B%5Cn%20%20%20%20return%20%7Bstatus%3A502%2Cdata%3A%7Bok%3Afalse%2Cerror%3A%5C%22ga_progress_invalid_json%5C%22%7D%7D%3B%5Cn%20%20%20%7D%22%2C%22if(!data)%7B%5Cn%20%20%20%20if(%2B%2Btransient%3D%3D%3D3)console.warn(%5C%22PP_GA_PROGRESS_NON_JSON%5C%22%2Cr.status%2C(r.headers.get(%5C%22content-type%5C%22)%7C%7C%5C%22%5C%22).slice(0%2C48))%3B%5Cn%20%20%20%20if(!badProgressAt)badProgressAt%3DDate.now()%3B%5Cn%20%20%20%20if(Date.now()-badProgressAt%3C60000)continue%3B%5Cn%20%20%20%20return%20%7Bstatus%3A502%2Cdata%3A%7Bok%3Afalse%2Cerror%3A%5C%22ga_progress_response_unavailable%5C%22%7D%7D%3B%5Cn%20%20%20%7D%22%5D%2C%5B%22if(%2B%2Btransient%3C5%26%26r.status%3E%3D500)continue%3B%22%2C%22if(r.status%3E%3D500)%7Bif(!badProgressAt)badProgressAt%3DDate.now()%3Bif(Date.now()-badProgressAt%3C60000)continue%3B%7D%22%5D%2C%5B%22%20%20%20transient%3D0%3B%5Cn%20%20%20if(data.running)continue%3B%22%2C%22%20%20%20transient%3D0%3BbadProgressAt%3D0%3B%5Cn%20%20%20if(data.running%7C%7Cdata.phase%3D%3D%3D'fresh_ready'%7C%7Cdata.phase%3D%3D%3D'fresh_starting'%7C%7Cdata.phase%3D%3D%3D'queued')continue%3B%22%5D%5D"));
+  if(!originalTransport||raw.split("</head>").length!==2)throw error;
+  let gaTransport=originalTransport;
+  for(const [before,after] of gaProgressRecovery){
+   if(gaTransport.split(before).length!==2)throw new Error("PP_GA_PROGRESS_RECOVERY_ANCHOR_CHANGED");
+   gaTransport=gaTransport.replace(before,after);
+  }
   const legacyPoll="timer=setInterval(poll,220)";
   if(raw.split(legacyPoll).length!==2)throw error;
   const restoredNative=raw.replace(legacyFetch,safePost).replace(legacyPoll,"timer=setInterval(poll,2000)").replace("</head>",gaTransport+"</head>");
