@@ -396,6 +396,15 @@ jobs:
             }finally{await browser.close()}
           })().catch(e=>{console.error('BROWSER_ROUTE_DIAGNOSTIC_FAILED',String(e.message||e).slice(0,120));process.exit(1)})
           NODE
+      - name: Inspect synthetic GA scheduling hooks without exposing source or model data
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg=/opt/liftorbit/full.compose.yml
+          cid=$(sudo docker compose -f "$cfg" ps -q ga-worker)
+          test -n "$cid"
+          sudo docker cp ops/ops/ovh/ga-progress-introspection.py "$cid:/tmp/ga-preview-introspection.py"
+          sudo docker exec "$cid" python3 /tmp/ga-preview-introspection.py
       - name: Test in-browser live GA preview rendering
         shell: bash
         run: node ops/ops/ovh/test-live-preview-browser.cjs
