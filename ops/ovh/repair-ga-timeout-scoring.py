@@ -55,6 +55,10 @@ helper='''def _live_scheduler_preview(sim, model, objective, ga, pins, checkpoin
         stated=float(sim['duration_minutes'])
         actual=max(float(r['end_min']) for r in rows+setups)
         if not math.isfinite(stated) or stated<0 or abs(stated-actual)>1e-4:
+            seen=getattr(_live_scheduler_preview,"_bad_score",0)
+            if seen<3:
+                print("GA_PREVIEW_SCORE_MISMATCH",round(stated,3),round(actual,3),flush=True)
+                _live_scheduler_preview._bad_score=seen+1
             return None
         model_ids=[str(x.get('id')) for x in model.get('orders') or []]
         if len(model_ids)!=len(set(model_ids)) or not model_ids:
@@ -62,7 +66,14 @@ helper='''def _live_scheduler_preview(sim, model, objective, ga, pins, checkpoin
         schedule_ids={str(x.get('order')) for x in rows}
         if schedule_ids!=set(model_ids):
             return None
-    except (ValueError, TypeError, KeyError, IndexError, PinConstraintError, OverflowError):
+    except (ValueError, TypeError, KeyError, IndexError, PinConstraintError, OverflowError) as exc:
+        observed=getattr(_live_scheduler_preview,"_rejected",0)
+        if observed<5:
+            # Fixed safe error code only. Do not log any model or plan content.
+            detail=str(exc)
+            detail=detail if detail and len(detail)<90 and all(c.islower() or c.isdigit() or c=="_" for c in detail) else type(exc).__name__
+            print("GA_PREVIEW_STRICT_REJECTION",detail,flush=True)
+            _live_scheduler_preview._rejected=observed+1
         return None
     fields=('operations','batches','changeovers','duration_minutes',
             'machine_idle_minutes','operator_wait_minutes','batch_count',
