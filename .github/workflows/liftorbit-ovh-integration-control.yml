@@ -408,6 +408,14 @@ jobs:
           test -n "$cid"
           sudo docker cp ops/ops/ovh/ga-progress-introspection.py "$cid:/tmp/ga-preview-introspection.py"
           sudo docker exec -e PYTHONPATH=/srv "$cid" python3 /tmp/ga-preview-introspection.py
+      - name: Diagnose multi-day synthetic employee windows against native validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cid=$(sudo docker compose -f /opt/liftorbit/full.compose.yml ps -q ga-worker)
+          test -n "$cid"
+          sudo docker cp ops/ops/ovh/probe-ga-shifts.py "$cid:/tmp/probe-ga-shifts.py"
+          sudo docker exec -e PYTHONPATH=/srv "$cid" python3 /tmp/probe-ga-shifts.py
       - name: Verify real GA score validation and bounded process timeout salvage
         shell: bash
         run: |
