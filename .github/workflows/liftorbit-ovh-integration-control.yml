@@ -227,7 +227,11 @@ jobs:
                 "native_gantt":'id="ganttScroll"' in body,
                 "etalon_decision":"function ppIncumbentDecision(a,b){" in body,
                 "strict_incumbent":"function ppIncumbentCurrentPlan(){let saved=null;" in body,
-                "saved_plan_restore":'id="pp-ovh-etalon-state-restore"' in body
+                "saved_plan_restore":'id="pp-ovh-etalon-state-restore"' in body,
+                "live_panel":'id="ppLivePanelV2"' in body,
+                "live_motion":'__PP_LIVE_MOTION_STATE__' in body,
+                "native_live_120ms":'setInterval(()=>poll(my),120)' in body,
+                "sequential_live_1400ms":'timer=setTimeout(next,1400)' in body
               }
               print("ETALON_PROBE",name,"status="+str(code),
                     "ui="+str(h.get("x-liftorbit-ui","none")),
