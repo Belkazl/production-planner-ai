@@ -1,0 +1,33 @@
+name: GA progress JSON recovery isolated regression
+on:
+  push:
+    branches:
+      - fix/ga-progress-json-recovery-20261112
+    paths:
+      - ops/ovh/repair-planner-ui.mjs
+      - ops/ovh/ga-progress-recovery.test.mjs
+      - .github/workflows/ga-progress-json-recovery-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  transport-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout isolated recovery patch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ga-progress-json-recovery-20261112
+          path: ops
+          persist-credentials: false
+      - name: Checkout pinned production transport source
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: app
+          persist-credentials: false
+      - name: Check source syntax
+        run: node --check ops/ops/ovh/repair-planner-ui.mjs
+      - name: Test response failure recovery in isolated client sandbox
+        run: node --test ops/ops/ovh/ga-progress-recovery.test.mjs
