@@ -1,4 +1,5 @@
 name: LiftOrbit guarded OVH GA progress JSON recovery release
+# Previously verified one-file patch; deploy with checksum guard and rollback.
 on:
   push:
     branches: [main]
