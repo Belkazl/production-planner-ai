@@ -425,6 +425,14 @@ jobs:
           test -n "$cid"
           sudo docker cp ops/ops/ovh/test-ga-score-timeout.py "$cid:/tmp/test-ga-score-timeout.py"
           sudo docker exec -e PYTHONPATH=/srv "$cid" python3 /tmp/test-ga-score-timeout.py
+      - name: Verify real GA cooperatively completes before configured hard deadline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cid=$(sudo docker compose -f /opt/liftorbit/full.compose.yml ps -q ga-worker)
+          test -n "$cid"
+          sudo docker cp ops/ops/ovh/test-ga-cooperative-deadline.py "$cid:/tmp/test-ga-cooperative-deadline.py"
+          timeout 26s sudo docker exec -e PP_PY_GA_TIMEOUT_S=6 -e PYTHONPATH=/srv "$cid" python3 /tmp/test-ga-cooperative-deadline.py
       - name: Test in-browser live GA preview rendering
         shell: bash
         run: node ops/ops/ovh/test-live-preview-browser.cjs
