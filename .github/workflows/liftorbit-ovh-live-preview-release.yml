@@ -43,11 +43,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p old/app new/app old/ga new/ga
+          mkdir -p old/app new/app old/ga/ga_python_workers new/ga/ga_python_workers
           cp -a pinned/. old/app/
           cp -a pinned/. new/app/
-          cp -a pinned-ga/ga_python_workers/. old/ga/
-          cp -a pinned-ga/ga_python_workers/. new/ga/
+          cp -a pinned-ga/ga_python_workers/. old/ga/ga_python_workers/
+          cp -a pinned-ga/ga_python_workers/. new/ga/ga_python_workers/
           for side in old new; do
             if [[ "$side" == old ]]; then base=prior; else base=repaired; fi
             node "$base/ops/ovh/patch-runtime-origins.mjs" "$side/app"
@@ -57,23 +57,23 @@ jobs:
             node "$base/ops/ovh/repair-continuation.mjs" "$side/app"
             node "$base/ops/ovh/repair-async-ga.mjs" "$side/app"
           done
-          python3 repaired/ops/ovh/repair-ga-live-previews.py new/ga
+          python3 repaired/ops/ovh/repair-ga-live-previews.py new/ga/ga_python_workers
           node --check old/app/auth-runtime.js
           node --check new/app/auth-runtime.js
-          python3 -m py_compile new/ga/ga_workers/full_runtime_adapter.py new/ga/ga_workers/manager.py
+          python3 -m py_compile new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py new/ga/ga_python_workers/ga_workers/manager.py
           find new/ga -type d -name __pycache__ -prune -exec rm -rf {} +
           diff -qr old/app new/app > "$RUNNER_TEMP/app-diff" || test "$?" -eq 1
           diff -qr old/ga new/ga > "$RUNNER_TEMP/ga-diff" || test "$?" -eq 1
           test "$(wc -l < "$RUNNER_TEMP/app-diff")" -eq 1
           grep -Fqx 'Files old/app/auth-runtime.js and new/app/auth-runtime.js differ' "$RUNNER_TEMP/app-diff"
           test "$(wc -l < "$RUNNER_TEMP/ga-diff")" -eq 1
-          grep -Fqx 'Files old/ga/ga_workers/full_runtime_adapter.py and new/ga/ga_workers/full_runtime_adapter.py differ' "$RUNNER_TEMP/ga-diff"
+          grep -Fqx 'Files old/ga/ga_python_workers/ga_workers/full_runtime_adapter.py and new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py differ' "$RUNNER_TEMP/ga-diff"
           grep -q '__PP_OVH_LIVE_PREVIEW_BRIDGE__' new/app/auth-runtime.js
-          grep -q '_live_scheduler_preview' new/ga/ga_workers/full_runtime_adapter.py
+          grep -q '_live_scheduler_preview' new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py
           sha256sum old/app/auth-runtime.js | cut -d' ' -f1 > old.auth.sha
           sha256sum new/app/auth-runtime.js | cut -d' ' -f1 > new.auth.sha
-          sha256sum old/ga/ga_workers/full_runtime_adapter.py | cut -d' ' -f1 > old.ga.sha
-          sha256sum new/ga/ga_workers/full_runtime_adapter.py | cut -d' ' -f1 > new.ga.sha
+          sha256sum old/ga/ga_python_workers/ga_workers/full_runtime_adapter.py | cut -d' ' -f1 > old.ga.sha
+          sha256sum new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py | cut -d' ' -f1 > new.ga.sha
           echo 'GA_LIVE_PREVIEW_EXACT_TWO_FILE_PATCH_VALIDATED'
       - name: Apply precisely two source files on OVH with automatic rollback
         shell: bash
@@ -101,7 +101,7 @@ jobs:
           appDir=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
           gaDir=/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers
           scp -q "${opts[@]}" new/app/auth-runtime.js "$target:$appDir/auth-runtime.js.preview.next"
-          scp -q "${opts[@]}" new/ga/ga_workers/full_runtime_adapter.py "$target:$gaDir/full_runtime_adapter.py.preview.next"
+          scp -q "${opts[@]}" new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py "$target:$gaDir/full_runtime_adapter.py.preview.next"
           ssh "${opts[@]}" "$target" "bash -s -- '$oldAuth' '$newAuth' '$oldGA' '$newGA'" <<'REMOTE'
           set -euo pipefail
           umask 077
