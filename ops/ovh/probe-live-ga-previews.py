@@ -1,4 +1,4 @@
-import importlib.util,uuid,secrets,json,time,urllib.request,urllib.error,sys
+import importlib.util,uuid,secrets,json,time,urllib.request,urllib.error,sys,os
 BASE="https://app.liftorbit.app"
 spec=importlib.util.spec_from_file_location("hv","ops/ops/ovh/test-high-volume-ga.py")
 # Deliberately do not execute the high-volume acceptance module: it has __main__ actions.
@@ -44,8 +44,11 @@ def main():
         if seen and seen[-1].get("running"):
             request("/api/optimizer-stop","POST",{})
     has_pct=any(isinstance(x["pct"],(int,float)) and x["pct"]>=3 for x in seen)
-    has_preview=any(x["best"]>0 or x["candidate"]>0 for x in seen if x["running"])
-    print("PREVIEW_PROBE_SUMMARY",json.dumps({"progress_gt_3pct":has_pct,"intermediate_received":has_preview,"samples":len(seen)}),flush=True)
+    has_preview=any(x["best"]>0 for x in seen if x["running"])
+    has_candidate=any(x["candidate"]>0 for x in seen if x["running"])
+    print("PREVIEW_PROBE_SUMMARY",json.dumps({"progress_gt_3pct":has_pct,"intermediate_best":has_preview,"intermediate_candidate":has_candidate,"samples":len(seen)}),flush=True)
+    if os.environ.get("PP_REQUIRE_PREVIEW")=="1" and not (has_pct and has_preview and has_candidate):
+        raise RuntimeError("LIVE_GA_INTERMEDIATE_BEST_OR_CANDIDATE_MISSING")
 if __name__=="__main__":
     try:main()
     except Exception as e:print("PREVIEW_PROBE_FAILED",type(e).__name__,str(e)[:110]);sys.exit(1)
