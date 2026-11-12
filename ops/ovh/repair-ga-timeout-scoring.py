@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LiftOrbit OVH GA: validate live scores and preserve a verified best at time limit.
+"""LiftOrbit OVH GA: validate live scores and preserve a verified best at hard time limit.
 
 Apply after repair-ga-live-previews.py to a pinned, isolated GA worker source
 tree. Only the adapter and manager change; no GA fitness or selection logic
@@ -116,21 +116,7 @@ src=src[:start]+helper+src[end:]
 
 replace_unique("    state={'candidate_preview':None,'candidate_seq':0,'best_preview':None,'best_seq':0}",
 '''    state={'candidate_preview':None,'candidate_seq':0,'best_preview':None,'best_seq':0,
-           'verified_checkpoint':None,'candidate_checked_at':0.0,'best_checked_at':0.0}
-    class _GASoftTimeLimit(Exception):
-        pass
-    original_step=ga.get('_pp_progress_step')
-    soft_seconds=max(3,int(os.getenv('PP_PY_GA_TIMEOUT_S','600'))-12)
-    soft_deadline=time.monotonic()+soft_seconds
-    if callable(original_step):
-        def bounded_progress_step(*args,**kwargs):
-            # The existing worker timeout remains an absolute hard limit.
-            # Only abort cooperatively if a real fully validated checkpoint is
-            # available; otherwise the original bounded-failure path applies.
-            if time.monotonic()>=soft_deadline and state.get('verified_checkpoint'):
-                raise _GASoftTimeLimit()
-            return original_step(*args,**kwargs)
-        ga['_pp_progress_step']=bounded_progress_step''',"state_and_budget")
+           'verified_checkpoint':None,'candidate_checked_at':0.0,'best_checked_at':0.0}''',"verified_state_without_unreliable_cooperative_timeout")
 
 replace_unique('''                live=_preview_plan(raw,normalized) or _live_scheduler_preview(sim_arg,normalized,objective_arg)
                 if live is not None:
@@ -168,19 +154,8 @@ replace_unique('''    def compute():
         try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
         except BaseException as exc:state['exception']=exc''',
 '''    def compute():
-        try:
-            state['result']=ga['optimize'](gens,population,seed,continuing,objective)
-        except _GASoftTimeLimit:
-            checkpoint=state.get('verified_checkpoint')
-            if not checkpoint:
-                state['exception']=FullGAError('ga_time_budget_exhausted_without_valid_plan')
-            else:
-                result=copy.deepcopy(checkpoint)
-                result['optimization_time_limit_reached']=True
-                result['optimization_completed_early']=True
-                result['optimization_termination_reason']='time_budget'
-                state['result']=result
-        except BaseException as exc:state['exception']=exc''',"soft_completion")
+        try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
+        except BaseException as exc:state['exception']=exc''',"unchanged_private_ga_compute")
 replace_unique("    original_progress_candidate=ga.get('_pp_progress_candidate')",
 '''    # Build a feasible incumbent using the same official GA scheduler, before
     # the stochastic search. The native engine's tentative best/candidates may
