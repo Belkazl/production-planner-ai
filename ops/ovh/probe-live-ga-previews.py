@@ -36,7 +36,7 @@ def main():
             status,d=request("/api/plan-progress")
             if status!=200:raise RuntimeError("POLL_"+str(status)+"_"+str(d.get("error")))
             b=d.get("best_preview") or {};c=d.get("candidate_preview") or {}
-            sample={"pct":d.get("percent"),"phase":d.get("phase"),"running":d.get("running"),"best":len(b.get("operations") or []),"candidate":len(c.get("operations") or []),"done":d.get("done"),"total":d.get("total")}
+            sample={"pct":d.get("percent"),"phase":d.get("phase"),"running":d.get("running"),"best":len(b.get("operations") or []),"candidate":len(c.get("operations") or []),"best_min":b.get("duration_minutes"),"candidate_min":c.get("duration_minutes"),"best_setups":b.get("setup_count"),"candidate_setups":c.get("setup_count"),"best_valid":b.get("valid"),"candidate_valid":c.get("valid"),"final_min":(d.get("result") or {}).get("duration_minutes"),"done":d.get("done"),"total":d.get("total")}
             seen.append(sample)
             print("PREVIEW_PROBE",json.dumps(sample),flush=True)
             if not d.get("running"):break
