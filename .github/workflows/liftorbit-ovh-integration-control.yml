@@ -77,6 +77,8 @@ jobs:
           node ops/ops/ovh/repair-continuation.mjs app
           node --test ops/ops/ovh/ga-state-recovery.test.mjs ops/ops/ovh/ga-load.test.mjs ops/ops/ovh/ga-legacy-continue.test.mjs
           node ops/ops/ovh/repair-async-ga.mjs app
+          python3 ops/ops/ovh/repair-ga-live-previews.py ga/ga_python_workers
+          python3 -m py_compile ga/ga_python_workers/ga_workers/manager.py ga/ga_python_workers/ga_workers/full_runtime_adapter.py
           python3 -m py_compile ops/ops/ovh/test-async-ga.py
           # Synthetic account session cookie is explicitly retained in local test
           sudo mkdir -p /opt/liftorbit/sources/{app,auth,ga} /opt/liftorbit/secrets
