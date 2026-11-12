@@ -5,9 +5,9 @@ import vm from "node:vm";
 
 const patch=readFileSync(new URL("./repair-planner-ui.mjs",import.meta.url),"utf8");
 const transport=readFileSync("app/async-plan-transport.js","utf8");
-const match=patch.match(/const gaProgressRecovery=(\[[^\n]+\]);/);
+const match=patch.match(/const gaProgressRecovery=JSON\\.parse\\(decodeURIComponent\\("([^"]+)"\\)\\);/);
 assert(match,"recovery specification should exist");
-const replacements=JSON.parse(match[1].replaceAll("\\\\","\\"));
+const replacements=JSON.parse(decodeURIComponent(match[1]));
 function patchedTransport(){
  let source=transport;
  for(const [before,after] of replacements){
