@@ -25,18 +25,40 @@ const headers={origin:"https://app.liftorbit.app","sec-fetch-site":"same-origin"
    resource_requirements:[req("equipment",eq),req("employee",emp)]}]}],
   setup_rules:[],materials:[]
  };
- const buildPlan=(duration,shift)=>({
-  ok:true,valid:true,duration_minutes:duration,batch_count:2,
-  operator_wait_minutes:10,machine_idle_minutes:15,operations:[
-   {order:"A",operation_name:"Press",start_min:shift,end_min:shift+30,equipment_ids:[eq],employee_ids:[emp]},
-   {order:"B",operation_name:"Press",start_min:shift+40,end_min:shift+70,equipment_ids:[eq],employee_ids:[emp]}
-  ]
- });
- const baseline=buildPlan(180,0),project="qa-live-"+randomUUID();
+ const project="qa-live-"+randomUUID();
+ const initial=JSON.stringify([{id:project,name:"Disposable QA",revision:1,model}]);
+ const store=async projects=>{
+  const response=await fetch(base+"/api/db-storage",{method:"POST",headers:{...headers,cookie},
+   body:JSON.stringify({storage:{"prodplan.projects.v2":projects,"prodplan.project.active.v2":project}})});
+  assert.equal(response.status,200);
+ };
+ await store(initial);
+ const start=await fetch(base+"/api/plan",{method:"POST",headers:{...headers,cookie},
+  body:JSON.stringify({generations:2,population:4,seed:18,__pp_async_start:true})});
+ assert.equal(start.status,202);
+ let baseline=null;
+ for(let i=0;i<25;i++){
+  await new Promise(resolve=>setTimeout(resolve,700));
+  const resp=await fetch(base+"/api/plan-progress",{headers:{...headers,cookie}});
+  assert.equal(resp.status,200);
+  const data=await resp.json();
+  if(data.success&&data.result?.operations?.length){baseline=data.result;break}
+  if(!data.running&&["failed","timed_out","invalid","interrupted"].includes(data.phase))
+   throw Error("qa_model_generation_failed:"+String(data.error||data.phase));
+ }
+ assert(baseline?.operations?.length,"must generate a complete native plan for the Gantt");
+ // A preview keeps the real optimizer's complete output schema: the native
+ // renderPlan requires more than a simplified operations array.
+ const buildPlan=(duration,shift)=>{
+  const p=structuredClone(baseline);
+  p.valid=true;p.ok=true;p.partial=false;p.duration_minutes=duration;
+  p.operations=p.operations.map(o=>({...o,
+   start_min:Number(o.start_min||0)+shift,end_min:Number(o.end_min||0)+shift}));
+  return p;
+ };
  const orig=JSON.stringify([{id:project,name:"Disposable QA",revision:1,model,lastPlan:baseline}]);
- const save=await fetch(base+"/api/db-storage",{method:"POST",headers:{...headers,cookie},
-  body:JSON.stringify({storage:{"prodplan.projects.v2":orig,"prodplan.project.active.v2":project}})});
- assert.equal(save.status,200);
+ await store(orig);
+ console.log("LIVE_PREVIEW_NATIVE_FIXTURE_READY",JSON.stringify({operations:baseline.operations.length}));
  const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  try{
   const ctx=await browser.newContext({viewport:{width:1510,height:990},extraHTTPHeaders:{
@@ -73,7 +95,18 @@ const headers={origin:"https://app.liftorbit.app","sec-fetch-site":"same-origin"
    if(typeof renderPlan==="function")renderPlan(p.lastPlan);
    window.dispatchEvent(new Event("pp:optimizer-started"));
   });
-  await page.waitForFunction(()=>window.__PP_OVH_LIVE_PREVIEW_BRIDGE__?.getState()?.shown>=2,{timeout:14000});
+  try{
+   await page.waitForFunction(()=>window.__PP_OVH_LIVE_PREVIEW_BRIDGE__?.getState()?.shown>=2,null,{timeout:14000});
+  }catch(e){
+   const detail=await page.evaluate(()=>({
+    bridge:window.__PP_OVH_LIVE_PREVIEW_BRIDGE__?.getState?.()||null,
+    renderType:typeof renderPlan,chartBars:document.querySelectorAll(".pg2-bar").length,
+    acceptedDuration:window.__ppOptimizerCommittedPlan?.duration_minutes??null,
+    status:document.getElementById("valid")?.textContent?.slice(0,40)
+   }));
+   console.log("LIVE_PREVIEW_BROWSER_DIAGNOSTIC",JSON.stringify({detail,errors}));
+   throw e;
+  }
   const state=await page.evaluate(()=>window.__PP_OVH_LIVE_PREVIEW_BRIDGE__.getState());
   console.log("LIVE_PREVIEW_BROWSER_STATE",JSON.stringify(state));
   assert.equal(state.active,true);
