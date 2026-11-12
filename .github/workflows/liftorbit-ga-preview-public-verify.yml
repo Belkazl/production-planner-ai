@@ -1,4 +1,5 @@
 name: LiftOrbit public GA intermediate previews acceptance
+# Verify newly deployed previews with a disposable account; no customer data is accessed.
 on:
   push:
     branches: [main]
