@@ -29,7 +29,13 @@ for name in ('_pp_schedule_sequence','_pp_progress_snapshot','_pp_optimize_gener
 normalized=ga['canonicalize_model'](model)
 ga['CURRENT_MODEL']=normalized
 ga['install_model'](normalized)
+print('SAFE_GA_VALIDATOR_HOOK_NAMES',','.join(sorted(n for n,v in ga.items() if callable(v) and ('valid' in n.lower() or 'preview' in n.lower() or 'progress' in n.lower() or 'schedule' in n.lower()))[:80]),flush=True)
+try:
+ snap=ga['_pp_progress_snapshot']()
+ print('SAFE_GA_PROGRESS_SNAPSHOT_KEYS',','.join(sorted(str(x) for x in snap.keys())) if isinstance(snap,dict) else type(snap).__name__,flush=True)
+except Exception as e:print('SAFE_GA_PROGRESS_SNAPSHOT_ERROR',type(e).__name__,flush=True)
 stats=collections.Counter()
+first_schedule=[None]
 def register(name):
  old=ga.get(name)
  if not callable(old):return
@@ -38,6 +44,7 @@ def register(name):
   result=old(*args,**kwargs)
   stats[name+'_return_'+type(result).__name__]+=1
   if isinstance(result,dict):
+   if name=='_pp_schedule_sequence' and first_schedule[0] is None:first_schedule[0]=result
    if name+'_first_keys' not in stats:
     stats[name+'_first_keys']=','.join(sorted(str(k) for k in result.keys())[:55])
     stats[name+'_first_ops_count']=len(result.get('operations') or [])
@@ -61,3 +68,18 @@ try:
 except Exception as e:
  print('SAFE_GA_RUN_ERROR_CLASS',type(e).__name__,flush=True)
 print('SAFE_GA_HOOK_COUNTS',dict(stats),flush=True)
+
+try:
+ plan=first_schedule[0]
+ if isinstance(plan,dict):
+  result=ga.get('validate_plan_v2')
+  for label,fnargs in [('model_and_raw',(normalized,plan)),('raw_only',(plan,))]:
+   try:
+    x=result(*fnargs)
+    print('SAFE_GA_VALIDATOR_PROBE',label,'result_type',type(x).__name__,
+       'result_keys',','.join(sorted(str(k) for k in x.keys())[:40]) if isinstance(x,dict) else '',
+       'valid',x.get('valid') if isinstance(x,dict) else None,flush=True)
+   except Exception as e:print('SAFE_GA_VALIDATOR_PROBE',label,'error_class',type(e).__name__,flush=True)
+ snap=ga['_pp_progress_snapshot']()
+ print('SAFE_GA_COMPLETED_SNAPSHOT_KEYS',','.join(sorted(str(x) for x in snap.keys())) if isinstance(snap,dict) else type(snap).__name__,flush=True)
+except Exception as e:print('SAFE_GA_INTROSPECTION_ERROR',type(e).__name__,flush=True)
