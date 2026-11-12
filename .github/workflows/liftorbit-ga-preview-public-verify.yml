@@ -1,0 +1,38 @@
+name: LiftOrbit public GA intermediate previews acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-preview-public-verify.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'test(liftorbit): verify production best and candidate GA previews')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eedb50acd2cdeae61ad98f483baddd73a640d426
+          path: ops
+          persist-credentials: false
+      - name: Check public HTTPS and login protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 https://app.liftorbit.app/__bridge_health >/dev/null
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me)
+          test "$code" = 401
+          echo 'PUBLIC_GA_PREVIEW_HEALTH_AND_AUTH_OK'
+      - name: Require actual mid-run best and candidate previews on isolated real GA job
+        shell: bash
+        env:
+          PP_REQUIRE_PREVIEW: "1"
+        run: |
+          python3 ops/ops/ovh/probe-live-ga-previews.py
+          echo 'PUBLIC_GA_INTERMEDIATE_BEST_AND_CANDIDATE_ACCEPTANCE_OK'
