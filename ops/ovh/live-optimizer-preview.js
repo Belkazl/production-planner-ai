@@ -8,7 +8,7 @@ const opt=document.getElementById("opt");
 const planView=document.getElementById("planView");
 if(!opt||!planView)return;
 let active=false,inflight=false,seq=0,timer=null,mode="best",best=null,candidate=null;
-let lastPaint="",shown=0,polls=0,failures=0,lastPercent=0,base=null;
+let lastPaint="",shown=0,polls=0,failures=0,lastPercent=0,base=null,timeLimitReached=false;
 const valid=p=>{
  if(!p||p.valid===false||p.partial||!Array.isArray(p.operations)||!p.operations.length)return false;
  if(!Number.isFinite(Number(p.duration_minutes)))return false;
@@ -108,7 +108,7 @@ async function tick(my){
    const data=await response.json();
    if(my===seq){
     if(data?.running===false&&["completed","failed","cancelled","interrupted","timed_out","stale"].includes(String(data.phase||""))){
-     finish();return;
+     finish(data);return;
     }
     acceptProgress(data);
    }
@@ -119,14 +119,21 @@ async function tick(my){
 function schedule(my){clearTimeout(timer);timer=setTimeout(()=>tick(my),2000)}
 function start(scheduleFirst=true){
  if(active)return;
- active=true;seq++;mode="best";best=null;candidate=null;lastPaint="";lastPercent=0;base=window.__ppOptimizerCommittedPlan||null;
+ active=true;seq++;mode="best";best=null;candidate=null;lastPaint="";lastPercent=0;base=window.__ppOptimizerCommittedPlan||null;timeLimitReached=false;hidden();
  updateButtons();
  if(scheduleFirst)schedule(seq);
 }
-function finish(){
- if(!active)return;
+function finish(data){
+ if(data?.result?.optimization_time_limit_reached)timeLimitReached=true;
+ if(!active&&!timeLimitReached)return;
  active=false;seq++;clearTimeout(timer);timer=null;inflight=false;
- updateButtons();hidden();best=null;candidate=null;lastPaint="";
+ updateButtons();
+ if(timeLimitReached){
+  const el=note();
+  el.textContent="GA time limit reached. The best independently validated plan was preserved; you can continue optimizing.";
+  el.style.display="block";
+ }else hidden();
+ best=null;candidate=null;lastPaint="";
  // The original optimizer owns the final accepted result and any unsaved
  // choice after Stop. Do not restore an outdated baseline here.
 }
@@ -153,6 +160,6 @@ setTimeout(async()=>{
 window.__PP_OVH_LIVE_PREVIEW_BRIDGE__={
  getState:()=>({installed:true,active,mode,shown,polls,failures,lastPercent,hasBest:valid(best),
    hasCandidate:valid(candidate),acceptedUnchanged:window.__ppOptimizerCommittedPlan===base,
-   lastPaint,intervalMs:2000})
+   lastPaint,timeLimitReached,intervalMs:2000})
 };
 })();
