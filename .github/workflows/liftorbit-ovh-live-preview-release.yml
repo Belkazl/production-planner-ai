@@ -1,4 +1,5 @@
 name: LiftOrbit guarded OVH live GA previews release
+# Release only when the validated immutable source checksums match production.
 on:
   push:
     branches: [main]
