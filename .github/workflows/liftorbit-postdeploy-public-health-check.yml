@@ -1,0 +1,32 @@
+name: LiftOrbit postdeploy public status observation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-postdeploy-public-health-check.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  status:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Observe public HTTPS, auth boundary and direct origin without user data
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            for kind in public direct; do
+              if [[ "$kind" = direct ]]; then
+                opts=(--resolve "app.liftorbit.app:443:51.255.163.121")
+              else
+                opts=()
+              fi
+              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "${opts[@]}" https://app.liftorbit.app/__bridge_health || true)
+              printf 'HEALTH_OBSERVATION attempt=%s route=%s status=%s\n' "$attempt" "$kind" "$code"
+            done
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            printf 'PUBLIC_AUTH_GUEST_STATUS attempt=%s status=%s\n' "$attempt" "$code"
+            sleep 5
+          done
