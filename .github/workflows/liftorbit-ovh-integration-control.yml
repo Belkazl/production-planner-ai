@@ -78,6 +78,7 @@ jobs:
           node --test ops/ops/ovh/ga-state-recovery.test.mjs ops/ops/ovh/ga-load.test.mjs ops/ops/ovh/ga-legacy-continue.test.mjs
           node ops/ops/ovh/repair-async-ga.mjs app
           python3 ops/ops/ovh/repair-ga-live-previews.py ga/ga_python_workers
+          python3 ops/ops/ovh/repair-ga-timeout-scoring.py ga/ga_python_workers
           python3 -m py_compile ga/ga_python_workers/ga_workers/manager.py ga/ga_python_workers/ga_workers/full_runtime_adapter.py
           python3 -m py_compile ops/ops/ovh/test-async-ga.py
           # Synthetic account session cookie is explicitly retained in local test
@@ -407,6 +408,15 @@ jobs:
           test -n "$cid"
           sudo docker cp ops/ops/ovh/ga-progress-introspection.py "$cid:/tmp/ga-preview-introspection.py"
           sudo docker exec -e PYTHONPATH=/srv "$cid" python3 /tmp/ga-preview-introspection.py
+      - name: Verify real GA score validation and bounded process timeout salvage
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg=/opt/liftorbit/full.compose.yml
+          cid=$(sudo docker compose -f "$cfg" ps -q ga-worker)
+          test -n "$cid"
+          sudo docker cp ops/ops/ovh/test-ga-score-timeout.py "$cid:/tmp/test-ga-score-timeout.py"
+          sudo docker exec -e PYTHONPATH=/srv "$cid" python3 /tmp/test-ga-score-timeout.py
       - name: Test in-browser live GA preview rendering
         shell: bash
         run: node ops/ops/ovh/test-live-preview-browser.cjs
