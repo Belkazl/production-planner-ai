@@ -19,7 +19,7 @@ model={
 ga=_namespace()
 print('SAFE_GA_PREVIEW_HOOKS',','.join(x+':'+str(callable(ga.get(x))) for x in [
  '_pp_schedule_sequence','_pp_optimize_generic','_pp_progress_snapshot','optimize','validate_plan_v2','_pp_setup_generic_apply']),flush=True)
-for name in ('_pp_schedule_sequence','_pp_progress_snapshot','_pp_optimize_generic','_pp_setup_generic_apply','validate_plan_v2'):
+for name in ('_pp_schedule_sequence','_pp_progress_snapshot','_pp_progress_best','_pp_progress_candidate','_pp_progress_preview','_pp_progress_step','_pp_optimize_generic','_pp_setup_generic_apply','validate_plan_v2'):
  fn=ga.get(name)
  if callable(fn):
   try:
@@ -60,7 +60,7 @@ def register(name):
      stats[name+'_part_'+str(i)+'_ops_'+str(bool(part.get('operations')))]+=1
   return result
  ga[name]=wrapped
-for name in ('_pp_schedule_sequence','_pp_setup_generic_apply','validate_plan_v2'):
+for name in ('_pp_schedule_sequence','_pp_setup_generic_apply','_pp_progress_best','_pp_progress_candidate','_pp_progress_preview','_pp_progress_step','validate_plan_v2'):
  register(name)
 try:
  result=ga['optimize'](6,6,4,False,'duration')
@@ -82,4 +82,8 @@ try:
    except Exception as e:print('SAFE_GA_VALIDATOR_PROBE',label,'error_class',type(e).__name__,flush=True)
  snap=ga['_pp_progress_snapshot']()
  print('SAFE_GA_COMPLETED_SNAPSHOT_KEYS',','.join(sorted(str(x) for x in snap.keys())) if isinstance(snap,dict) else type(snap).__name__,flush=True)
+ if isinstance(snap,dict):
+  for key in ('best_preview','candidate_preview'):
+   p=snap.get(key)
+   print('SAFE_GA_COMPLETED_PREVIEW',key,'type',type(p).__name__,'operations',len(p.get('operations') or []) if isinstance(p,dict) else 0,flush=True)
 except Exception as e:print('SAFE_GA_INTROSPECTION_ERROR',type(e).__name__,flush=True)
