@@ -19,7 +19,7 @@ model={
 ga=_namespace()
 print('SAFE_GA_PREVIEW_HOOKS',','.join(x+':'+str(callable(ga.get(x))) for x in [
  '_pp_schedule_sequence','_pp_optimize_generic','_pp_progress_snapshot','optimize','validate_plan_v2','_pp_setup_generic_apply']),flush=True)
-for name in ('_pp_schedule_sequence','_pp_progress_snapshot','_pp_optimize_generic'):
+for name in ('_pp_schedule_sequence','_pp_progress_snapshot','_pp_optimize_generic','_pp_setup_generic_apply','validate_plan_v2'):
  fn=ga.get(name)
  if callable(fn):
   try:
@@ -38,6 +38,10 @@ def register(name):
   result=old(*args,**kwargs)
   stats[name+'_return_'+type(result).__name__]+=1
   if isinstance(result,dict):
+   if name+'_first_keys' not in stats:
+    stats[name+'_first_keys']=','.join(sorted(str(k) for k in result.keys())[:55])
+    stats[name+'_first_ops_count']=len(result.get('operations') or [])
+    stats[name+'_first_op_keys']=','.join(sorted(str(k) for k in (result.get('operations') or [{}])[0].keys())[:40]) if result.get('operations') else ''
    stats[name+'_dict_ops_'+str(bool(result.get('operations')))]+=1
    stats[name+'_dict_generic_'+str(bool(result.get('generic_operations')))]+=1
    stats[name+'_dict_valid_'+str(result.get('valid'))]+=1
@@ -53,7 +57,7 @@ for name in ('_pp_schedule_sequence','_pp_setup_generic_apply','validate_plan_v2
  register(name)
 try:
  result=ga['optimize'](6,6,4,False,'duration')
- print('SAFE_GA_RUN_VALID',bool(isinstance(result,dict) and result.get('valid')),'ops',len(result.get('operations') or []),flush=True)
+ print('SAFE_GA_RUN_VALID',bool(isinstance(result,dict) and result.get('valid')),'ops',len(result.get('operations') or []),'result_keys',','.join(sorted(result.keys())[:60]),flush=True)
 except Exception as e:
  print('SAFE_GA_RUN_ERROR_CLASS',type(e).__name__,flush=True)
 print('SAFE_GA_HOOK_COUNTS',dict(stats),flush=True)
