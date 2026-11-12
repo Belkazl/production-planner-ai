@@ -29,5 +29,9 @@ jobs:
           persist-credentials: false
       - name: Check source syntax
         run: node --check ops/ops/ovh/repair-planner-ui.mjs
+      - name: Apply guarded compatibility transformer to pinned app copy
+        run: |
+          node ops/ops/ovh/repair-planner-ui.mjs app
+          node --check app/auth-runtime.js
       - name: Test response failure recovery in isolated client sandbox
         run: node --test ops/ops/ovh/ga-progress-recovery.test.mjs
