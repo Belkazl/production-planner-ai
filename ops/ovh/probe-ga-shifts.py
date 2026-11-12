@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Synthetic 12-order GA shift-window verifier; print no customer data."""
-from ga_workers.full_runtime_adapter import _namespace
+from ga_workers.full_runtime_adapter import _namespace, _live_scheduler_preview
 from ga_workers.constraints import _verify
 model={
  "scheduler_mode":"resource","start":"2026-11-10T08:00:00",
@@ -38,6 +38,11 @@ for r in rows:
 print("GA_SHIFT_DIAGNOSTIC_COUNTS","rows",len(rows),"setups",len(sim.get("setup_operations") or []),"outside",len(failures),
       "first",failures[:8],"duration",sim.get("duration_minutes"),flush=True)
 print("GA_SHIFT_DIAGNOSTIC_WINDOW_SAMPLE",str(next(iter(win.items()),None))[:500],flush=True)
+checked=_live_scheduler_preview(sim,m,"duration",ga,[],checkpoint=True)
+print("GA_SHIFT_DIAGNOSTIC_VERIFIED_CHECKPOINT",
+      bool(isinstance(checked,dict) and checked.get("_pp_verified_checkpoint_v1") and
+           isinstance(checked.get("resume_state"),dict)),flush=True)
+
 try:
  errs=ga["_pp_validate_generic"](m,sim)
  print("GA_SHIFT_DIAGNOSTIC_NATIVE_VALID",len(errs or []),"error_types",
