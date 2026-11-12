@@ -396,6 +396,9 @@ jobs:
             }finally{await browser.close()}
           })().catch(e=>{console.error('BROWSER_ROUTE_DIAGNOSTIC_FAILED',String(e.message||e).slice(0,120));process.exit(1)})
           NODE
+      - name: Test in-browser live GA preview rendering
+        shell: bash
+        run: node ops/ops/ovh/test-live-preview-browser.cjs
       - name: Browser-verify continuation of pre-migration saved plan
         shell: bash
         run: |
