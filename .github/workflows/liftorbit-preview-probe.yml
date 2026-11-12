@@ -1,0 +1,21 @@
+name: LiftOrbit public GA live preview diagnostic
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-preview-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f37f41a629ac191d1e9c136c850ce9852ef73ea8
+          path: ops
+          persist-credentials: false
+      - name: Observe GA preview data from synthetic isolated tenant
+        run: python3 ops/ops/ovh/probe-live-ga-previews.py
