@@ -91,6 +91,7 @@ try:
       "__pp_async_start":True,"__pp_fresh_recovery":True})
     check(status==202 and r.get("started"),"long_ga_started_for_cancellation",str(ms)+"ms")
   live_previews=0
+  candidate_previews=0
   progress_samples=[]
   for attempt in range(13):
     time.sleep(2)
@@ -101,11 +102,24 @@ try:
     available=bool(isinstance(preview,dict) and preview.get("valid") is not False
                    and len(preview.get("operations") or [])>0)
     pct=round(float(r.get("percent") or 0))
-    progress_samples.append([pct,running,available])
+    candidate=r.get("candidate_preview")
+    candidate_available=bool(isinstance(candidate,dict) and candidate.get("valid") is not False
+                             and len(candidate.get("operations") or [])>0)
+    progress_samples.append([pct,running,available,candidate_available])
     if running and available:live_previews+=1
+    if running and candidate_available:candidate_previews+=1
     if not running:break
   print("HIGH_VOLUME_GA_LIVE_PREVIEW_SAMPLES",json.dumps(progress_samples),flush=True)
   check(live_previews>=2,"two_midrun_ga_best_previews_observable",str(live_previews))
+  check(candidate_previews>=1,"midrun_ga_candidate_preview_observable",str(candidate_previews))
+  # The preview test may have completed normally before the Stop assertion.
+  # Start a long synthetic search in that case, then cancel that active run.
+  if not running:
+    status,r,ms=call("/api/optimizer-reset","POST",{})
+    check(status==200 and r.get("ok"),"reset_for_stop_after_fast_complete",str(ms)+"ms")
+    status,r,ms=call("/api/plan","POST",{"generations":15000,"population":64,"seed":987,
+      "__pp_async_start":True,"__pp_fresh_recovery":True})
+    check(status==202 and r.get("started"),"long_ga_restart_for_stop",str(ms)+"ms")
   status,r,ms=call("/api/optimizer-stop","POST",{})
   check(status==200 and r.get("ok") is True,"stop_heavy_job",str(ms)+"ms")
   status,r,ms=call("/api/plan-progress")
