@@ -181,6 +181,38 @@ replace_unique('''    def compute():
                 result['optimization_termination_reason']='time_budget'
                 state['result']=result
         except BaseException as exc:state['exception']=exc''',"soft_completion")
+replace_unique("    original_progress_candidate=ga.get('_pp_progress_candidate')",
+'''    # Build a feasible incumbent using the same official GA scheduler, before
+    # the stochastic search. The native engine's tentative best/candidates may
+    # violate shifts on large jobs; never promote those to 'valid'. This
+    # deterministic baseline is independently verified and belongs only to the
+    # current worker's account/model. It does not modify GA selection.
+    if ga['_pp_generic_declared'](normalized):
+        try:
+            order_ids=[str(o.get('id')) for o in normalized.get('orders') or []]
+            cache=ga.get('_PP_GENERIC_STATE') or {}
+            hint=cache.get('best_order')
+            if not isinstance(hint,list) or set(map(str,hint))!=set(order_ids) or len(hint)!=len(order_ids):
+                hint=order_ids
+            initial=ga['_pp_schedule_sequence'](normalized,hint)
+            initial=ga['_pp_setup_generic_apply'](normalized,initial)
+            checked=_live_scheduler_preview(initial,normalized,objective,ga,pins,checkpoint=True)
+            if isinstance(checked,dict) and checked.get('_pp_verified_checkpoint_v1'):
+                # Only the successfully verified plan is eligible for the
+                # supervisor's time-limit recovery path.
+                state['best_preview']=checked
+                state['verified_checkpoint']=checked
+                state['best_seq']=1
+                print('GA_FEASIBLE_INITIAL_INCUMBENT_READY',flush=True)
+        except (ValueError, TypeError, KeyError, PinConstraintError, FullGAError, OverflowError):
+            print('GA_INITIAL_INCUMBENT_NOT_VERIFIED',flush=True)
+    original_progress_candidate=ga.get('_pp_progress_candidate')''',"feasible_starting_incumbent")
+replace_unique("    progress({'percent':1,'phase':'starting','running':True})",
+'''    initial_progress={'percent':1,'phase':'starting','running':True}
+    if state.get('best_preview') is not None:
+        initial_progress['best_preview']=state['best_preview']
+    progress(initial_progress)''',"publish_verified_baseline_before_search")
+
 replace_unique("            best=_preview_plan(snap.get('best_preview'),normalized) or state.get('best_preview')",
                "            best=state.get('best_preview')",
                "published_best_requires_validation")
