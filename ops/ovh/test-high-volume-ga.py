@@ -90,6 +90,22 @@ try:
     status,r,ms=call("/api/plan","POST",{"generations":500,"population":64,"seed":7,
       "__pp_async_start":True,"__pp_fresh_recovery":True})
     check(status==202 and r.get("started"),"long_ga_started_for_cancellation",str(ms)+"ms")
+  live_previews=0
+  progress_samples=[]
+  for attempt in range(13):
+    time.sleep(2)
+    status,r,ms=call("/api/plan-progress")
+    check(status==200 and r.get("ok"),"live_ga_progress_"+str(attempt),str(ms)+"ms")
+    running=bool(r.get("running"))
+    preview=r.get("best_preview")
+    available=bool(isinstance(preview,dict) and preview.get("valid") is not False
+                   and len(preview.get("operations") or [])>0)
+    pct=round(float(r.get("percent") or 0))
+    progress_samples.append([pct,running,available])
+    if running and available:live_previews+=1
+    if not running:break
+  print("HIGH_VOLUME_GA_LIVE_PREVIEW_SAMPLES",json.dumps(progress_samples),flush=True)
+  check(live_previews>=2,"two_midrun_ga_best_previews_observable",str(live_previews))
   status,r,ms=call("/api/optimizer-stop","POST",{})
   check(status==200 and r.get("ok") is True,"stop_heavy_job",str(ms)+"ms")
   status,r,ms=call("/api/plan-progress")
