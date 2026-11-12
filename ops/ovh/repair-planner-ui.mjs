@@ -47,12 +47,15 @@ async function ppSafePlannerUiForAuthenticatedUser(req){
   if(raw.split(legacyStart).length!==2||raw.split(legacyFetch).length!==2)throw error;
   const safePost="fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify((()=>{const q=new URL(url,location.href).searchParams;const continuing=q.get('continue')==='1';return {generations:Math.min(60,Math.max(1,Number(q.get('generations'))||60)),population:Math.min(32,Math.max(2,Number(q.get('population'))||32)),continue:continuing,resume_plan:continuing&&window.__ppLegacyContinuationSeed?window.__ppLegacyContinuationSeed():null,__pp_fresh_recovery:!continuing,seed:Number(q.get('seed'))||1729,objective:q.get('objective')||'duration'};})()),cache:'no-store'})";
   const originalTransport=typeof PP_ASYNC_PLAN_INLINE==="string"?PP_ASYNC_PLAN_INLINE:"";
-  const transient="if(data.running)continue;";
-  // Fresh-start bridge can legitimately return fresh_starting before the first
-  // GA worker progress tick. This is NOT a final error or failed calculation.
-  if(!originalTransport||originalTransport.split(transient).length!==2||raw.split("</head>").length!==2)throw error;
-  const gaTransport=originalTransport.replace(transient,
-   "if(data.running||data.phase==='fresh_ready'||data.phase==='fresh_starting'||data.phase==='queued')continue;");
+  // A transient empty/non-JSON proxy response must not finish the running GA.
+  // Retry the same authenticated route; do not mutate or replace the plan.
+  const gaProgressRecovery=[["const deadline=Date.now()+15*60*1000;let transient=0;","const deadline=Date.now()+15*60*1000;let transient=0,badProgressAt=0;"],["if(signal?.aborted)throw err;if(++transient<5)continue;","if(signal?.aborted)throw err;if(!badProgressAt)badProgressAt=Date.now();if(Date.now()-badProgressAt<60000)continue;"],["if(!data){\n    if(++transient<5)continue;\n    return {status:502,data:{ok:false,error:\"ga_progress_invalid_json\"}};\n   }","if(!data){\n    if(++transient===3)console.warn(\"PP_GA_PROGRESS_NON_JSON\",r.status,(r.headers.get(\"content-type\")||\"\").slice(0,48));\n    if(!badProgressAt)badProgressAt=Date.now();\n    if(Date.now()-badProgressAt<60000)continue;\n    return {status:502,data:{ok:false,error:\"ga_progress_response_unavailable\"}};\n   }"],["   transient=0;\n   if(data.running)continue;","   transient=0;badProgressAt=0;\n   if(data.running||data.phase==='fresh_ready'||data.phase==='fresh_starting'||data.phase==='queued')continue;"]];
+  if(!originalTransport||raw.split("</head>").length!==2)throw error;
+  let gaTransport=originalTransport;
+  for(const [before,after] of gaProgressRecovery){
+   if(gaTransport.split(before).length!==2)throw new Error("PP_GA_PROGRESS_RECOVERY_ANCHOR_CHANGED");
+   gaTransport=gaTransport.replace(before,after);
+  }
   const legacyPoll="timer=setInterval(poll,220)";
   if(raw.split(legacyPoll).length!==2)throw error;
   const restoredNative=raw.replace(legacyFetch,safePost).replace(legacyPoll,"timer=setInterval(poll,2000)").replace("</head>",gaTransport+"</head>");
