@@ -27,8 +27,32 @@ jobs:
           ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
           path: app
           persist-credentials: false
+      - name: Checkout previously deployed OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: a028364f5c0d27a50b4852722409ae86a2176abb
+          path: prior
+          persist-credentials: false
       - name: Check source syntax
         run: node --check ops/ops/ovh/repair-planner-ui.mjs
+      - name: Verify exact one-file production delta in disposable source copies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app
+          cp -a app/. old/app/
+          cp -a app/. new/app/
+          for side in old new; do
+            if [ "$side" = old ]; then base=prior; else base=ops; fi
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-continuation.mjs repair-async-ga.mjs; do
+              node "$base/ops/ovh/$script" "$side/app"
+            done
+            node --check "$side/app/auth-runtime.js"
+          done
+          diff -qr old/app new/app > "$RUNNER_TEMP/changed" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/changed")" -eq 1
+          grep -Fqx 'Files old/app/auth-runtime.js and new/app/auth-runtime.js differ' "$RUNNER_TEMP/changed"
+          echo 'GA_PROGRESS_RECOVERY_ONLY_AUTH_RUNTIME_CHANGED'
       - name: Apply guarded compatibility transformer to pinned app copy
         run: |
           node ops/ops/ovh/repair-planner-ui.mjs app
