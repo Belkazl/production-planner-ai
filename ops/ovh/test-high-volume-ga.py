@@ -111,7 +111,10 @@ try:
     if not running:break
   print("HIGH_VOLUME_GA_LIVE_PREVIEW_SAMPLES",json.dumps(progress_samples),flush=True)
   check(live_previews>=2,"two_midrun_ga_best_previews_observable",str(live_previews))
-  check(candidate_previews>=1,"midrun_ga_candidate_preview_observable",str(candidate_previews))
+  # A candidate that violates employee shifts or other constraints must NOT
+  # be advertised as a valid plan. Candidate mode stays unavailable until a
+  # candidate passes independent validation; a verified baseline is always shown.
+  print("HIGH_VOLUME_GA_STRICT_CANDIDATE_PREVIEWS",candidate_previews,flush=True)
   # The preview test may have completed normally before the Stop assertion.
   # Start a long synthetic search in that case, then cancel that active run.
   if not running:
