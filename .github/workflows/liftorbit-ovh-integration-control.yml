@@ -431,6 +431,18 @@ jobs:
         shell: bash
         run: |
           python3 ops/ops/ovh/test-high-volume-ga.py
+      - name: Classify strict GA preview rejection reasons without recording models
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          cid=$(sudo docker compose -f /opt/liftorbit/full.compose.yml ps -q ga-worker 2>/dev/null)
+          if [[ -n "$cid" ]]; then
+            sudo docker logs "$cid" 2>&1 |
+              grep -E 'GA_PREVIEW_STRICT_REJECTION|GA_PREVIEW_SCORE_MISMATCH' |
+              sed -E 's/^.*(GA_PREVIEW_(STRICT_REJECTION|SCORE_MISMATCH) [a-zA-Z0-9_ .-]{0,100}).*$/\1/' |
+              sort | uniq -c | tail -n 15
+          fi
       - name: Test pre-migration saved-plan continuation and account state on disposable GA
         shell: bash
         run: |
