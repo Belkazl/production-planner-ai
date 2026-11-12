@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import vm from "node:vm";
 
 const patch=readFileSync(new URL("./repair-planner-ui.mjs",import.meta.url),"utf8");
-const transport=readFileSync(new URL("../../async-plan-transport.js",import.meta.url),"utf8");
+const transport=readFileSync("app/async-plan-transport.js","utf8");
 const match=patch.match(/const gaProgressRecovery=(\[[^\n]+\]);/);
 assert(match,"recovery specification should exist");
 const replacements=JSON.parse(match[1]);
