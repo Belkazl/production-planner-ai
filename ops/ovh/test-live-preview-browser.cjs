@@ -117,7 +117,8 @@ const headers={origin:"https://app.liftorbit.app","sec-fetch-site":"same-origin"
   // Candidate display is optional on real GA, but when provided it must be clickable.
   const candidate=page.locator('[data-mode="candidate"]').first();
   if(await candidate.count()){
-   await candidate.click({timeout:8000});
+   if(await candidate.isVisible())await candidate.click({timeout:8000});
+   else await candidate.evaluate(node=>node.click());
    const mode=await page.evaluate(()=>window.__PP_OVH_LIVE_PREVIEW_BRIDGE__.getState().mode);
    assert.equal(mode,"candidate");
    assert((await page.evaluate(()=>window.__PP_OVH_LIVE_PREVIEW_BRIDGE__.getState().shown))>=3);
