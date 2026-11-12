@@ -61,6 +61,7 @@ jobs:
           node --check old/app/auth-runtime.js
           node --check new/app/auth-runtime.js
           python3 -m py_compile new/ga/ga_workers/full_runtime_adapter.py new/ga/ga_workers/manager.py
+          find new/ga -type d -name __pycache__ -prune -exec rm -rf {} +
           diff -qr old/app new/app > "$RUNNER_TEMP/app-diff" || test "$?" -eq 1
           diff -qr old/ga new/ga > "$RUNNER_TEMP/ga-diff" || test "$?" -eq 1
           test "$(wc -l < "$RUNNER_TEMP/app-diff")" -eq 1
