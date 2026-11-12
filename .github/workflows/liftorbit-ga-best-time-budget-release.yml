@@ -1,0 +1,161 @@
+name: LiftOrbit guarded verified GA best and timeout recovery release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-best-time-budget-release.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): preserve verified best GA plan on OVH')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a028364f5c0d27a50b4852722409ae86a2176abb
+          path: previous
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 5838d714b5784c34163166055c668493a85dd44d
+          path: repaired
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: ga-source
+          persist-credentials: false
+      - name: Validate exactly three scoped files and source digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app old/ga/ga_python_workers new/ga/ga_python_workers
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp -a ga-source/ga_python_workers/. old/ga/ga_python_workers/
+          cp -a ga-source/ga_python_workers/. new/ga/ga_python_workers/
+          for side in old new; do
+            if [[ "$side" = old ]]; then base=previous; else base=repaired; fi
+            node "$base/ops/ovh/patch-runtime-origins.mjs" "$side/app"
+            node "$base/ops/ovh/repair-planner-ui.mjs" "$side/app"
+            node "$base/ops/ovh/repair-ga-state.mjs" "$side/app"
+            node "$base/ops/ovh/repair-ga-load.mjs" "$side/app"
+            node "$base/ops/ovh/repair-continuation.mjs" "$side/app"
+            node "$base/ops/ovh/repair-async-ga.mjs" "$side/app"
+            python3 "$base/ops/ovh/repair-ga-live-previews.py" "$side/ga/ga_python_workers"
+          done
+          python3 repaired/ops/ovh/repair-ga-timeout-scoring.py new/ga/ga_python_workers
+          node --check new/app/auth-runtime.js
+          python3 -m py_compile new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py new/ga/ga_python_workers/ga_workers/manager.py
+          find new/ga -type d -name __pycache__ -prune -exec rm -rf {} +
+          diff -qr old/app new/app > "$RUNNER_TEMP/app-diff" || test "$?" -eq 1
+          diff -qr old/ga new/ga > "$RUNNER_TEMP/ga-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/app-diff")" -eq 1
+          grep -Fqx 'Files old/app/auth-runtime.js and new/app/auth-runtime.js differ' "$RUNNER_TEMP/app-diff"
+          test "$(wc -l < "$RUNNER_TEMP/ga-diff")" -eq 2
+          for name in full_runtime_adapter.py manager.py; do
+            grep -Fqx "Files old/ga/ga_python_workers/ga_workers/$name and new/ga/ga_python_workers/ga_workers/$name differ" "$RUNNER_TEMP/ga-diff"
+          done
+          grep -q 'GA time limit reached' new/app/auth-runtime.js
+          grep -q '_pp_verified_checkpoint_v1' new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py
+          grep -q 'optimization_time_limit_reached' new/ga/ga_python_workers/ga_workers/manager.py
+          for name in auth-runtime.js; do
+            sha256sum "old/app/$name" | cut -d' ' -f1 > "old.$name.sha"
+            sha256sum "new/app/$name" | cut -d' ' -f1 > "new.$name.sha"
+          done
+          for name in full_runtime_adapter.py manager.py; do
+            sha256sum "old/ga/ga_python_workers/ga_workers/$name" | cut -d' ' -f1 > "old.$name.sha"
+            sha256sum "new/ga/ga_python_workers/ga_workers/$name" | cut -d' ' -f1 > "new.$name.sha"
+          done
+          echo 'GA_VERIFIED_BEST_EXACT_THREE_FILE_SCOPE_VALIDATED'
+      - name: Guarded OVH update with verified-source rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = 51.255.163.121
+          test "$OVH_USER" = liftorbit-ci
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosts" -o ConnectTimeout=18)
+          target="$OVH_USER@$OVH_HOST"
+          dest=/home/liftorbit-ci/liftorbit-migration/sources
+          scp -q "${opts[@]}" new/app/auth-runtime.js "$target:$dest/ovh-app/auth-runtime.js.best.next"
+          for name in full_runtime_adapter.py manager.py; do
+            scp -q "${opts[@]}" "new/ga/ga_python_workers/ga_workers/$name" "$target:$dest/current/ga/ga_workers/$name.best.next"
+          done
+          ssh "${opts[@]}" "$target" bash -s -- \
+            "$(cat old.auth-runtime.js.sha)" "$(cat new.auth-runtime.js.sha)" \
+            "$(cat old.full_runtime_adapter.py.sha)" "$(cat new.full_runtime_adapter.py.sha)" \
+            "$(cat old.manager.py.sha)" "$(cat new.manager.py.sha)" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/auth-runtime.js"
+          ga="$root/sources/current/ga/ga_workers"
+          names=("$app" "$ga/full_runtime_adapter.py" "$ga/manager.py")
+          next=("$root/sources/ovh-app/auth-runtime.js.best.next" "$ga/full_runtime_adapter.py.best.next" "$ga/manager.py.best.next")
+          previous=("$1" "$3" "$5")
+          new=("$2" "$4" "$6")
+          backup="$root/patch-backups/verified-best-before-20261112"
+          mkdir -p "$backup"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          for i in 0 1 2; do
+            test -f "${names[$i]}" && test -f "${next[$i]}"
+            test "$(sha "${names[$i]}")" = "${previous[$i]}" || { echo "GA_BEST_SOURCE_DRIFT_$i"; exit 5; }
+            test "$(sha "${next[$i]}")" = "${new[$i]}" || { echo "GA_BEST_UPLOAD_HASH_MISMATCH_$i"; exit 5; }
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_BEST_PREDEPLOY_UNHEALTHY'; exit 6; }
+          for i in 0 1 2; do
+            cp -p "${names[$i]}" "$backup/$(basename "${names[$i]}")"
+            test "$(sha "$backup/$(basename "${names[$i]}")")" = "${previous[$i]}"
+          done
+          restore(){
+            trap - ERR
+            for i in 0 1 2; do cp -p "$backup/$(basename "${names[$i]}")" "${names[$i]}" || true; done
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_BEST_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap restore ERR
+          for i in 0 1 2; do mv "${next[$i]}" "${names[$i]}"; done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_BEST_POSTDEPLOY_HEALTH_FAILED'; false; }
+          for i in 0 1 2; do test "$(sha "${names[$i]}")" = "${new[$i]}"; done
+          trap - ERR
+          echo 'GA_BEST_VERIFIED_TIMEOUT_RECOVERY_OVH_HEALTHY'
+          REMOTE
+      - name: Verify HTTPS and authorization boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 https://app.liftorbit.app/__bridge_health >/dev/null
+          status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me)
+          test "$status" = 401
+          echo 'GA_BEST_VERIFIED_TIMEOUT_RECOVERY_PUBLIC_HEALTHY'
