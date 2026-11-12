@@ -7,8 +7,6 @@ if(window.__PP_OVH_LIVE_PREVIEW_BRIDGE__)return;
 const opt=document.getElementById("opt");
 const planView=document.getElementById("planView");
 if(!opt||!planView)return;
-const bestButton=document.querySelector('[data-mode="best"]');
-const candidateButton=document.querySelector('[data-mode="candidate"]');
 let active=false,inflight=false,seq=0,timer=null,mode="best",best=null,candidate=null;
 let lastPaint="",shown=0,polls=0,failures=0,lastPercent=0,base=null;
 const valid=p=>{
@@ -43,12 +41,19 @@ function note(){
 }
 function hidden(){const el=document.getElementById("ppOptimizerCandidateStatus");if(el)el.style.display="none"}
 function updateButtons(){
- if(candidateButton){candidateButton.disabled=active&&!valid(candidate);
-  candidateButton.setAttribute("aria-disabled",String(candidateButton.disabled));
-  candidateButton.title=active&&!valid(candidate)?"GA пока не передал тестируемый вариант":""}
+ const selected=mode==="candidate"&&valid(candidate)?"candidate":"best";
+ for(const b of planView.querySelectorAll('[data-mode]')){
+  if(b.dataset.mode==="candidate"){
+   b.disabled=active&&!valid(candidate);
+   b.setAttribute("aria-disabled",String(b.disabled));
+   b.title=active&&!valid(candidate)?"GA пока не передал тестируемый вариант":"";
+  }
+  if(active&&(b.dataset.mode==="best"||b.dataset.mode==="candidate"))
+   b.classList.toggle("a",b.dataset.mode===selected);
+ }
 }
 function pick(){
- return mode==="candidate"?candidate:best;
+ return mode==="candidate"&&valid(candidate)?candidate:best;
 }
 function display(){
  if(!active||window.__ppStopUiLocked)return;
@@ -70,7 +75,7 @@ function display(){
   renderPlan(p);
   if(typeof renderKpisWithDelta==="function")renderKpisWithDelta(p);
   const el=note();
-  el.textContent=(mode==="candidate"?"Тестируемый вариант":"Лучший найденный")
+  el.textContent=(mode==="candidate"&&valid(candidate)?"Тестируемый вариант":"Лучший найденный")
    +": "+Math.round(Number(p.duration_minutes))+" мин · временный просмотр, не сохранён";
   el.style.display="block";
   lastPaint=hash;shown++;
@@ -114,7 +119,7 @@ async function tick(my){
 function schedule(my){clearTimeout(timer);timer=setTimeout(()=>tick(my),2000)}
 function start(scheduleFirst=true){
  if(active)return;
- active=true;seq++;best=null;candidate=null;lastPaint="";lastPercent=0;base=window.__ppOptimizerCommittedPlan||null;
+ active=true;seq++;mode="best";best=null;candidate=null;lastPaint="";lastPercent=0;base=window.__ppOptimizerCommittedPlan||null;
  updateButtons();
  if(scheduleFirst)schedule(seq);
 }
@@ -125,9 +130,12 @@ function finish(){
  // The original optimizer owns the final accepted result and any unsaved
  // choice after Stop. Do not restore an outdated baseline here.
 }
-for(const el of [bestButton,candidateButton]){
- if(el)el.addEventListener("click",()=>{mode=el.dataset.mode||"best";lastPaint="";updateButtons();display()});
-}
+planView.addEventListener("click",event=>{
+ const el=event.target?.closest?.('[data-mode]');
+ if(!el||!planView.contains(el))return;
+ mode=el.dataset.mode||"best";lastPaint="";
+ queueMicrotask(()=>{updateButtons();display()});
+},true);
 window.addEventListener("pp:optimizer-started",()=>start());
 window.addEventListener("pp:ga-async-started",()=>start());
 window.addEventListener("pp:optimizer-finished",finish);
