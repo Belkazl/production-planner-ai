@@ -43,8 +43,12 @@ const headers={origin:"https://app.liftorbit.app","sec-fetch-site":"same-origin"
    cookie,origin:"https://app.liftorbit.app","sec-fetch-site":"same-origin"}});
   const page=await ctx.newPage(),errors=[];
   page.on("pageerror",e=>errors.push(String(e.message||e).slice(0,130)));
-  let mockRequests=0;
+  let mockRequests=0,allowMock=false;
   await page.route("**/api/plan-progress*",async route=>{
+   if(!allowMock){
+    return route.fulfill({status:200,contentType:"application/json",
+      body:JSON.stringify({ok:true,running:false,phase:"idle",best_preview:null,candidate_preview:null})});
+   }
    mockRequests++;
    const updated=mockRequests>=2;
    const data={ok:true,running:true,phase:"running",percent:updated?24:12,
@@ -55,6 +59,7 @@ const headers={origin:"https://app.liftorbit.app","sec-fetch-site":"same-origin"
   const res=await page.goto(ui+"/",{waitUntil:"domcontentloaded",timeout:60000});
   assert.equal(res.status(),200);
   await page.waitForTimeout(900);
+  allowMock=true;
   await page.evaluate(()=>{
    const key=localStorage.getItem("prodplan.project.active.v2");
    const projects=JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]");
