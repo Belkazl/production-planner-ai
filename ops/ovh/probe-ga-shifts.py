@@ -7,14 +7,17 @@ model={
  "equipment":[{"id":"EQ"+str(i),"name":"Machine","kind":"workstation","capacity":600,"capacity_unit":"m2"} for i in range(14)],
  "employees":[{"id":"EM"+str(i),"name":"Operator","shift":"day"} for i in range(5)],
  "shifts":{"day":[["08:00","12:00"],["13:00","17:00"]]},
- "orders":[{"id":"O"+str(i),"quantity":600,"unit":"m2","technical_process_id":"TP","parameters":{"color":str(i%2)}} for i in range(12)],
+ "orders":[{"id":"O"+str(i),"quantity":600,"unit":"m2","technical_process_id":"TP","parameters":{"color":"A" if i%2 else "B"}} for i in range(12)],
  "technical_processes":[{"id":"TP","name":"Seven steps","operations":[{
-     "id":"OP"+str(j),"name":"Stage","sequence":j+1,"duration_min":30,
+     "id":"OP"+str(j),"name":"Stage","sequence":j+1,"duration_min":30,"setup_parameter":"color",
      "resource_requirements":[
        {"resource_type":"equipment","resource_ref":"EQ"+str(j),"resource_refs":["EQ"+str(j)],"match_mode":"specific","quantity":1},
-       {"resource_type":"employee","resource_ref":"EM"+str(j%5),"resource_refs":["EM"+str(j%5)],"match_mode":"specific","quantity":1}
+       {"resource_type":"employee","resource_ref":"EM"+str(j%5),"resource_refs":["EM"+str(j%5)],"match_mode":"specific","quantity":1},
+       {"resource_type":"material","resource_ref":"MAT","resource_refs":["MAT"],"quantity":1,"consumption_rule":"per_unit"}
      ]} for j in range(7)]}],
- "setup_rules":[],"materials":[]
+ "setup_rules":[{"id":"QA_AB","setup_parameter":"color","equipment_ref":"*","from_state":"A","to_state":"B","duration_min":15},
+                {"id":"QA_BA","setup_parameter":"color","equipment_ref":"*","from_state":"B","to_state":"A","duration_min":15}],
+ "materials":[{"id":"MAT","name":"Glaze","unit":"kg","initial_stock":200000,"deliveries":[]}]
 }
 ga=_namespace()
 m=ga["canonicalize_model"](model)
@@ -32,7 +35,7 @@ for r in rows:
   s=float(r["start_min"]);d=float(r["end_min"])-s
   if not ga["_pp_in_window"](win,str(emp),s,d):
    failures.append((round(s,2),round(s+d,2),str(emp)))
-print("GA_SHIFT_DIAGNOSTIC_COUNTS","rows",len(rows),"outside",len(failures),
+print("GA_SHIFT_DIAGNOSTIC_COUNTS","rows",len(rows),"setups",len(sim.get("setup_operations") or []),"outside",len(failures),
       "first",failures[:8],"duration",sim.get("duration_minutes"),flush=True)
 print("GA_SHIFT_DIAGNOSTIC_WINDOW_SAMPLE",str(next(iter(win.items()),None))[:500],flush=True)
 try:
