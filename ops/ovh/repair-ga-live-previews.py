@@ -1,102 +1,80 @@
 #!/usr/bin/env python3
-"""Bounded, per-process propagation of REAL intermediate GA schedules.
+"""Repair the source-verified per-account GA preview hooks in the pinned worker.
 
-Never starts a parallel optimizer, changes optimization decisions, or exposes a
-plan from a different account. Hooks only the GA engine's existing 'candidate'
-and 'best' notification calls. Production-app persistence is untouched.
+The private GA owns the original candidate/best decisions. This patch only
+normalizes the real scheduling result at those existing callback points.
+Never starts a parallel scheduler or writes accepted/saved plans.
 """
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]).resolve()
 if not str(root).endswith('/ga_python_workers'):raise SystemExit('PREVIEW_REPAIR_EXPECTS_GA_WORKTREE')
 adapter=root/'ga_workers'/'full_runtime_adapter.py'
-manager=root/'ga_workers'/'manager.py'
-s=adapter.read_text()
-anchor="    state={}\n    def compute():"
-fragment='''    # Publish actual schedules observed at the engine's existing accepted-best
-    # and tested-candidate hook points. The GA still owns all decisions.
-    preview_lock=threading.Lock()
-    live_previews={'best':None,'candidate':None,'best_version':0,'candidate_version':0}
-    last_capture={'best':0.0,'candidate':0.0}
-    def _capture_schedule(kind,sim,objective):
-        if not isinstance(sim,dict):return
-        now_tick=time.monotonic()
-        if now_tick-last_capture[kind]<1.75:return
-        rows=sim.get('operations')
-        if not isinstance(rows,list) or not rows:return
-        metric=sim.get('duration_minutes')
-        if not isinstance(metric,(int,float)) or not (0<=metric<1e10):return
-        fields=('operations','batches','changeovers','duration_minutes',
-                'machine_idle_minutes','operator_wait_minutes','batch_count',
-                'setup_count','setup_minutes','operation_count')
-        plan={k:copy.deepcopy(sim[k]) for k in fields if k in sim}
-        plan.update({'ok':True,'valid':True,'partial':False,
-                     'start':normalized.get('start'),'objective':objective,
-                     'generic_operations':plan['operations']})
-        # Never expose unscheduled or foreign operations in a preview.
-        try:_assert_owned(plan,normalized)
-        except Exception:return
-        with preview_lock:
-            live_previews[kind]=plan
-            live_previews[kind+'_version']+=1
-            last_capture[kind]=now_tick
-    def _wrap_progress_hook(name,kind):
-        original_hook=ga.get(name)
-        if not callable(original_hook):raise FullGAError('ga_progress_hook_unavailable')
-        def report(model,sim,objective):
-            value=original_hook(model,sim,objective)
-            try:_capture_schedule(kind,sim,objective)
-            except Exception:pass
-            return value
-        ga[name]=report
-    _wrap_progress_hook('_pp_progress_best','best')
-    _wrap_progress_hook('_pp_progress_candidate','candidate')
-    last_sent_versions=(-1,-1)
-    state={}
+src=adapter.read_text()
+def once(a,b,label):
+ global src
+ if src.count(a)!=1:raise SystemExit('PREVIEW_GA_ANCHOR_'+label+'_'+str(src.count(a)))
+ src=src.replace(a,b)
+helper='''def _live_scheduler_preview(sim, model, objective):
+    """Build only a temporary read-only view from a genuine GA schedule.
+
+    Never serialize ctx, GA private state, or any other account's model.
+    This is called only from the optimizer's candidate/best event itself.
+    """
+    if not isinstance(sim,dict):return None
+    rows=sim.get('operations')
+    if not isinstance(rows,list) or not rows:return None
+    fields=('operations','batches','changeovers','duration_minutes',
+            'machine_idle_minutes','operator_wait_minutes','batch_count',
+            'setup_count','setup_minutes','operation_count')
+    plan={k:copy.deepcopy(sim[k]) for k in fields if k in sim}
+    if not isinstance(plan.get('duration_minutes'),(int,float)):return None
+    if not (0<=plan['duration_minutes']<100000000):return None
+    plan.update({'ok':True,'valid':True,'partial':False,
+                 'objective':objective,'start':model.get('start'),
+                 'generic_operations':plan['operations']})
+    try:_assert_owned(plan,model)
+    except FullGAError:return None
+    return plan
+
+
+'''
+once('def run(payload,progress):\n',helper+'def run(payload,progress):\n','add_verified_candidate_view')
+once("    state={'candidate_preview':None,'candidate_seq':0}",
+     "    state={'candidate_preview':None,'candidate_seq':0,'best_preview':None,'best_seq':0}",
+     'state_preview_versions')
+once('''                live=_preview_plan(raw,normalized)
+                if live is not None:
+                    state['candidate_preview']=live
+                    state['candidate_seq']=int(state.get('candidate_seq') or 0)+1''',
+'''                live=_preview_plan(raw,normalized) or _live_scheduler_preview(sim_arg,normalized,objective_arg)
+                if live is not None:
+                    state['candidate_preview']=live
+                    state['candidate_seq']=int(state.get('candidate_seq') or 0)+1''',
+'candidate_from_real_scheduler')
+original='''        ga['_pp_progress_candidate']=captured_progress_candidate
     def compute():'''
-if s.count(anchor)!=1:raise SystemExit('PREVIEW_ADAPTER_STATE_ANCHOR_CHANGED')
-s=s.replace(anchor,fragment)
-original='''            best=snap.get('best_preview')
-            if (pct,last[1] if best is not None else 0)!=last:
-                # Preserve the preview contract without reporting data from
-                # another account; all inputs here belong to this one process.
-                preview={'percent':min(99,max(1,pct)),'phase':snap.get('phase','optimizing'),'running':True}
-                if isinstance(best,dict) and best.get('operations'):
-                    preview['best_preview']=best
-                progress(preview)
-                last=(pct,1 if best is not None else 0)'''
-updated='''            best=snap.get('best_preview')
-            with preview_lock:
-                versions=(live_previews['best_version'],live_previews['candidate_version'])
-                changed=versions!=last_sent_versions
-                observed_best=copy.deepcopy(live_previews['best']) if changed else None
-                observed_candidate=copy.deepcopy(live_previews['candidate']) if changed else None
-            if pct!=last[0] or changed or (best is not None and last[1]==0):
-                # The per-account process reports only actual schedules.
-                preview={'percent':min(99,max(1,pct)),'phase':snap.get('phase','optimizing'),'running':True}
-                if changed and observed_best is not None:preview['best_preview']=observed_best
-                elif isinstance(best,dict) and best.get('operations'):preview['best_preview']=best
-                if changed and observed_candidate is not None:preview['candidate_preview']=observed_candidate
-                progress(preview)
-                last=(pct,1 if best is not None or observed_best is not None else 0)
-                last_sent_versions=versions'''
-if s.count(original)!=1:raise SystemExit('PREVIEW_ADAPTER_POLL_ANCHOR_CHANGED')
-s=s.replace(original,updated)
-adapter.write_text(s)
-m=manager.read_text()
-rep=[
-('    best_preview: Optional[dict] = field(default=None, repr=False)\n',
- '    best_preview: Optional[dict] = field(default=None, repr=False)\n    candidate_preview: Optional[dict] = field(default=None, repr=False)\n'),
-('"error": job.error, "best_preview": job.best_preview,',
- '"error": job.error, "best_preview": job.best_preview, "candidate_preview": job.candidate_preview,'),
-('''                            if isinstance(data.get("best_preview"), dict):
-                                job.best_preview = data["best_preview"]''',
- '''                            if isinstance(data.get("best_preview"), dict):
-                                job.best_preview = data["best_preview"]
-                            if isinstance(data.get("candidate_preview"), dict):
-                                job.candidate_preview = data["candidate_preview"]''')
-]
-for old,new in rep:
- if m.count(old)!=1:raise SystemExit('PREVIEW_MANAGER_ANCHOR_CHANGED')
- m=m.replace(old,new)
-manager.write_text(m)
-print('GA_REAL_INTERMEDIATE_BEST_AND_CANDIDATE_PATCH_READY',flush=True)
+replacement='''        ga['_pp_progress_candidate']=captured_progress_candidate
+    original_progress_best=ga.get('_pp_progress_best')
+    if callable(original_progress_best):
+        def captured_progress_best(model_arg,sim_arg,objective_arg):
+            out=original_progress_best(model_arg,sim_arg,objective_arg)
+            try:
+                raw=(ga.get('_PP_PLAN_PROGRESS') or {}).get('best_preview')
+                live=_preview_plan(raw,normalized) or _live_scheduler_preview(sim_arg,normalized,objective_arg)
+                if live is not None:
+                    state['best_preview']=live
+                    state['best_seq']=int(state.get('best_seq') or 0)+1
+            except Exception:pass
+            return out
+        ga['_pp_progress_best']=captured_progress_best
+    def compute():'''
+once(original,replacement,'best_from_real_optimizer_event')
+once("            best=_preview_plan(snap.get('best_preview'),normalized)",
+     "            best=_preview_plan(snap.get('best_preview'),normalized) or state.get('best_preview')",
+     'read_best_verified_plan')
+if 'candidate_due' not in src or 'PP_GA_CANDIDATE_EMIT' not in src:raise SystemExit('PREVIEW_WORKER_EXPECTED_VERSION_MISSING')
+adapter.write_text(src)
+manager=(root/'ga_workers'/'manager.py').read_text()
+if 'job.candidate_preview = data["candidate_preview"]' not in manager:
+ raise SystemExit('PREVIEW_MANAGER_CANDIDATE_PERSISTENCE_MISSING')
+print('GA_OFFICIAL_CANDIDATE_AND_BEST_EVENT_PREVIEW_BRIDGE_READY',flush=True)
