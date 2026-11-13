@@ -87,6 +87,27 @@ def exercise(quantity,hard_seconds):
               "ops",len(result["operations"]),
               "duration",round(result.get("duration_minutes",0)),
               "account_isolated",True,flush=True)
+        # The returned checkpoint must actually seed the next isolated GA run,
+        # not merely contain an unused resume_state object.
+        continued={"model":model(quantity),"options":{
+                   "continue":True,"resume_state":result["resume_state"],
+                   "generations":2,"population":4,"seed":2345,"objective":"duration"}}
+        next_job=manager.submit(account,continued)
+        next_end=time.monotonic()+hard_seconds+16
+        while time.monotonic()<next_end:
+            following=manager.get(account,next_job["job_id"],include_plan=True)
+            if following["status"] in ("completed","timed_out","failed","cancelled"):
+                break
+            time.sleep(.1)
+        print("HARD_TIMEOUT_QA_RESUME",
+              "state",following["status"],
+              "error",following.get("error") or "none",
+              "result_ops",len((following.get("result") or {}).get("operations") or []),flush=True)
+        assert following["status"]=="completed",following.get("error") or following["status"]
+        assert (following.get("result") or {}).get("valid") is True
+        assert len((following.get("result") or {}).get("operations") or [])>=84
+        assert manager.metrics()["active"]==0
+
     finally:manager.shutdown()
 
 if __name__=="__main__":
