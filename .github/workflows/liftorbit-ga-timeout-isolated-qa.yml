@@ -88,6 +88,11 @@ jobs:
           python3 - <<'PY'
           import json,os,runpy
           os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
+          runpy.run_path("../../diagnostics/ops/ovh/test-ga-shift-retimer.py",run_name="__main__")
+          PY
+          python3 - <<'PY'
+          import json,os,runpy
+          os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
           runpy.run_path("../../ops/ops/ovh/test-ga-score-timeout.py",run_name="__main__")
           PY
       - name: Erase isolated code-only data
