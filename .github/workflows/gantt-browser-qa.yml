@@ -6,23 +6,66 @@ on:
 jobs:
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 16
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install browser test tools
+      - name: Build protected production feature set
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/pp-test-build
+      - name: Fetch original Gantt and twelve-order fixture read only
+        run: |
+          python3 - <<'PY'
+          import urllib.request
+          base="https://production-planner-gateway-production.up.railway.app"
+          with urllib.request.urlopen(urllib.request.Request(base+"/",headers={"User-Agent":"ProdPlanLanguageRegressionFixture/1.0"}),timeout=45) as resp:
+              html=resp.read(2000000)
+          assert b'id="ganttScroll"' in html and b'ppIncumbentDecision(a,b)' in html
+          open("/tmp/pp-gateway-fixture.html","wb").write(html)
+          with urllib.request.urlopen(urllib.request.Request(base+"/api/model",headers={"User-Agent":"ProdPlanLanguageModelReadOnly/1.0"}),timeout=45) as resp:
+              model=resp.read(2000000)
+          open("/tmp/pp-ceramics-live-model.json","wb").write(model)
+          print("READ_ONLY_FIXTURES_OK",len(html),len(model))
+          PY
+      - name: Install Chromium regression runner
         run: |
           npm install --no-save --no-package-lock playwright@1.57.0
           npx playwright install --with-deps chromium
-      - name: Click live Gantt bars and verify details
-        run: node tests/gantt-browser.cjs
-      - name: Save visual QA screenshot
+      - name: Exercise browser against protected local mock, never production data
+        run: |
+          bun tests/auth-gateway-mock.ts >/tmp/pp-auth-mock.log 2>&1 &
+          auth_pid=$!
+          bun tests/planner-html-mock.ts >/tmp/pp-planner-mock.log 2>&1 &
+          planner_pid=$!
+          PP_AUTH_GATEWAY_ORIGIN=http://127.0.0.1:18080 PP_PLANNER_HTML_ORIGIN=http://127.0.0.1:18081 PORT=8080 bun index.ts >/tmp/pp-i18n-bridge.log 2>&1 &
+          bridge_pid=$!
+          trap 'kill "$bridge_pid" "$planner_pid" "$auth_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/__bridge_health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          node tests/gantt-browser.cjs
+      - name: Keep visual QA screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gantt-operation-click-dialog
-          path: gantt-click-dialog.png
+          name: gantt-details-en-ru
+          path: |
+            gantt-click-dialog.png
           retention-days: 3
           if-no-files-found: ignore
