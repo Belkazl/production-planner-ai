@@ -13,7 +13,13 @@ async function run(){
  try{
   const page=await browser.newPage({viewport:{width:1280,height:900}});
   await page.goto(FIXTURE,{waitUntil:"domcontentloaded",timeout:60000});
-  await page.waitForFunction(()=>typeof model!=="undefined"&&Array.isArray(model?.orders)&&model.orders.length>=12,{timeout:60000});
+  const info=await page.evaluate(()=>({
+    modelType:typeof model,modelOrders:typeof model!=="undefined"&&Array.isArray(model?.orders)?model.orders.length:null,
+    title:document.title,bodyLength:document.body?.textContent?.length||0,
+    urlHost:location.host
+  })).catch(()=>({error:"page_not_ready"}));
+  console.log("CERAMIC_PUBLIC_PAGE",JSON.stringify(info));
+  await page.waitForFunction(()=>typeof model!=="undefined"&&Array.isArray(model?.orders)&&model.orders.length>=12,null,{timeout:65000});
   model=await page.evaluate(()=>structuredClone(model));
   console.log("CERAMIC_SOURCE_MODEL",JSON.stringify({
     orders:model.orders?.length,equipment:model.equipment?.length,
