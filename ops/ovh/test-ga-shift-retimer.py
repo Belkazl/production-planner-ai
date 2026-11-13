@@ -8,6 +8,9 @@ windows=sim.get("ctx",{}).get("emp_windows") or {}
 rows=(sim.get("operations") or [])+(sim.get("setup_operations") or [])
 rows=sorted(rows,key=lambda r:(float(r.get("start_min") or 0),int(r.get("is_setup") is not True)))
 print("SHIFT_REPAIR_INPUT",len(rows),"first_keys",sorted(rows[0].keys())[:40],flush=True)
+print("SHIFT_REPAIR_STRUCTURE","batch_keys",sorted((sim.get("batches") or [{}])[0].keys())[:40],
+      "setup_keys",sorted((sim.get("setup_operations") or [{}])[0].keys())[:40],
+      "changeover_keys",sorted((sim.get("changeovers") or [{}])[0].keys())[:40],flush=True)
 busy={}
 batch_busy={}
 moved=0
