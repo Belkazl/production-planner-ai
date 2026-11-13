@@ -1,6 +1,7 @@
 name: LiftOrbit guarded OVH lossless GA intermediate payload shrink
 # Remove strictly identical duplicate generic rows from live progress; never touch terminal result.
 # Release source checked by disposable CI, with rollback on failed health.
+# Preflight now includes full Bun Docker build.
 on:
   push:
     branches: [main]
