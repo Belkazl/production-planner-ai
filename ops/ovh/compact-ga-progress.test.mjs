@@ -71,7 +71,8 @@ test("completed and failed progress responses remain byte-for-byte unchanged",as
 test("other routes, unauthorized responses and malformed JSON pass unchanged",async()=>{
  const wrong=new Request("https://app.liftorbit.app/api/model");
  const sample=response({ok:true,running:true,best_preview:plan()});
- assert.equal(await (await compact(wrong,sample)).text(),await sample.text());
+ const raw=await sample.clone().text();
+ assert.equal(await (await compact(wrong,sample)).text(),raw);
  const denied=Response.json({error:"authentication_required"},{status:401});
  assert.equal((await compact(req,denied)).status,401);
  const malformed=new Response("<not-json>",{status:200});
