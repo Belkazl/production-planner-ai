@@ -1,0 +1,81 @@
+name: LiftOrbit compact release rollback and service health audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-compact-rollback-audit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate live HTTPS and guest boundary
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            for channel in public direct; do
+              if [ "$channel" = direct ]; then opts=(--resolve app.liftorbit.app:443:51.255.163.121);else opts=();fi
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${opts[@]}" https://app.liftorbit.app/__bridge_health || true)
+              printf 'ROLLBACK_PUBLIC_HEALTH attempt=%s route=%s status=%s\n' "$attempt" "$channel" "$code"
+            done
+            auth=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            echo "ROLLBACK_GUEST_BOUNDARY $auth"
+            sleep 3
+          done
+      - name: Read-only OVH rollback and source integrity check
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          current="$root/sources/ovh-app/current/auth-runtime.js"
+          backup="$root/patch-backups/ga-compact-payload-20261113"
+          if [ -f "$current" ] && [ -f "$backup/auth-runtime.js" ]; then
+            old=$(sha256sum "$backup/auth-runtime.js"|cut -d' ' -f1)
+            now=$(sha256sum "$current"|cut -d' ' -f1)
+            if [ "$old" = "$now" ]; then echo 'ROLLBACK_SOURCE_RESTORED true';else echo 'ROLLBACK_SOURCE_RESTORED false';fi
+            if grep -q 'ppCompactGaProgressResponse' "$current";then echo 'ROLLBACK_COMPACTOR_PRESENT true';else echo 'ROLLBACK_COMPACTOR_PRESENT false';fi
+          else
+            echo 'ROLLBACK_SOURCE_BACKUP_MISSING'
+          fi
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then
+            echo 'ROLLBACK_OVH_PRIVATE_SMOKE PASS'
+          else
+            echo 'ROLLBACK_OVH_PRIVATE_SMOKE FAIL'
+          fi
+          python3 - "$backup" <<'PY'
+          import pathlib,re,sys
+          root=pathlib.Path(sys.argv[1])
+          tests={
+           "BUILD_ERROR":r'(failed to solve|build failed|error: process|dockerfile parse)',
+           "COMPOSE_START":r'(upstream unavailable|container .*unhealthy|dependency failed|service .*failed)',
+           "SOURCE_SYNTAX":r'(SyntaxError|Unexpected token|Module not found|Cannot find module)',
+           "DISK_FULL":r'(no space left on device)',
+           "OOM":r'(out of memory|oomkilled|killed process)',
+           "CONTAINER_TIMEOUT":r'(timed out|deadline exceeded|timeout)',
+           "DATABASE_UNAVAILABLE":r'(connection refused|database is unavailable|postgres.*not ready)'
+          }
+          for name in ("update-private.log","rollback-private.log"):
+            path=root/name
+            if not path.exists():continue
+            s=path.read_text(errors='replace')[-200000:].lower()
+            labels=[k for k,v in tests.items() if re.search(v.lower(),s)]
+            print("ROLLBACK_LOG_CLASSIFICATION",name,",".join(labels) or "UNCLASSIFIED",
+                  "chars",len(s),flush=True)
+          PY
+          REMOTE
