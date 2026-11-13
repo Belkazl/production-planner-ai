@@ -41,9 +41,9 @@ async function ppCompactGaProgressResponse(req,res){
  }catch(_){return res}
 }
 `;
-src=src.replace(anchor,helper+"\\n"+anchor).replace(guard,
- " const res=await handler(req);\\n const h=new Headers(res.headers);h.set(\\\"cache-control\\\",\\\"no-store\\\");\\n const compact=await ppCompactGaProgressResponse(req,res);\\n return new Response(compact.body,{status:compact.status,headers:compact===res?h:compact.headers});");
-const ceramicsAnchor=" const res=await handler(req);\\n const h=new Headers(res.headers);h.set(\\\"cache-control\\\",\\\"no-store\\\");";
+src=src.replace(anchor,helper+"\n"+anchor).replace(guard,
+ " const res=await handler(req);\n const h=new Headers(res.headers);h.set(\"cache-control\",\"no-store\");\n const compact=await ppCompactGaProgressResponse(req,res);\n return new Response(compact.body,{status:compact.status,headers:compact===res?h:compact.headers});");
+const ceramicsAnchor=" const res=await handler(req);\n const h=new Headers(res.headers);h.set(\"cache-control\",\"no-store\");";
 if(src.split(ceramicsAnchor).length!==2)throw Error("PP_COMPACT_GA_CERAMICS_INTEGRATION_ANCHOR_CHANGED");
 if(!src.includes("PP_COMPACT_GA_HANDLER_ANCHOR")&&(!src.includes("ppCompactGaProgressResponse(req,res)")||!src.includes("lossless-dedup")))throw Error("PP_COMPACT_GA_SOURCE_VERIFICATION");
 writeFileSync(path,src);
