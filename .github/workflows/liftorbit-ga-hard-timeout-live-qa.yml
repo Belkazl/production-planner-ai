@@ -1,4 +1,5 @@
 name: LiftOrbit 1008-operation real GA hard-timeout acceptance
+# Postrelease regression: verify 1008-operation real GA after account-ownership bridge change.
 on:
   push:
     branches: [main]
