@@ -80,6 +80,7 @@ jobs:
           PY
           python3 ../../ops/ops/ovh/repair-ga-live-previews.py .
           python3 ../../ops/ops/ovh/repair-ga-timeout-scoring.py .
+          python3 ../../diagnostics/ops/ovh/repair-ga-verified-shifts.py .
           python3 - <<'PY'
           import json,os,runpy
           os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
@@ -89,6 +90,11 @@ jobs:
           import json,os,runpy
           os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
           runpy.run_path("../../diagnostics/ops/ovh/test-ga-shift-retimer.py",run_name="__main__")
+          PY
+          python3 - <<'PY'
+          import json,os,runpy
+          os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
+          runpy.run_path("../../diagnostics/ops/ovh/test-ga-verified-checkpoints.py",run_name="__main__")
           PY
           python3 - <<'PY'
           import json,os,runpy
