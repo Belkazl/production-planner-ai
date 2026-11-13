@@ -1,0 +1,27 @@
+name: LiftOrbit ceramic account-plan mismatch isolated reproduction
+on:
+  push:
+    branches: [fix/account-plan-mismatch-20261113]
+    paths:
+      - ops/ovh/reproduce-ceramic-account-mismatch.mjs
+      - .github/workflows/liftorbit-ceramic-mismatch-qa.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-ceramic-repro:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/account-plan-mismatch-20261113
+          persist-credentials: false
+      - name: Prepare isolated public demo reader
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Reproduce user-facing ownership mismatch without accessing user data
+        shell: bash
+        run: node ops/ovh/reproduce-ceramic-account-mismatch.mjs
