@@ -5,6 +5,9 @@ on:
     paths:
       - .github/workflows/liftorbit-ga-timeout-isolated-qa.yml
       - ops/ovh/**ga-time-budget**
+      - ops/ovh/test-ga-shift-retimer.py
+      - ops/ovh/test-ga-verified-checkpoints.py
+      - ops/ovh/repair-ga-verified-shifts.py
   workflow_dispatch:
 permissions:
   contents: read
