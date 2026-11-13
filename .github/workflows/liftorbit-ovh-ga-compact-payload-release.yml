@@ -36,7 +36,7 @@ jobs:
       - name: Checkout validated lossless GA payload compactor
         uses: actions/checkout@v4
         with:
-          ref: 9e0ce7483cc92a2ff2429a3f6a170f7cd879edca
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
           path: repaired
           persist-credentials: false
       - name: Verify exact one-file change and pinned source
@@ -63,6 +63,11 @@ jobs:
           sha256sum old/app/auth-runtime.js | cut -d' ' -f1 > old.auth.sha
           sha256sum new/app/auth-runtime.js | cut -d' ' -f1 > new.auth.sha
           echo 'OVH_GA_PAYLOAD_COMPACT_ONLY_AUTH_RUNTIME_CHANGED'
+          docker build --quiet -t liftorbit-compact-release:preflight new/app > "$RUNNER_TEMP/ga-compact-docker-build.log" 2>&1 || {
+            echo 'GA_COMPACT_PINNED_DOCKER_BUILD_FAILED'
+            exit 22
+          }
+          echo 'GA_COMPACT_PINNED_DOCKER_BUILD_PASS'
       - name: Apply guarded OVH app update with automatic rollback
         shell: bash
         env:
