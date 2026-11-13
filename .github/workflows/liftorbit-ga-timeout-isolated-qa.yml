@@ -104,6 +104,7 @@ jobs:
           os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
           runpy.run_path("../../ops/ops/ovh/test-ga-score-timeout.py",run_name="__main__")
           PY
+          PYTHONPATH="$PWD" python3 ../../diagnostics/ops/ovh/test-ga-real-hard-timeout.py
       - name: Erase isolated code-only data
         if: always()
         shell: bash
