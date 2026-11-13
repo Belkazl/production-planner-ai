@@ -1,0 +1,67 @@
+name: LiftOrbit compact payload build error classification
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-compact-build-failure-classify.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read-only sanitized classification of failed OVH update
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source=Path.home()/"liftorbit-migration/patch-backups/ga-compact-payload-20261113/update-private.log"
+          if not source.is_file():
+            print("GA_COMPACT_BUILDLOG_MISSING");raise SystemExit(0)
+          data=source.read_text(errors="replace")[-500000:]
+          mapping=[
+           ("SOURCE_ANCHOR",r"ANCHOR_[A-Z0-9_]+|_ANCHOR_[A-Za-z0-9_]+"),
+           ("SOURCE_ASSERT",r"AssertionError|assert failed|Expected .*? to equal"),
+           ("COMPILE_SYNTAX",r"SyntaxError|Unexpected token|Parse error|Expected identifier"),
+           ("BUN_MODULE",r"Cannot find module|Could not resolve|No module named|module not found"),
+           ("BUN_TYPE_ERROR",r"TypeError|ReferenceError"),
+           ("TEST_FAILURE",r"[1-9][0-9]* fail\b|test failed|TEST_FAILED|FAILED_TEST"),
+           ("DOCKER_STEP_ERROR",r"failed to solve|failed to build|error: process .*?exit code"),
+           ("DOCKER_OLD_CACHE",r"failed to compute cache key|checksum calculation failed"),
+           ("DOCKER_DISK",r"no space left|no space on device"),
+           ("DOCKER_PERMISSION",r"permission denied|operation not permitted"),
+           ("NETWORK_FAILURE",r"network unreachable|no such host|connection refused|i/o timeout"),
+           ("BUN_TEST",r"bun test|bun run|bun build"),
+           ("BUN_BUILD_ERROR",r"build failed|BunBuildError|failed building"),
+           ("DOCKER_ERR_EXIT_1",r"exit code: 1\b"),
+           ("DOCKER_ERR_EXIT_2",r"exit code: 2\b")
+          ]
+          print("GA_COMPACT_LOG_BYTES",len(data))
+          for name,pat in mapping:
+            findings=re.findall(pat,data,re.I)
+            print("GA_COMPACT_FAILURE_CLASS",name,len(findings))
+          for line in data.splitlines()[-70:]:
+            if re.search(r"failed to solve|error: process|exit code|\#\d+ ERROR|\#\d+ DONE",line,re.I):
+              # Whitelisted error marker only; never print source, paths,
+              # account identifiers, environment variables or log payloads.
+              m=re.search(r"\#\d+ (?:ERROR|DONE)|exit code: ?[0-9]+|failed to solve",line,re.I)
+              if m:print("GA_COMPACT_FAILURE_MARKER",m.group(0))
+          PY
+          REMOTE
