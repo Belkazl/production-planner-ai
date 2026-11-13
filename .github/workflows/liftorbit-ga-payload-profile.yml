@@ -71,6 +71,7 @@ jobs:
             check("start",query("/api/plan","POST",{"generations":2,"population":4,
               "seed":4321,"objective":"duration","__pp_async_start":True}),allowed=(202,))
             sizes=[]
+            profiled=False
             for tick in range(12):
               time.sleep(2)
               result=query("/api/plan-progress")
@@ -81,7 +82,8 @@ jobs:
                     "candidate_rows",len((data.get("candidate_preview") or {}).get("operations") or []),
                     "final_rows",len((data.get("result") or {}).get("operations") or []),flush=True)
               sizes.append(size)
-              if tick==0:
+              if not profiled and data.get("best_preview"):
+                profiled=True
                 import hashlib
                 def nbytes(x):return len(json.dumps(x,ensure_ascii=False,separators=(",",":")).encode())
                 print("GA_PROFILE_TOP",json.dumps({k:nbytes(v) for k,v in data.items()},sort_keys=True),flush=True)
