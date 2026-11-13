@@ -1,6 +1,7 @@
 name: LiftOrbit guarded OVH GA account-owned final and preview recovery
 # Never publish foreign previews; allow only previously verified own-job checkpoint fallback.
 # Guarded one-source-file release; tenant ownership tests and rollback required.
+# Source regression run 43417095503 passed with foreign tenant plans rejected.
 # Preflight requires real Docker build of unchanged etalon and valid owned-plan contract.
 on:
   push:
