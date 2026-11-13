@@ -1,0 +1,64 @@
+name: LiftOrbit GA timeout live configuration diagnostics
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ga-timeout-readonly-verify.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect safe GA timeout settings and worker patch state without account access
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/hosts"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosts" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          root=Path.home()/"liftorbit-migration"
+          conf=root/"production/current/ga-worker.json"
+          if conf.is_file():
+              data=json.loads(conf.read_text())
+              for key in ("PP_PY_GA_TIMEOUT_S","PP_PY_GA_MAX_PROCS","PP_PY_GA_ADAPTER"):
+                  value=data.get(key)
+                  if key=="PP_PY_GA_ADAPTER":
+                      value="configured" if isinstance(value,str) and bool(value) else "missing"
+                  elif value is None:value="missing"
+                  else:
+                      try:value=int(value)
+                      except (ValueError,TypeError):value="invalid"
+                  print("SAFE_GA_CONFIG",key,value,flush=True)
+          else:print("SAFE_GA_CONFIG_FILE_MISSING")
+          ga=root/"sources/current/ga/ga_workers"
+          for name,marker in (("manager.py","_pp_verified_checkpoint_v1"),("full_runtime_adapter.py","_live_scheduler_preview")):
+              f=ga/name
+              if f.is_file():
+                  src=f.read_text(errors="replace")
+                  print("SAFE_GA_SOURCE",name,"checkpoint_support",marker in src,
+                     "score_guard","GA_PREVIEW_STRICT_REJECTION" in src,flush=True)
+              else:print("SAFE_GA_SOURCE",name,"missing",flush=True)
+          PY
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then
+            echo 'SAFE_GA_OVH_SMOKE PASS'
+          else
+            echo 'SAFE_GA_OVH_SMOKE FAIL'
+          fi
+          REMOTE
