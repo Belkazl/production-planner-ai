@@ -46,7 +46,9 @@ jobs:
           printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
           printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/hosts"
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/hosts"
-          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosts" "$OVH_USER@$OVH_HOST" python3 -c '
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosts" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE' > "$RUNNER_TEMP/ga-code-only.json"
+          set -euo pipefail
+          python3 - <<'PY'
           import json,pathlib
           conf=pathlib.Path.home()/"liftorbit-migration/production/current/ga-worker.json"
           source=json.loads(conf.read_text())
@@ -56,7 +58,8 @@ jobs:
           keylist.extend("PP_RUNTIME_SRC_%02d"%i for i in range(1,count+1))
           assert all(isinstance(source.get(k),str) and len(source[k])>0 for k in keylist)
           print(json.dumps({k:source[k] for k in keylist},separators=(",",":")))
-          ' > "$RUNNER_TEMP/ga-code-only.json"
+          PY
+          REMOTE
           chmod 600 "$RUNNER_TEMP/ga-code-only.json"
           echo 'SYNTHETIC_GA_CODE_ONLY_CONFIG_COPIED'
       - name: Compile and test real isolated GA against synthetic staff shifts
