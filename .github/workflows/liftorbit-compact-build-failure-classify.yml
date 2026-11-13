@@ -53,6 +53,9 @@ jobs:
            ("DOCKER_ERR_EXIT_1",r"exit code: 1\b"),
            ("DOCKER_ERR_EXIT_2",r"exit code: 2\b")
           ]
+          safe_anchors=sorted(set(re.findall(r"[A-Z][A-Z0-9_]{6,90}_ANCHOR(?:_[A-Z0-9_]{1,60})?",data)))
+          for code in safe_anchors[:10]:
+            print("GA_COMPACT_SAFE_ANCHOR",code)
           print("GA_COMPACT_LOG_BYTES",len(data))
           for name,pat in mapping:
             findings=re.findall(pat,data,re.I)
