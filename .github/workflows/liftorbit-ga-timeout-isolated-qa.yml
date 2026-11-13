@@ -1,0 +1,94 @@
+name: LiftOrbit isolated GA time-budget and shift diagnostics
+on:
+  push:
+    branches: [fix/ga-timeout-preserve-20261113]
+    paths:
+      - .github/workflows/liftorbit-ga-timeout-isolated-qa.yml
+      - ops/ovh/**ga-time-budget**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-ga:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pinned isolated GA worker code
+        uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: ga
+          persist-credentials: false
+      - name: Checkout source-checked GA recovery and synthetic constraint tests
+        uses: actions/checkout@v4
+        with:
+          ref: ops/railway-migration-20261108
+          path: ops
+          persist-credentials: false
+      - name: Checkout experimental safety diagnostics
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ga-timeout-preserve-20261113
+          path: diagnostics
+          persist-credentials: false
+      - name: Copy GA code-only configuration to ephemeral runner, no accounts or credentials
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/hosts"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosts" "$OVH_USER@$OVH_HOST" python3 -c '
+          import json,pathlib
+          conf=pathlib.Path.home()/"liftorbit-migration/production/current/ga-worker.json"
+          source=json.loads(conf.read_text())
+          keylist=("PP_GENERIC_CORE_B64 PP_REGEX_FIX_B64 PP_CAPACITY_GANTT_PATCH_B64 PP_PARTIAL_MATERIAL_PATCH_B64 PP_PARSE_RESOURCE_REPAIR_B64 PP_CLIENT_PROJECT_REPAIR_B64 PP_FREEZE_HOTFIX_B64 PP_TECH_PROCESS_PATCH_B64 PP_ORDER_PROCESS_LINK_B64 PP_REMOVE_LEGACY_DURATION_B64 PP_TIMING_PROFILE_V1_INSTALL PP_CAPACITY_BATCHING_PATCH_CODE PP_CURRENT_FEATURES_PATCH_V1 PP_GENERIC_GANTT_UI_B64 PP_SAVED_PLAN_RESUME_PATCH_CODE PP_SETUP_FINAL_PATCH_B64 PP_CAP_BATCH_BOOT_V2 PP_RESTORE_ETALON_BOOT_V1 PP_START_CMD_GOOD PP_RUNTIME_SRC_COUNT PP_PY_GA_SOURCE_SHA256 PP_PY_GA_ASSEMBLED_SHA256").split()
+          count=int(source.get("PP_RUNTIME_SRC_COUNT","0"))
+          assert 1<=count<=64
+          keylist.extend("PP_RUNTIME_SRC_%02d"%i for i in range(1,count+1))
+          assert all(isinstance(source.get(k),str) and len(source[k])>0 for k in keylist)
+          print(json.dumps({k:source[k] for k in keylist},separators=(",",":")))
+          ' > "$RUNNER_TEMP/ga-code-only.json"
+          chmod 600 "$RUNNER_TEMP/ga-code-only.json"
+          echo 'SYNTHETIC_GA_CODE_ONLY_CONFIG_COPIED'
+      - name: Compile and test real isolated GA against synthetic staff shifts
+        shell: bash
+        env:
+          PP_GA_CODE_FILE: ${{ runner.temp }}/ga-code-only.json
+        run: |
+          set -euo pipefail
+          cd ga/ga_python_workers
+          python3 - <<'PY'
+          import json,os
+          conf=json.load(open(os.environ["PP_GA_CODE_FILE"]))
+          os.environ.update(conf)
+          os.environ["PP_SELFTEST"]="0"
+          from ga_workers.compile_legacy_ga import build
+          build()
+          print("SAFE_SYNTHETIC_GA_COMPILED",flush=True)
+          PY
+          python3 ../../ops/ops/ovh/repair-ga-live-previews.py .
+          python3 ../../ops/ops/ovh/repair-ga-timeout-scoring.py .
+          python3 - <<'PY'
+          import json,os,runpy
+          os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
+          runpy.run_path("../../ops/ops/ovh/probe-ga-shifts.py",run_name="__main__")
+          PY
+          python3 - <<'PY'
+          import json,os,runpy
+          os.environ.update(json.load(open(os.environ["PP_GA_CODE_FILE"])))
+          runpy.run_path("../../ops/ops/ovh/test-ga-score-timeout.py",run_name="__main__")
+          PY
+      - name: Erase isolated code-only data
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/ga-code-only.json" "$RUNNER_TEMP/key" "$RUNNER_TEMP/hosts"
