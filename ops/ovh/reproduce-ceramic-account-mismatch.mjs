@@ -13,8 +13,8 @@ async function run(){
  try{
   const page=await browser.newPage({viewport:{width:1280,height:900}});
   await page.goto(FIXTURE,{waitUntil:"domcontentloaded",timeout:60000});
-  await page.waitForFunction(()=>typeof window.model!=="undefined"&&Array.isArray(window.model?.orders)&&window.model.orders.length>=12,{timeout:60000});
-  model=await page.evaluate(()=>structuredClone(window.model));
+  await page.waitForFunction(()=>typeof model!=="undefined"&&Array.isArray(model?.orders)&&model.orders.length>=12,{timeout:60000});
+  model=await page.evaluate(()=>structuredClone(model));
   console.log("CERAMIC_SOURCE_MODEL",JSON.stringify({
     orders:model.orders?.length,equipment:model.equipment?.length,
     employees:model.employees?.length,ops:model.technical_processes?.reduce((n,x)=>n+(x.operations?.length||0),0),
