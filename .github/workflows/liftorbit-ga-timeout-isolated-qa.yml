@@ -7,6 +7,7 @@ on:
       - ops/ovh/**ga-time-budget**
       - ops/ovh/test-ga-shift-retimer.py
       - ops/ovh/test-ga-verified-checkpoints.py
+      - ops/ovh/test-ga-real-hard-timeout.py
       - ops/ovh/repair-ga-verified-shifts.py
   workflow_dispatch:
 permissions:
