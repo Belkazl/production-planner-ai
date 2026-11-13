@@ -78,6 +78,23 @@ export function createPythonGAUpstream({
     plan=publicPlan(plan);
     return !!plan&&Array.isArray(plan.operations)&&plan.operations.length>0&&checkPlan(plan,model);
   };
+  // Only a checkpoint independently verified by this account's worker
+  // can replace a rejected final result. Untrusted previews never qualify.
+  const verifiedAccountBest = (state,model) => {
+    const best=state?.best;
+    if(!best||best._pp_verified_checkpoint_v1!==true||
+       best.valid!==true||!Array.isArray(best.operations)||!best.operations.length||
+       !best.resume_state||typeof best.resume_state!=="object"||
+       !owned(best,model))return null;
+    return best;
+  };
+  const restoreOwnedBest = best => {
+    const restored={...best,optimization_account_check_recovered:true,
+      optimization_completed_early:true,
+      optimization_termination_reason:"unowned_native_final_rejected"};
+    delete restored._pp_verified_checkpoint_v1;
+    return restored;
+  };
   const compactResumePlan = plan => {
     if(!plan||typeof plan!=='object')return null;
     let sequence=Array.isArray(plan.order_sequence)?plan.order_sequence.filter(x=>x!=null):[];
@@ -182,11 +199,17 @@ export function createPythonGAUpstream({
         if(data.status==='completed'){
           const fresh=await readAccountModel(req);
           if(hashModel(fresh)!==modelKey){state.state='stale';return response({ok:false,error:'account_model_changed_during_run'},409)}
-          if(!owned(data.result,fresh)){state.state='invalid';await save(principal,state);return response({ok:false,error:'account_plan_mismatch'},409)}
-          state.result=data.result;state.best=data.result;state.progress=100;
-          state.resume_state=data.result?.resume_state||null;
+          let selected=data.result;
+          if(!owned(selected,fresh)){
+            const verified=verifiedAccountBest(state,fresh);
+            if(!verified){state.state='invalid';await save(principal,state);return response({ok:false,error:'account_plan_mismatch'},409)}
+            console.warn("PP_GA_SYNC_UNOWNED_FINAL_REPLACED_BY_VERIFIED_OWNED_BEST");
+            selected=restoreOwnedBest(verified);
+          }
+          state.result=publicPlan(selected);state.best=state.result;state.progress=100;
+          state.resume_state=state.result?.resume_state||null;
           await save(principal,state);
-          return response({...data.result,ok:true});
+          return response({...state.result,ok:true});
         }
         if(data.status==='cancelled'){await save(principal,state);return response({ok:false,stopped:true,error:'optimization_stopped'});}
         if(['failed','timed_out'].includes(data.status)){
@@ -229,17 +252,31 @@ export function createPythonGAUpstream({
     state.state=status.status;state.progress=Math.max(0,Math.min(100,Number(status.progress)||0));
     if(status.best_preview){
       const live=publicPlan(status.best_preview);
-      if(!owned(live,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
-      state.best=live;
+      if(owned(live,model))state.best=live;
+      else console.warn("PP_GA_UNOWNED_BEST_PREVIEW_DISCARDED");
     }
     if(status.candidate_preview){
       const liveCandidate=publicPlan(status.candidate_preview);
-      if(!owned(liveCandidate,model)){await cancel(req);return response({ok:false,error:'account_plan_mismatch'},409)}
-      state.candidate=liveCandidate;
+      if(owned(liveCandidate,model))state.candidate=liveCandidate;
+      else{
+        state.candidate=null;
+        // A rejected tentative candidate cannot destroy the running GA.
+        console.warn("PP_GA_UNOWNED_CANDIDATE_PREVIEW_DISCARDED");
+      }
     }
     if(status.status==='completed'){
-      if(!owned(status.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
-      const finalPlan=publicPlan(status.result);
+      let selected=status.result;
+      if(!owned(selected,model)){
+        const verified=verifiedAccountBest(state,model);
+        if(!verified){
+          state.state='invalid';state.error='account_plan_mismatch';
+          await save(principal,state);
+          return response({ok:false,error:'account_plan_mismatch'},409);
+        }
+        console.warn("PP_GA_UNOWNED_FINAL_REPLACED_BY_VERIFIED_OWNED_BEST");
+        selected=restoreOwnedBest(verified);
+      }
+      const finalPlan=publicPlan(selected);
       state.best=finalPlan;state.result=finalPlan;state.resume_state=finalPlan?.resume_state||null;state.error=null;
     }else if(['failed','timed_out'].includes(status.status)){
       state.error=typeof status.error==='string'?status.error:null;
