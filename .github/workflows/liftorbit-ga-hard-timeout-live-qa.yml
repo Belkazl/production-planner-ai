@@ -84,17 +84,17 @@ jobs:
               if status!=200 or not parsed:raise RuntimeError("PROGRESS_NOT_VALID_JSON")
               if data.get("running") is False:break
             print("GA_PAYLOAD_SUMMARY","samples",len(sizes),"largest_bytes",max(sizes or [0]),flush=True)
-            final=d.get("result") or {}
-            success=d.get("phase")=="completed" and d.get("success") is True
+            final=data.get("result") or {}
+            success=data.get("phase")=="completed" and data.get("success") is True
             checkpoint=bool(final.get("optimization_time_limit_reached"))
             resumable=isinstance(final.get("resume_state"),dict)
             print("GA_LIVE_180SEC_TIMEOUT_ACCEPTANCE",
-                  "phase",str(d.get("phase") or "none")[:24],
+                  "phase",str(data.get("phase") or "none")[:24],
                   "success",success,
                   "time_budget_reached",checkpoint,
                   "resumable",resumable,
                   "final_rows",len(final.get("operations") or []),
-                  "error",str(d.get("error") or "none")[:50],flush=True)
+                  "error",str(data.get("error") or "none")[:50],flush=True)
             if not(success and checkpoint and resumable and final.get("valid") is True
                    and len(final.get("operations") or [])>=1000):
               raise RuntimeError("LIVE_GA_HARD_TIMEOUT_RECOVERY_NOT_VERIFIED")
