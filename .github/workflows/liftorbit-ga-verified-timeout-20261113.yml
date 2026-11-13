@@ -1,5 +1,6 @@
 name: LiftOrbit verified GA timeout and staff-shift recovery release
 # Production repair only: two pinned Python worker files, with SHA guard and rollback.
+# Real isolated 84/1008 operation deadline recovery verified in Actions run 43408202777.
 on:
   push:
     branches: [main]
