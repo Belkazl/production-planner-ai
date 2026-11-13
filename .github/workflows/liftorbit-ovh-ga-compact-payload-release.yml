@@ -1,0 +1,136 @@
+name: LiftOrbit guarded OVH lossless GA intermediate payload shrink
+# Remove strictly identical duplicate generic rows from live progress; never touch terminal result.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-ga-compact-payload-release.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): reduce duplicate live GA progress payload on OVH')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout validated lossless GA payload compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 9e0ce7483cc92a2ff2429a3f6a170f7cd879edca
+          path: repaired
+          persist-credentials: false
+      - name: Verify exact one-file change and pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          for side in old new; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-continuation.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+          done
+          node repaired/ops/ovh/compact-ga-progress.mjs new/app
+          node --check old/app/auth-runtime.js
+          node --check new/app/auth-runtime.js
+          cp new/app/auth-runtime.js app/auth-runtime.js
+          node --test repaired/ops/ovh/compact-ga-progress.test.mjs
+          diff -qr old/app new/app > "$RUNNER_TEMP/ga-compact-patch-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/ga-compact-patch-diff")" -eq 1
+          grep -Fqx 'Files old/app/auth-runtime.js and new/app/auth-runtime.js differ' "$RUNNER_TEMP/ga-compact-patch-diff"
+          grep -q 'lossless-dedup' new/app/auth-runtime.js
+          sha256sum old/app/auth-runtime.js | cut -d' ' -f1 > old.auth.sha
+          sha256sum new/app/auth-runtime.js | cut -d' ' -f1 > new.auth.sha
+          echo 'OVH_GA_PAYLOAD_COMPACT_ONLY_AUTH_RUNTIME_CHANGED'
+      - name: Apply guarded OVH app update with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldSha=$(cat old.auth.sha)
+          newSha=$(cat new.auth.sha)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/app/auth-runtime.js "$target:$root/sources/ovh-app/auth-runtime.js.compact.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/auth-runtime.js"
+          next="$root/sources/ovh-app/auth-runtime.js.compact.next"
+          backup="$root/patch-backups/ga-compact-payload-20261113"
+          expectedOld="$1"; expectedNew="$2"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -f "$app" && test -f "$next"
+          test "$(sha "$app")" = "$expectedOld" || { echo 'GA_COMPACT_PRODUCTION_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$expectedNew" || { echo 'GA_COMPACT_UPLOAD_INTEGRITY_FAILED'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_COMPACT_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$app" "$backup/auth-runtime.js"
+          test "$(sha "$backup/auth-runtime.js")" = "$expectedOld"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/auth-runtime.js" "$app" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_COMPACT_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$next" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_COMPACT_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$app")" = "$expectedNew"
+          trap - ERR
+          echo 'GA_COMPACT_LOSSLESS_PAYLOAD_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'GA_COMPACT_PUBLIC_API_HEALTHY'
