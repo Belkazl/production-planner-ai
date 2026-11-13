@@ -1,0 +1,150 @@
+name: LiftOrbit verified GA timeout and staff-shift recovery release
+# Production repair only: two pinned Python worker files, with SHA guard and rollback.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-verified-timeout-20261113.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): preserve verified GA plan on worker timeout')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable private GA worker source template
+        uses: actions/checkout@v4
+        with:
+          ref: 788a06c269330d70528d3ac75a89ec729c12fe0b
+          path: pinned-ga
+          persist-credentials: false
+      - name: Checkout previously deployed GA live preview code
+        uses: actions/checkout@v4
+        with:
+          ref: a028364f5c0d27a50b4852722409ae86a2176abb
+          path: previous
+          persist-credentials: false
+      - name: Checkout tested GA timeout fallback implementation
+        uses: actions/checkout@v4
+        with:
+          ref: 1c27e58c95f013eb03de7f25169d2198f48995f8
+          path: scoring
+          persist-credentials: false
+      - name: Checkout exact shift-safe patch from real 84 and 1008 operation GA tests
+        uses: actions/checkout@v4
+        with:
+          ref: 0ba53a73a95c83926bf550fdc1a5d66b97cc6dce
+          path: fixed
+          persist-credentials: false
+      - name: Verify precise two-file patch, syntax and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/ga new/ga
+          cp -a pinned-ga/ga_python_workers old/ga/
+          cp -a pinned-ga/ga_python_workers new/ga/
+          python3 previous/ops/ovh/repair-ga-live-previews.py old/ga/ga_python_workers
+          python3 scoring/ops/ovh/repair-ga-live-previews.py new/ga/ga_python_workers
+          python3 scoring/ops/ovh/repair-ga-timeout-scoring.py new/ga/ga_python_workers
+          python3 fixed/ops/ovh/repair-ga-verified-shifts.py new/ga/ga_python_workers
+          python3 -m py_compile new/ga/ga_python_workers/ga_workers/manager.py new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py
+          find new/ga -type d -name __pycache__ -prune -exec rm -rf {} +
+          diff -qr old/ga new/ga > "$RUNNER_TEMP/ga-change-list" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/ga-change-list")" -eq 2
+          for file in manager.py full_runtime_adapter.py; do
+            grep -Fqx "Files old/ga/ga_python_workers/ga_workers/$file and new/ga/ga_python_workers/ga_workers/$file differ" "$RUNNER_TEMP/ga-change-list"
+            sha256sum "old/ga/ga_python_workers/ga_workers/$file" | cut -d' ' -f1 > "old.$file.sha"
+            sha256sum "new/ga/ga_python_workers/ga_workers/$file" | cut -d' ' -f1 > "new.$file.sha"
+          done
+          grep -q '_pp_verified_checkpoint_v1' new/ga/ga_python_workers/ga_workers/manager.py
+          grep -q 'GA_SHIFT_SAFE_VERIFIED_CHECKPOINT_PATCH_READY' fixed/ops/ovh/repair-ga-verified-shifts.py
+          grep -q 'def _pp_shift_safe_checkpoint' new/ga/ga_python_workers/ga_workers/full_runtime_adapter.py
+          echo 'GA_VERIFIED_TIMEOUT_EXACT_TWO_PYTHON_FILES_READY'
+      - name: Deploy exactly two GA worker files with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosts" -o ConnectTimeout=18)
+          target="$OVH_USER@$OVH_HOST"
+          path=/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers
+          for file in manager.py full_runtime_adapter.py; do
+            scp -q "${opts[@]}" "new/ga/ga_python_workers/ga_workers/$file" "$target:$path/$file.timeout.next"
+          done
+          ssh "${opts[@]}" "$target" bash -s -- \
+            "$(cat old.manager.py.sha)" "$(cat new.manager.py.sha)" \
+            "$(cat old.full_runtime_adapter.py.sha)" "$(cat new.full_runtime_adapter.py.sha)" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          ga="$root/sources/current/ga/ga_workers"
+          files=("$ga/manager.py" "$ga/full_runtime_adapter.py")
+          next=("$ga/manager.py.timeout.next" "$ga/full_runtime_adapter.py.timeout.next")
+          old=("$1" "$3")
+          new=("$2" "$4")
+          backup="$root/patch-backups/ga-verified-timeout-20261113"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          for i in 0 1; do
+            test -f "${files[$i]}" && test -f "${next[$i]}"
+            test "$(sha "${files[$i]}")" = "${old[$i]}" || { echo "GA_TIMEOUT_SOURCE_DRIFT_$i"; exit 5; }
+            test "$(sha "${next[$i]}")" = "${new[$i]}" || { echo "GA_TIMEOUT_UPLOAD_HASH_MISMATCH_$i"; exit 5; }
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_TIMEOUT_PREDEPLOY_HEALTH_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          for i in 0 1; do
+            cp -p "${files[$i]}" "$backup/$(basename "${files[$i]}")"
+            test "$(sha "$backup/$(basename "${files[$i]}")")" = "${old[$i]}"
+          done
+          rollback(){
+            trap - ERR
+            for i in 0 1; do cp -p "$backup/$(basename "${files[$i]}")" "${files[$i]}" || true; done
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_TIMEOUT_WORKER_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          for i in 0 1; do mv "${next[$i]}" "${files[$i]}"; done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_TIMEOUT_POSTDEPLOY_HEALTH_FAILED'; false; }
+          for i in 0 1; do test "$(sha "${files[$i]}")" = "${new[$i]}"; done
+          trap - ERR
+          echo 'GA_VERIFIED_TIMEOUT_WORKER_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Verify public HTTPS and authentication after restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$guest" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'GA_VERIFIED_TIMEOUT_PUBLIC_HEALTH_AND_AUTH_OK'
