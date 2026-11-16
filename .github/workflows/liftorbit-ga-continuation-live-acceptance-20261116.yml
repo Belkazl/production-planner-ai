@@ -1,4 +1,5 @@
 name: LiftOrbit production API GA continuation acceptance 2026-11-16
+# Runs two full authenticated jobs in an isolated synthetic user after the 2026-11-16 fix.
 on:
   push:
     branches: [main]
