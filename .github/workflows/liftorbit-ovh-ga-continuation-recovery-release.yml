@@ -77,7 +77,7 @@ jobs:
           cp repaired/tests/ga-continuation-resume-safe.test.mjs new/app/tests/ga-continuation-resume-safe.test.mjs
           cp repaired/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
           cp repaired/tests/continuation-compat-contract.cjs new/app/tests/continuation-compat-contract.cjs
-          node new/app/tests/continuation-compat-contract.cjs
+          (cd new/app && node tests/continuation-compat-contract.cjs)
           node --test new/app/tests/python-ga-upstream.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs new/app/tests/ga-continuation-resume-safe.test.mjs
           rm -f new/app/tests/ga-account-owned-recovery.test.mjs new/app/tests/ga-continuation-resume-safe.test.mjs
           diff -qr old/app new/app > "$RUNNER_TEMP/ga-continuation-patch-diff" || test "$?" -eq 1
