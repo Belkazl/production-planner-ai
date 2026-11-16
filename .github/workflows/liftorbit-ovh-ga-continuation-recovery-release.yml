@@ -2,6 +2,7 @@ name: LiftOrbit guarded OVH GA continuation recovery release
 # Never pass incompatible resume_state to GA; use same-account validated ordering only.
 # Preserve tenant ownership, established etalon UI, compact progress and persistence.
 # 25 updated continuation/account-isolation tests passed in Actions 43911894950.
+# Continuation compatibility contract and Docker build tests both synchronized.
 # Require full Docker build and strict source SHA before live update.
 # Only one backend bridge file changes; current production SHA must match.
 on:
