@@ -1,0 +1,141 @@
+name: LiftOrbit production API GA continuation acceptance 2026-11-16
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-continuation-live-acceptance-20261116.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  continuation:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'test(liftorbit): verify two-step GA continuation after OVH fix')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Real HTTPS two consecutive GA jobs on isolated 84-operation account, including stale version-zero state
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,time,uuid,secrets,urllib.request,urllib.error,sys
+          base="https://app.liftorbit.app"
+          cookie=""
+          def api(path,method="GET",payload=None):
+              global cookie
+              headers={"Origin":base,"Sec-Fetch-Site":"same-origin","Accept":"application/json"}
+              if cookie:headers["Cookie"]=cookie
+              data=None
+              if payload is not None:
+                  headers["Content-Type"]="application/json"
+                  data=json.dumps(payload,separators=(",",":")).encode()
+              req=urllib.request.Request(base+path,data=data,method=method,headers=headers)
+              try:
+                  with urllib.request.urlopen(req,timeout=35) as r:
+                      status=r.status;raw=r.read(6000000);h=r.headers
+              except urllib.error.HTTPError as e:
+                  status=e.code;raw=e.read(6000000);h=e.headers
+              if path=="/api/auth/register" and status==200:
+                  cookie=(h.get("set-cookie") or "").split(";")[0]
+              try:out=json.loads(raw)
+              except (ValueError,UnicodeDecodeError):out={}
+              return status,out
+          def rsrc(kind,id):
+              return {"resource_type":kind,"resource_ref":id,"resource_refs":[id],
+                      "match_mode":"specific","quantity":1}
+          eq=[{"id":"QA_EQ_"+str(i),"name":"QA Equipment","kind":"workstation",
+               "capacity":600,"capacity_unit":"m2"} for i in range(14)]
+          employees=[{"id":"QA_EMP_"+str(i),"name":"QA Operator","role":"operator","shift":"day"} for i in range(5)]
+          ops=[]
+          for i in range(7):
+              ops.append({"id":"QA_OP_"+str(i),"name":"QA Step","sequence":i+1,
+                          "duration_min":30,"setup_parameter":"color",
+                          "resource_requirements":[rsrc("equipment","QA_EQ_"+str(i)),
+                            rsrc("employee","QA_EMP_"+str(i%5)),
+                            {"resource_type":"material","resource_ref":"QA_MAT",
+                             "resource_refs":["QA_MAT"],"quantity":1,
+                             "consumption_rule":"per_unit"}]})
+          model={"scheduler_mode":"resource","start":"2026-11-16T08:00:00",
+             "equipment":eq,"employees":employees,
+             "shifts":{"day":[["08:00","12:00"],["13:00","17:00"]]},
+             "orders":[{"id":"QA_O_"+str(i),"quantity":600,"unit":"m2",
+               "technical_process_id":"QA_TP","parameters":{"color":"A" if i%2 else "B"}}
+               for i in range(12)],
+             "technical_processes":[{"id":"QA_TP","name":"QA pipeline","operations":ops}],
+             "materials":[{"id":"QA_MAT","name":"QA material","unit":"kg",
+               "initial_stock":20000000,"deliveries":[]}],
+             "setup_rules":[{"id":"QA_AB","setup_parameter":"color","equipment_ref":"*",
+                    "from_state":"A","to_state":"B","duration_min":15},
+               {"id":"QA_BA","setup_parameter":"color","equipment_ref":"*",
+                    "from_state":"B","to_state":"A","duration_min":15}]}
+          running=False
+          try:
+              s,d=api("/__bridge_health")
+              assert s==200 and d.get("ok"),"app_unhealthy"
+              s,d=api("/api/auth/register","POST",{
+                "email":"continuation-qa-"+uuid.uuid4().hex+"@liftorbit.invalid",
+                "password":secrets.token_urlsafe(36),"company":"GA continuation disposable acceptance"})
+              assert s==200 and cookie,"test_account_creation_failed"
+              project="qa-continue-"+uuid.uuid4().hex
+              s,d=api("/api/db-storage","POST",{"storage":{
+                  "prodplan.projects.v2":json.dumps([{"id":project,"name":"Synthetic QA","model":model}]),
+                  "prodplan.project.active.v2":project}})
+              assert s==200 and d.get("ok"),"test_model_storage_failed"
+              s,d=api("/api/model")
+              assert s==200 and len(d.get("model",{}).get("orders") or [])==12,"test_model_readback_failed"
+              def run(options,label):
+                  global running
+                  s,d=api("/api/plan","POST",dict(options,__pp_async_start=True))
+                  print("CONTINUATION_PUBLIC_START",label,"status",s,
+                        "error",str(d.get("error") or "none")[:80],flush=True)
+                  assert s==202 and d.get("started"),label+"_ga_start_rejected"
+                  running=True
+                  deadline=time.monotonic()+220
+                  bests=0
+                  while time.monotonic()<deadline:
+                      time.sleep(2.5)
+                      s,d=api("/api/plan-progress")
+                      if s in (502,503,504):continue
+                      if s!=200 or not d.get("ok"):
+                          raise AssertionError(label+"_GA_PROGRESS_"+str(s)+"_"+str(d.get("error"))[:60])
+                      if isinstance(d.get("best_preview"),dict):bests+=1
+                      if d.get("running"):continue
+                      running=False
+                      result=d.get("result") or {}
+                      rows=result.get("operations") or []
+                      print("CONTINUATION_PUBLIC_FINISHED",label,"status",s,
+                            "phase",str(d.get("phase") or "none")[:25],
+                            "success",bool(d.get("success")),
+                            "error",str(d.get("error") or "none")[:80],
+                            "rows",len(rows),"resumable",isinstance(result.get("resume_state"),dict),
+                            "observed_best",bests,flush=True)
+                      assert d.get("success") is True and d.get("phase")=="completed",label+"_not_completed"
+                      assert result.get("valid") is True and len(rows)>=84,label+"_invalid_plan"
+                      ids={x["id"] for x in model["orders"]}
+                      assert all(str(o.get("order")) in ids for o in rows),label+"_foreign_orders"
+                      assert isinstance(result.get("resume_state"),dict),label+"_missing_resume_metadata"
+                      return result
+                  raise RuntimeError(label+"_did_not_finish_before_budget")
+              first=run({"generations":3,"population":4,"seed":11911,"objective":"duration"},"first")
+              print("CONTINUATION_PUBLIC_FIRST_VERIFIED",
+                    "duration",round(float(first.get("duration_minutes") or 0)),
+                    "resume_version",first["resume_state"].get("version"),flush=True)
+              second=run({"continue":True,"resume_state":{"version":0,
+                "order_sequence":["FOREIGN"]},
+                "resume_plan":{"order_sequence":["FOREIGN"],"duration_minutes":1},
+                "generations":2,"population":4,"seed":11912,"objective":"duration"},"stale_state_continue")
+              print("CONTINUATION_PUBLIC_RECOVERED_PASS",
+                    "first_rows",len(first["operations"]),
+                    "continued_rows",len(second["operations"]),
+                    "resume_version",second["resume_state"].get("version"),flush=True)
+          except BaseException as e:
+              print("CONTINUATION_PUBLIC_FAILURE",type(e).__name__,str(e)[:130],flush=True)
+              sys.exit(1)
+          finally:
+              if running and cookie:
+                  try:s,d=api("/api/optimizer-stop","POST",{})
+                  except Exception:s=0
+                  print("CONTINUATION_PUBLIC_TEST_CLEANUP",s,flush=True)
+          PY
