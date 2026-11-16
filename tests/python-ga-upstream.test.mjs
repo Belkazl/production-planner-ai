@@ -154,7 +154,10 @@ test('continue without client resume_state reuses only the same account complete
  const posts=calls.filter(x=>x.url.endsWith('/internal/jobs')&&x.opts.method==='POST');
  assert.equal(posts.length,2);
  const second=JSON.parse(posts[1].opts.body);
- assert.equal(second.options.resume_state.owner,'A2');
+ assert.equal(second.options.resume_plan.order_sequence.length,12);
+ assert.deepEqual(second.options.resume_plan.order_sequence,models.get('A2').orders.map(x=>x.id));
+ assert.equal(second.options.resume_state,undefined);
+ assert.equal(second.options.continue,true);
  assert.equal(second.options.continue,true);
 });
 test('manual operation locks are passed through to original GA unchanged',async()=>{
