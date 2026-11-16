@@ -3,6 +3,7 @@ name: LiftOrbit guarded OVH GA continuation recovery release
 # Preserve tenant ownership, established etalon UI, compact progress and persistence.
 # 25 updated continuation/account-isolation tests passed in Actions 43911894950.
 # Require full Docker build and strict source SHA before live update.
+# Only one backend bridge file changes; current production SHA must match.
 on:
   push:
     branches: [main]
