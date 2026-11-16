@@ -111,6 +111,39 @@ export function createPythonGAUpstream({
     return {order_sequence:sequence,duration_minutes:Number(plan.duration_minutes||0),
       optimization_run:Number(plan.optimization_run||0),total_generations:Number(plan.total_generations||0)};
   };
+  // Continuation is an ordering hint, never a trusted finished schedule.
+  // The Python worker always re-runs the scheduler with today's account model,
+  // staff shifts, materials, setup rules and manual locks.
+  const normalizedContinuationSeed=(source,model,trustedScore=false) => {
+    if(!source||typeof source!=='object'||Array.isArray(source))return null;
+    const ids=(model?.orders||[]).map(x=>String(x.id));
+    if(!ids.length||ids.length>10000||new Set(ids).size!==ids.length)return null;
+    const allowed=new Set(ids),seen=new Set();
+    let sequence=Array.isArray(source.order_sequence)?source.order_sequence:[];
+    if(!sequence.length){
+      const derived=compactResumePlan(source);
+      sequence=derived?.order_sequence||[];
+    }
+    if(!sequence.length||sequence.length>50000)return null;
+    const ordered=[];
+    for(const raw of sequence){
+      if(raw===null||raw===undefined)continue;
+      const id=String(raw);
+      if(allowed.has(id)&&!seen.has(id)){seen.add(id);ordered.push(id)}
+    }
+    if(!ordered.length)return null;
+    const exact=ordered.length===ids.length;
+    for(const id of ids)if(!seen.has(id))ordered.push(id);
+    const duration=trustedScore&&exact
+      ?Number(source.duration_minutes??source.best_duration_minutes):NaN;
+    // Never use an arbitrary client/stale score to bound the new GA search.
+    const score=Number.isFinite(duration)&&duration>=0?duration:1000000000;
+    const runs=Number(source.optimization_run??source.completed_runs);
+    const trials=Number(source.total_generations??source.total_trials);
+    return {order_sequence:ordered,duration_minutes:score,
+      optimization_run:Number.isInteger(runs)&&runs>=1&&runs<=1000000?runs:1,
+      total_generations:Number.isInteger(trials)&&trials>=0&&trials<=100000000?trials:0};
+  };
   async function currentJob(principal){
     const local=jobs.get(principal);
     if(local||!stateStore)return local||null;
@@ -165,11 +198,38 @@ export function createPythonGAUpstream({
       return response({ok:false,error:'optimization_running_stop_first'},409);
     }
     const continuing=!!(args.continue||args.continue_run);
-    if(continuing&&!args.resume_state&&!args.resume_plan&&current?.resume_state)
-      args.resume_state=current.resume_state;
-    if(continuing&&!args.resume_state&&!args.resume_plan){
-      const seed=compactResumePlan(current?.best||current?.result);
-      if(seed)args.resume_plan=seed;
+    if(continuing){
+      // The previous implementation trusted resume_state from the browser or
+      // account persistence without checking its schema. Python then aborted
+      // with continuation_state_missing_or_invalid. Prefer an already owned
+      // completed result or independently verified same-account best.
+      const sameModel=current?.modelKey===modelKey;
+      const ownedResult=sameModel&&current?.result&&current.result.valid===true&&
+        owned(current.result,model)?current.result:null;
+      const verifiedBest=!ownedResult&&sameModel?verifiedAccountBest(current,model):null;
+      const clientPlan=args.resume_plan;
+      const clientState=args.resume_state;
+      let seed=normalizedContinuationSeed(ownedResult||verifiedBest,model,true);
+      let source=seed?"owned_plan":null;
+      if(!seed&&sameModel&&current?.resume_state){
+        seed=normalizedContinuationSeed(current.resume_state,model,false);
+        if(seed)source="stored_order_seed";
+      }
+      if(!seed&&clientPlan){
+        seed=normalizedContinuationSeed(clientPlan,model,false);
+        if(seed)source="client_order_hint";
+      }
+      if(!seed&&clientState){
+        seed=normalizedContinuationSeed(clientState,model,false);
+        if(seed)source="client_state_order_hint";
+      }
+      delete args.resume_state;
+      delete args.resume_plan;
+      if(!seed)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409);
+      // Keep continue=true. The worker reconstructs and validates the plan;
+      // this is NOT a silent fresh optimization or accepted client schedule.
+      args.resume_plan=seed;
+      console.warn("PP_GA_RESUME_SAFE_ORDER_SEED",source);
     }
     let state;
     try{
