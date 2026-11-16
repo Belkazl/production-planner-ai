@@ -5,6 +5,7 @@ on:
     paths:
       - python-ga-upstream.mjs
       - tests/python-ga-upstream.test.mjs
+      - tests/continuation-compat-contract.cjs
       - tests/ga-continuation-resume-safe.test.mjs
       - .github/workflows/liftorbit-ga-continuation-qa-20261116.yml
   workflow_dispatch:
@@ -27,4 +28,5 @@ jobs:
         run: |
           set -euo pipefail
           node --check python-ga-upstream.mjs
+          node tests/continuation-compat-contract.cjs
           node --test tests/python-ga-upstream.test.mjs tests/ga-account-owned-recovery.test.mjs tests/ga-continuation-resume-safe.test.mjs
