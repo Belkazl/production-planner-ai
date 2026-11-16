@@ -54,7 +54,7 @@ jobs:
           ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
           path: compact
           persist-credentials: false
-      - name: Verify exact one-file change and pinned source
+      - name: Verify exactly two synchronized backend and GA contract test files
         shell: bash
         run: |
           set -euo pipefail
@@ -78,14 +78,16 @@ jobs:
           cp repaired/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
           node --test new/app/tests/python-ga-upstream.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs new/app/tests/ga-continuation-resume-safe.test.mjs
           rm -f new/app/tests/ga-account-owned-recovery.test.mjs new/app/tests/ga-continuation-resume-safe.test.mjs
-          cp pinned/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
           diff -qr old/app new/app > "$RUNNER_TEMP/ga-continuation-patch-diff" || test "$?" -eq 1
-          test "$(wc -l < "$RUNNER_TEMP/ga-continuation-patch-diff")" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/ga-continuation-patch-diff")" -eq 2
           grep -Fqx 'Files old/app/python-ga-upstream.mjs and new/app/python-ga-upstream.mjs differ' "$RUNNER_TEMP/ga-continuation-patch-diff"
+          grep -Fqx 'Files old/app/tests/python-ga-upstream.test.mjs and new/app/tests/python-ga-upstream.test.mjs differ' "$RUNNER_TEMP/ga-continuation-patch-diff"
           grep -q 'PP_GA_UNOWNED_FINAL_REPLACED_BY_VERIFIED_OWNED_BEST' new/app/python-ga-upstream.mjs
           sha256sum old/app/python-ga-upstream.mjs | cut -d' ' -f1 > old.python-upstream.sha
           sha256sum new/app/python-ga-upstream.mjs | cut -d' ' -f1 > new.python-upstream.sha
-          echo 'GA_CONTINUATION_EXACT_ONE_WORKER_BRIDGE_SOURCE_CHANGED'
+          sha256sum old/app/tests/python-ga-upstream.test.mjs | cut -d' ' -f1 > old.python-test.sha
+          sha256sum new/app/tests/python-ga-upstream.test.mjs | cut -d' ' -f1 > new.python-test.sha
+          echo 'GA_CONTINUATION_EXACT_TWO_BRIDGE_AND_TEST_FILES_READY'
           docker build --quiet -t liftorbit-continuation-release:preflight new/app > "$RUNNER_TEMP/ga-continuation-docker-build.log" 2>&1 || {
             echo 'GA_CONTINUATION_PINNED_DOCKER_BUILD_FAILED'
             exit 22
@@ -112,32 +114,42 @@ jobs:
           target="$OVH_USER@$OVH_HOST"
           oldSha=$(cat old.python-upstream.sha)
           newSha=$(cat new.python-upstream.sha)
+          oldTestSha=$(cat old.python-test.sha)
+          newTestSha=$(cat new.python-test.sha)
           root=/home/liftorbit-ci/liftorbit-migration
           scp -q "${opts[@]}" new/app/python-ga-upstream.mjs "$target:$root/sources/ovh-app/python-ga-upstream.mjs.continuation.next"
-          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          scp -q "${opts[@]}" new/app/tests/python-ga-upstream.test.mjs "$target:$root/sources/ovh-app/python-ga-upstream.test.mjs.continuation.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" "$oldTestSha" "$newTestSha" <<'REMOTE'
           set -euo pipefail
           umask 077
           root="$HOME/liftorbit-migration"
           app="$root/sources/ovh-app/current/python-ga-upstream.mjs"
+          tests="$root/sources/ovh-app/current/tests/python-ga-upstream.test.mjs"
           next="$root/sources/ovh-app/python-ga-upstream.mjs.continuation.next"
+          nextTest="$root/sources/ovh-app/python-ga-upstream.test.mjs.continuation.next"
           backup="$root/patch-backups/ga-continuation-20261116"
-          expectedOld="$1"; expectedNew="$2"
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
-          test -f "$app" && test -f "$next"
-          test "$(sha "$app")" = "$expectedOld" || { echo 'GA_CONTINUATION_PRODUCTION_SOURCE_DRIFT_ABORT'; exit 5; }
-          test "$(sha "$next")" = "$expectedNew" || { echo 'GA_CONTINUATION_UPLOAD_INTEGRITY_FAILED'; exit 5; }
+          test -f "$app" && test -f "$tests" && test -f "$next" && test -f "$nextTest"
+          test "$(sha "$app")" = "$1" || { echo 'GA_CONTINUATION_PRODUCTION_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$tests")" = "$3" || { echo 'GA_CONTINUATION_TEST_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$2" || { echo 'GA_CONTINUATION_UPLOAD_INTEGRITY_FAILED'; exit 5; }
+          test "$(sha "$nextTest")" = "$4" || { echo 'GA_CONTINUATION_TEST_UPLOAD_INTEGRITY_FAILED'; exit 5; }
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_CONTINUATION_PREDEPLOY_SMOKE_FAILED'; exit 6; }
           mkdir -p "$backup"
           cp -p "$app" "$backup/python-ga-upstream.mjs"
-          test "$(sha "$backup/python-ga-upstream.mjs")" = "$expectedOld"
+          cp -p "$tests" "$backup/python-ga-upstream.test.mjs"
+          test "$(sha "$backup/python-ga-upstream.mjs")" = "$1"
+          test "$(sha "$backup/python-ga-upstream.test.mjs")" = "$3"
           rollback(){
             trap - ERR
             cp -p "$backup/python-ga-upstream.mjs" "$app" || true
+            cp -p "$backup/python-ga-upstream.test.mjs" "$tests" || true
             sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
             echo 'GA_CONTINUATION_AUTOMATIC_ROLLBACK_ATTEMPTED'
           }
           trap rollback ERR
           mv "$next" "$app"
+          mv "$nextTest" "$tests"
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
           healthy=no
           for attempt in $(seq 1 24); do
@@ -145,7 +157,8 @@ jobs:
             sleep 5
           done
           test "$healthy" = yes || { echo 'GA_CONTINUATION_POSTDEPLOY_HEALTH_FAILED'; false; }
-          test "$(sha "$app")" = "$expectedNew"
+          test "$(sha "$app")" = "$2"
+          test "$(sha "$tests")" = "$4"
           trap - ERR
           echo 'GA_CONTINUATION_OVH_DEPLOYED_HEALTHY'
           REMOTE
