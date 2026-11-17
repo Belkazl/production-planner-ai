@@ -94,7 +94,7 @@ jobs:
             exit 22
           }
           echo 'GA_RECONNECT_DOCKER_BUILD_PASSED'
-      - name: Apply guarded OVH app update with automatic rollback
+      - name: Deploy exact two-file UI change to OVH with automatic rollback
         shell: bash
         env:
           OVH_HOST: ${{ vars.OVH_HOST }}
@@ -113,44 +113,56 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
           target="$OVH_USER@$OVH_HOST"
-          oldSha=$(cat old.stop-ui.sha)
-          newSha=$(cat new.stop-ui.sha)
           root=/home/liftorbit-ci/liftorbit-migration
-          scp -q "${opts[@]}" new/app/stop-ui.js "$target:$root/sources/ovh-app/stop-ui.js.stop.next"
-          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          oldStop=$(cat old.stop.sha)
+          newStop=$(cat new.stop.sha)
+          oldRestart=$(cat old.restart.sha)
+          newRestart=$(cat new.restart.sha)
+          scp -q "${opts[@]}" new/app/stop-ui.js "$target:$root/sources/ovh-app/stop-ui.js.reconnect.next"
+          scp -q "${opts[@]}" new/app/restart-optimizer-ui.js "$target:$root/sources/ovh-app/restart-optimizer-ui.js.reconnect.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldStop" "$newStop" "$oldRestart" "$newRestart" <<'REMOTE'
           set -euo pipefail
           umask 077
           root="$HOME/liftorbit-migration"
-          app="$root/sources/ovh-app/current/stop-ui.js"
-          next="$root/sources/ovh-app/stop-ui.js.stop.next"
-          backup="$root/patch-backups/ga-stop-ui-20261117"
-          expectedOld="$1"; expectedNew="$2"
+          app="$root/sources/ovh-app/current"
+          stop="$app/stop-ui.js"
+          restart="$app/restart-optimizer-ui.js"
+          nextStop="$root/sources/ovh-app/stop-ui.js.reconnect.next"
+          nextRestart="$root/sources/ovh-app/restart-optimizer-ui.js.reconnect.next"
+          backup="$root/patch-backups/ga-reconnect-after-reload-20261117"
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
-          test -f "$app" && test -f "$next"
-          test "$(sha "$app")" = "$expectedOld" || { echo 'GA_STOP_SOURCE_DRIFT_ABORT'; exit 5; }
-          test "$(sha "$next")" = "$expectedNew" || { echo 'GA_STOP_UPLOAD_HASH_MISMATCH'; exit 5; }
-          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_STOP_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          for file in "$stop" "$restart" "$nextStop" "$nextRestart"; do test -f "$file"; done
+          test "$(sha "$stop")" = "$1" || { echo 'GA_RECONNECT_STOP_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$restart")" = "$3" || { echo 'GA_RECONNECT_RESTART_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$nextStop")" = "$2" || { echo 'GA_RECONNECT_STOP_UPLOAD_HASH_MISMATCH'; exit 5; }
+          test "$(sha "$nextRestart")" = "$4" || { echo 'GA_RECONNECT_RESTART_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_RECONNECT_PREDEPLOY_SMOKE_FAILED'; exit 6; }
           mkdir -p "$backup"
-          cp -p "$app" "$backup/stop-ui.js"
-          test "$(sha "$backup/stop-ui.js")" = "$expectedOld"
+          cp -p "$stop" "$backup/stop-ui.js"
+          cp -p "$restart" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/stop-ui.js")" = "$1"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$3"
           rollback(){
             trap - ERR
-            cp -p "$backup/stop-ui.js" "$app" || true
+            cp -p "$backup/stop-ui.js" "$stop" || true
+            cp -p "$backup/restart-optimizer-ui.js" "$restart" || true
             sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
-            echo 'GA_STOP_AUTOMATIC_ROLLBACK_ATTEMPTED'
+            echo 'GA_RECONNECT_AUTOMATIC_ROLLBACK_ATTEMPTED'
           }
           trap rollback ERR
-          mv "$next" "$app"
+          mv "$nextStop" "$stop"
+          mv "$nextRestart" "$restart"
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
           healthy=no
           for attempt in $(seq 1 24); do
             if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
             sleep 5
           done
-          test "$healthy" = yes || { echo 'GA_STOP_POSTDEPLOY_HEALTH_FAILED'; false; }
-          test "$(sha "$app")" = "$expectedNew"
+          test "$healthy" = yes || { echo 'GA_RECONNECT_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$stop")" = "$2"
+          test "$(sha "$restart")" = "$4"
           trap - ERR
-          echo 'GA_STOP_UI_OVH_DEPLOYED_HEALTHY'
+          echo 'GA_RECONNECT_OVH_DEPLOYED_HEALTHY'
           REMOTE
       - name: Public HTTPS, guest boundary and no redirect
         shell: bash
