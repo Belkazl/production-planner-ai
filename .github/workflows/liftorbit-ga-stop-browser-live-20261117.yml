@@ -1,0 +1,28 @@
+name: LiftOrbit stop button browser click production diagnosis
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-stop-browser-live-20261117.yml
+      - ops/ovh/browser-stop-live-test-20261117.mjs
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install headless browser
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Click real Stop on actual LiftOrbit app after starting GA
+        shell: bash
+        run: node ops/ovh/browser-stop-live-test-20261117.mjs
