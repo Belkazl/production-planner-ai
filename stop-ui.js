@@ -183,7 +183,7 @@ btn.onclick=async function(event){
  timer=setTimeout(()=>poll(my),600);
  try{return await originalBtn.call(this,event)}
  finally{
-  if(my!==generation){if(requestStop)ppScheduleStopReconciliation(generation);return;}
+  if(my!==generation){if(requestStop){ppReconcileStoppedUi(generation);ppScheduleStopReconciliation(generation)}return;}
   running=false;clearTimeout(timer);stop.classList.remove("pp-on");candidateAvailable=false;
   const candidate=liveModeButton("candidate");if(candidate){candidate.disabled=false;candidate.removeAttribute("aria-disabled");candidate.title=""}
   if(requestStop){
