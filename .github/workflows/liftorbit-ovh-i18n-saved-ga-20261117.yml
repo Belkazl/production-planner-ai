@@ -4,6 +4,7 @@ name: LiftOrbit OVH English Saved plans and GA text localization 2026-11-17
 # Locale regression 44064396450 passed including RU/EN roundtrip and live DOM insertions.
 # Validate deployed HTML translation source using a disposable authenticated account.
 # Exact live file SHA, Docker build, HTTPS auth boundary and rollback required.
+# Verified in isolated localization regression workflow 44064396450.
 on:
   push:
     branches: [main]
