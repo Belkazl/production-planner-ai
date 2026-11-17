@@ -123,7 +123,8 @@ async function ppRecoverRunningGaFromAccount(){
  try{
   const response=await fetch("/api/plan-progress?ppReconnect="+Date.now(),{
    method:"GET",cache:"no-store",credentials:"same-origin",
-   headers:{accept:"application/json"}
+   headers:{accept:"application/json"},
+   signal:typeof AbortSignal.timeout==="function"?AbortSignal.timeout(4500):undefined
   });
   if(!response.ok)throw Error("HTTP "+response.status);
   const status=await response.json();
@@ -143,15 +144,22 @@ async function ppRecoverRunningGaFromAccount(){
  }catch(error){
   remoteFailureCount++;
   console.warn("PP_GA_RECONNECT_RETRY",remoteFailureCount,String(error).slice(0,70));
-  if(remoteFailureCount<8&&reconnecting){
-   setTimeout(ppRecoverRunningGaFromAccount,Math.min(3500,400*remoteFailureCount));
+  if(remoteFailureCount<3&&reconnecting){
+   setTimeout(ppRecoverRunningGaFromAccount,Math.min(1200,400*remoteFailureCount));
   }else if(reconnecting){
-   // Fail closed: if we cannot read the account's running status, do NOT
-   // offer a fresh search that would hit optimization_running_stop_first.
+   // The read-only progress endpoint may temporarily fail for a large model.
+   // Do NOT leave both optimizer actions permanently disabled. A fresh reset
+   // is still checked by the authenticated server before any state changes;
+   // it returns HTTP 409 while an actual job is still running.
+   reconnecting=false;remotePhase="unavailable";
+   const english=window.__PP_LANGUAGE__?.current==="en";
    const note=document.getElementById("validator");
-   if(note)note.textContent="Не удалось проверить активную оптимизацию. Обновите страницу для повторного подключения.";
-   const status=document.getElementById("valid");
-   if(status)status.textContent="GA: подключение недоступно";
+   if(note)note.textContent=english
+    ?"Could not check GA status. The server will verify the current run before a new search."
+    :"Не удалось проверить состояние GA. Перед новым поиском сервер проверит активный расчёт.";
+   const badge=document.getElementById("valid");
+   if(badge)badge.textContent=english?"GA: status unavailable":"GA: состояние недоступно";
+   window.dispatchEvent(new Event("pp:optimizer-finished"));
   }
  }
 }
@@ -370,6 +378,18 @@ window.fetch=function(input,init){
  }
  return ppFetchOriginal(input,init);
 };
+function ppReconnectOptimizationOnDemand(){
+ if(running||reconnecting)return false;
+ reconnecting=true;remoteFailureCount=0;remotePhase="checking";
+ const badge=document.getElementById("valid");
+ if(badge)badge.textContent=window.__PP_LANGUAGE__?.current==="en"
+  ?"GA: reconnecting to running optimization…"
+  :"GA: подключаемся к активной оптимизации…";
+ window.dispatchEvent(new Event("pp:optimizer-reconnect-pending"));
+ setTimeout(ppRecoverRunningGaFromAccount,0);
+ return true;
+}
+window.__PP_GA_RECHECK__=ppReconnectOptimizationOnDemand;
 window.__PP_STOP_DEBUG__=()=>({running,reconnecting,recoveredSession,remotePercent,remotePhase,remoteFailureCount,stopped:requestStop,variants:items.length,criterion,stoppedPlanAvailable,buttonText:btn.textContent});
 setTimeout(ppRecoverRunningGaFromAccount,80);
 })();
