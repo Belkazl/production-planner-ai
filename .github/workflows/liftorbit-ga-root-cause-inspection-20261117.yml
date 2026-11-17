@@ -122,7 +122,10 @@ jobs:
                 raise SystemExit("DIAG_WORKER_TERMINAL_"+str(phase))
               if phase=="completed" and d.get("success"):
                 result=d.get("result") or {}
-                assert len(result.get("operations") or [])>0
+                assert result.get("valid") is True,"GA_FINAL_RESULT_INVALID"
+                assert len(result.get("operations") or [])>=1097,"GA_FINAL_DROPPED_PRODUCTION_OR_SETUP_ROWS"
+                assert sum(bool(x.get("is_setup")) for x in result.get("operations") or [])>=89,"GA_FINAL_DROPPED_SETUP_ROWS"
+                print("GA_FINAL_1097_OP_89_SETUP_ACCEPTANCE_PASS",flush=True)
                 print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),
                   "recovered",result.get("optimization_account_check_recovered"),"reason",result.get("optimization_termination_reason"),
                   "final_generic_ops",len(result.get("generic_operations") or []),
