@@ -51,7 +51,7 @@ function record(p){
  try{items.push({score,plan:JSON.parse(JSON.stringify(p))})}catch(e){return}
  items.sort((a,b)=>a.score-b.score);
  if(items.length>16)items.length=16;
- stop.disabled=items.length===0;stop.title="Корректных вариантов: "+items.length;
+ stop.disabled=false;stop.title="Корректных вариантов: "+items.length;
 }
 async function poll(my){
  if(!running||requestStop||my!==generation)return;
@@ -64,7 +64,7 @@ async function poll(my){
    record(data.candidate_preview);record(data.best_preview)
   }
  }catch(e){console.warn("PP_STOP_PROGRESS",String(e))}
- if(my===generation&&running&&!requestStop)timer=setTimeout(()=>poll(my),1750);
+ if(my===generation&&running&&!requestStop){stop.disabled=false;timer=setTimeout(()=>poll(my),1750);}
 }
 function restore(plan){
  if(!plan)return;
@@ -121,6 +121,54 @@ function showModal(){
  };
  actions.append(select,old);box.append(actions);modal.replaceChildren(box);modal.style.display="flex";modal.classList.add("pp-open");
 }
+
+async function ppConfirmStoppedAfterAmbiguousResponse(){
+ // A cancellation can succeed in the isolated GA worker while the older
+ // bridge sees a completed legacy run and returns HTTP 409. Only a cancelled
+ // state from this same authenticated account confirms the stop.
+ try{
+  const response=await fetch("/api/plan-progress?ppStopConfirm="+Date.now(),{
+   method:"GET",cache:"no-store",credentials:"same-origin"
+  });
+  if(!response.ok)return null;
+  const status=await response.json();
+  if(status?.ok===true&&status.running===false&&
+     (status.phase==="cancelled"||status.stopped===true||
+      status.error==="optimization_stopped")){
+   return {ok:true,stopped:true,best_preview:status.best_preview||null,
+      variants:[],confirmed_by:"account_scoped_progress"};
+  }
+ }catch(e){console.warn("PP_STOP_CONFIRM_UNAVAILABLE",String(e).slice(0,80))}
+ return null;
+}
+function ppReconcileStoppedUi(expectedGeneration){
+ if(expectedGeneration!==generation||!requestStop||running||
+    window.__ppFreshRestartPending)return;
+ stop.classList.remove("pp-on");
+ stop.disabled=false;
+ stop.textContent="Остановить оптимизацию";
+ window.__ppOptimizationInFlight=false;
+ btn.disabled=false;
+ setActionAfterStop();
+ const status=document.getElementById("valid");
+ if(status&&(/GA error|^Error|Ошибка GA|failed|ошибка|stopped|остановлено/i.test(status.textContent||"")||
+    /running|оптимизация|optimization/i.test(status.textContent||"")))
+  status.textContent=selectedPlan?"GA: остановлено · план выбран":"GA: остановлено · выбери вариант";
+ const note=document.getElementById("validator");
+ if(note&&/optimization_stopped|ga_worker_cancelled|ga_client_wait_timeout|AbortError|^ga_error$/i.test(note.textContent||""))
+  note.textContent=selectedPlan
+   ?"Остановлено пользователем. Выбранный план показан на Ганте и пока не сохранён."
+   :"Остановлено пользователем. Выбери найденный вариант. Сохранённые планы не изменены.";
+ if(!modalShown)showModal();
+}
+function ppScheduleStopReconciliation(expectedGeneration){
+ // The legacy /api/plan Promise can settle AFTER the stop endpoint returns.
+ // Its old finalizer must not overwrite a confirmed user cancellation.
+ for(const delay of [0,75,250,700,1500,3000]){
+  setTimeout(()=>ppReconcileStoppedUi(expectedGeneration),delay);
+ }
+}
+
 btn.onclick=async function(event){
  if(running || btn.disabled)return;
  const my=++generation;
@@ -135,7 +183,7 @@ btn.onclick=async function(event){
  timer=setTimeout(()=>poll(my),600);
  try{return await originalBtn.call(this,event)}
  finally{
-  if(my!==generation)return;
+  if(my!==generation){if(requestStop)ppScheduleStopReconciliation(generation);return;}
   running=false;clearTimeout(timer);stop.classList.remove("pp-on");candidateAvailable=false;
   const candidate=liveModeButton("candidate");if(candidate){candidate.disabled=false;candidate.removeAttribute("aria-disabled");candidate.title=""}
   if(requestStop){
@@ -157,12 +205,23 @@ stop.onclick=async function(){
  if(!running||requestStop)return;
  stop.disabled=true;stop.textContent="Останавливаю...";
  try{
-  const response=await fetch("/api/optimizer-stop",{method:"POST",cache:"no-store"});
-  const data=await response.json();
-  if(!response.ok||!data?.ok){
-   stop.disabled=false;stop.textContent="Остановить оптимизацию";
-   const s=document.getElementById("valid");if(s)s.textContent="GA: остановка пока недоступна";
-   console.warn("PP_STOP_NOT_READY",data?.error);return;
+  let response=null,data=null;
+  try{
+   response=await fetch("/api/optimizer-stop",{
+    method:"POST",cache:"no-store",credentials:"same-origin"
+   });
+   data=await response.json();
+  }catch(e){console.warn("PP_STOP_RESPONSE_UNAVAILABLE",String(e).slice(0,80))}
+  if(!response?.ok||!data?.ok){
+   const confirmed=await ppConfirmStoppedAfterAmbiguousResponse();
+   if(confirmed)data=confirmed;
+   else{
+    stop.disabled=false;stop.textContent="Остановить оптимизацию";
+    const s=document.getElementById("valid");
+    if(s)s.textContent="GA: остановка не подтверждена · повтори Stop";
+    console.warn("PP_STOP_NOT_READY",data?.error||response?.status||"network");
+    return;
+   }
   }
   for(const variant of data.variants||[])record(variant.plan);
   record(data.best_preview);
@@ -186,6 +245,7 @@ stop.onclick=async function(){
   // attribute of the primary button). Make that transition explicit.
   window.dispatchEvent(new Event("pp:optimizer-stopped"));
   const status=document.getElementById("valid");if(status)status.textContent="GA: остановлено · выбери вариант";
+  ppScheduleStopReconciliation(generation);
   setTimeout(showModal,40);
  }catch(e){
   console.error("PP_STOP_REQUEST_ERROR",e);
