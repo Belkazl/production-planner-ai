@@ -1,5 +1,6 @@
 name: LiftOrbit production Chromium Optimization depth acceptance
 # Verify corrected nested-toolbar release 44119803512 on a disposable production account.
+# GA is intercepted; synthetic-only native readiness gate is diagnosed before the click.
 on:
   push:
     branches: [main]
