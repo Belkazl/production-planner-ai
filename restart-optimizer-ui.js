@@ -73,6 +73,7 @@ const observer=new MutationObserver(updateDisabled);
 observer.observe(btn,{attributes:true,attributeFilter:["disabled"]});
 window.addEventListener("pp:optimizer-started",updateDisabled);
 window.addEventListener("pp:optimizer-finished",updateDisabled);
+window.addEventListener("pp:optimizer-reconnect-pending",updateDisabled);
 window.addEventListener("pp:optimizer-stopped",updateDisabled);
 const savedReadyObserver=new MutationObserver(()=>queueMicrotask(()=>{restoreSavedPlanReadiness();updateDisabled()}));
 const savedMeta=find("meta"),savedStatus=find("valid");
@@ -171,7 +172,17 @@ fresh.onclick=async function(){
    headers:{"Content-Type":"application/json"},body:"{}"
   });
   const data=await response.json();
-  if(!response.ok||!data?.ok)throw Error(data?.error||"Не удалось сбросить оптимизацию");
+  if(!response.ok||!data?.ok){
+   if(data?.error==="optimization_running_stop_first"){
+    // Stale browser state is not proof that the server has stopped GA.
+    // Preserve all project and plan data, reconnect instead of resetting.
+    window.__PP_GA_RECHECK__?.();
+    const e=new Error("GA is still running; restoring current progress");
+    e.ppReconnecting=true;
+    throw e;
+   }
+   throw Error(data?.error||"Не удалось сбросить оптимизацию");
+  }
   const previous=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||window.__ppManualPlan||storedLastPlan();
   try{window.__ppFreshDisplayBaseline=previous?JSON.parse(JSON.stringify(previous)):null}catch(_){window.__ppFreshDisplayBaseline=previous||null}
   window.__ppFreshRestartMode=true;
@@ -194,9 +205,13 @@ fresh.onclick=async function(){
   if(window.__ppFreshRestartPending)finish();
   else{resetting=false;updateDisabled()}
   fresh.textContent=oldText;
-  const text="Не удалось начать заново: "+String(err?.message||err);
+  const english=window.__PP_LANGUAGE__?.current==="en";
+  const text=err?.ppReconnecting
+   ?(english?"GA is already running. Reconnecting to the current search…"
+     :"GA уже выполняется. Восстанавливаем текущий расчёт…")
+   :("Не удалось начать заново: "+String(err?.message||err));
   if(status)status.textContent=text;
-  console.error("PP_FRESH_OPTIMIZER_START_ERROR",err);
+  if(!err?.ppReconnecting)console.error("PP_FRESH_OPTIMIZER_START_ERROR",err);
  }
 };
 window.__PP_FRESH_OPTIMIZER_DEBUG__=()=>({
