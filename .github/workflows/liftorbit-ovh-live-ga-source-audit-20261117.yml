@@ -1,0 +1,66 @@
+name: LiftOrbit OVH read-only GA deployed source audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-live-ga-source-audit-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect current GA bridge on OVH without modification
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = '51.255.163.121'
+          test "$OVH_USER" = 'liftorbit-ci'
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          {
+            printf 'audit_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20 "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          file="$HOME/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs"
+          test -f "$file"
+          printf 'source_sha256=%s\n' "$(sha256sum "$file" | cut -d' ' -f1)"
+          if grep -Fq 'verifiedWorkerCheckpoint' "$file"; then echo 'verified_best_checkpoint=yes'; else echo 'verified_best_checkpoint=no'; fi
+          if grep -Fq 'setupOperationsDropped' "$file"; then echo 'final_setup_preservation=yes'; else echo 'final_setup_preservation=no'; fi
+          if grep -Fq 'PP_GA_OWN_MODEL_VERSION_STALE_TERMINAL' "$file"; then echo 'stale_model_fix=yes'; else echo 'stale_model_fix=no'; fi
+          REMOTE
+          } | tee "$RUNNER_TEMP/liftorbit-source-audit.txt"
+      - name: Publish read-only audit result
+        if: always()
+        shell: bash
+        env:
+          AUDIT_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          path=ops/ovh/test-results/live-ga-source-audit-latest.txt
+          mkdir -p "$(dirname "$path")"
+          printf 'workflow_run=%s\n' "$AUDIT_RUN" > "$path"
+          if [[ -f "$RUNNER_TEMP/liftorbit-source-audit.txt" ]]; then
+            cat "$RUNNER_TEMP/liftorbit-source-audit.txt" >> "$path"
+          else
+            echo 'audit_status=failed_before_remote_read' >> "$path"
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$path"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record OVH live GA bridge source audit'
+            git push origin HEAD:main
+          fi
