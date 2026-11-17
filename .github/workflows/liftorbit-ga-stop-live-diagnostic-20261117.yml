@@ -50,6 +50,20 @@ jobs:
           st,data=api("/api/auth/register","POST",{"email":"stop-qa-"+uuid.uuid4().hex+"@liftorbit.invalid",
              "password":secrets.token_urlsafe(28),"company":"Test stop API isolated"})
           assert st==200 and cookie,("REGISTER",st)
+          # Verify the real authenticated browser HTML serves the new Stop
+          # handler, not merely a rebuilt artifact or cached guest page.
+          req=urllib.request.Request(base+"/",headers={
+            "Cookie":cookie,"Accept":"text/html","Origin":base})
+          with urllib.request.urlopen(req,timeout=45) as res:
+            doc_status=res.status
+            pagehtml=res.read(12000000).decode("utf-8","replace")
+          print("STOP_UI_PUBLIC_HTML",doc_status,"html_bytes",len(pagehtml),flush=True)
+          assert doc_status==200,"AUTHENTICATED_PAGE_FAILED"
+          for marker in ("ppStopOptimizer","ppScheduleStopReconciliation",
+                         "ppConfirmStoppedAfterAmbiguousResponse",
+                         "PP_STOP_CONFIRM_UNAVAILABLE"):
+            assert marker in pagehtml,"NEW_STOP_SCRIPT_NOT_SERVED_"+marker
+          print("STOP_UI_LIVE_MARKERS_PASS",flush=True)
           pid="stop-qa-"+uuid.uuid4().hex
           st,data=api("/api/db-storage","POST",{"storage":{
              "prodplan.projects.v2":json.dumps([{"id":pid,"name":"Test stop","model":model}]),
