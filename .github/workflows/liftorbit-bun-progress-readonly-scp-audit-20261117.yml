@@ -31,8 +31,9 @@ jobs:
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
           remote="$OVH_USER@$OVH_HOST"
           source=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts
-          scp -q "${opts[@]}" "$remote:$source" "$RUNNER_TEMP/ovh-index.ts"
-          node - "$RUNNER_TEMP/ovh-index.ts" > "$RUNNER_TEMP/bun-progress-audit.txt" <<'NODE'
+          ssh "${opts[@]}" "$remote" "for p in /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs; do if test -e \"\$p\"; then stat -c '%n type=%F mode=%a owner=%U' \"\$p\"; else echo \"NOT_PRESENT \$p\"; fi; done; find /home/liftorbit-ci/liftorbit-migration/sources/ovh-app -maxdepth 3 -name index.ts -printf '%p mode=%m\\n' 2>/dev/null | head -n 15" > "$RUNNER_TEMP/bun-progress-audit.txt"
+          scp -q "${opts[@]}" "$remote:$source" "$RUNNER_TEMP/ovh-index.ts" 2> "$RUNNER_TEMP/scp-error.txt" || { echo 'SOURCE_SCP_FAILED' >> "$RUNNER_TEMP/bun-progress-audit.txt"; cat "$RUNNER_TEMP/scp-error.txt" | cut -c 1-180 >> "$RUNNER_TEMP/bun-progress-audit.txt"; exit 8; }
+          node - "$RUNNER_TEMP/ovh-index.ts" >> "$RUNNER_TEMP/bun-progress-audit.txt" <<'NODE'
           const fs=require('fs'),crypto=require('crypto');
           const s=fs.readFileSync(process.argv[2],'utf8');
           console.log('source_sha256='+crypto.createHash('sha256').update(s).digest('hex'));
