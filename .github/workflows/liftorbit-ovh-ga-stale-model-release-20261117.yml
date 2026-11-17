@@ -7,6 +7,7 @@ name: LiftOrbit guarded OVH GA stale model versus foreign plan correction
 # Repair anchored OVH progress persistence kept unchanged; tests passed 44112678060.
 # Bounded Docker build failure logs enabled for safe predeployment diagnosis.
 # Docker preflight uses the already-deployed continuation contract from pinned previous release.
+# Plain Docker build logs expose safe regression failures; no production files touched on failure.
 on:
   push:
     branches: [main]
