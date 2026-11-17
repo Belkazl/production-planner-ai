@@ -1,0 +1,38 @@
+name: LiftOrbit optimization depth presets and GA payload regression
+on:
+  push:
+    branches: [feat/optimizer-depth-20261117]
+    paths:
+      - restart-optimizer-ui.js
+      - tests/optimizer-depth-presets.test.mjs
+      - .github/workflows/liftorbit-optimizer-depth-qa-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  depth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/optimizer-depth-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: DOM test dependencies
+        run: npm install --no-save --no-package-lock jsdom@26
+      - name: Validate UI syntax and production stop/restart baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check restart-optimizer-ui.js
+          node --check stop-ui.js
+          node tests/early-stop-contract.cjs
+          node tests/optimizer-action-labels.cjs
+      - name: Test presets, GA POST payload, Stop, Start again, multilingual per-project selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/optimizer-depth-presets.test.mjs tests/ga-reconnect-unlock-after-error.test.mjs tests/ga-reload-rejoin-controls.test.mjs
