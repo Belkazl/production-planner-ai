@@ -1,0 +1,71 @@
+name: LiftOrbit read-only audit of deployed Bun GA completion contract
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-current-bun-progress-audit-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Read deployed progress handler without modifying server
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = '51.255.163.121'
+          test "$OVH_USER" = 'liftorbit-ci'
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20 "$OVH_USER@$OVH_HOST" bash -s > "$RUNNER_TEMP/current-progress-source.txt" <<'REMOTE'
+          set -euo pipefail
+          path="$HOME/liftorbit-migration/sources/ovh-app/current/index.ts"
+          test -f "$path"
+          python3 - "$path" <<'PY'
+          import hashlib,sys,pathlib
+          s=pathlib.Path(sys.argv[1]).read_text()
+          print('source_sha256='+hashlib.sha256(s.encode()).hexdigest())
+          for m in ['async function progress(req){','if(data.best_preview){','data.best_preview=convertOne','data.result=','async function plan(req){','return jsonifyBridge(data);','ppPythonGAUpstream.fetch(req,']:
+            print('count_'+m.replace(' ','_')[:38]+'='+str(s.count(m)))
+          i=s.find('async function progress(req){')
+          if i<0: print('progress_not_found');raise SystemExit(3)
+          j=s.find('async function plan(req){',i)
+          frag=s[i:j if j>i else i+6000]
+          print('progress_fragment_begin')
+          print(frag[:5500])
+          print('progress_fragment_end')
+          PY
+          REMOTE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish audit report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest=ops/ovh/test-results/current-bun-progress-source-latest.txt
+          mkdir -p "$(dirname "$dest")"
+          if [[ -f "$RUNNER_TEMP/current-progress-source.txt" ]]; then
+            cp "$RUNNER_TEMP/current-progress-source.txt" "$dest"
+          else
+            echo 'audit_failed_before_source_read' > "$dest"
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dest"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record deployed Bun progress source inspection'
+            git push origin HEAD:main
+          fi
