@@ -1,0 +1,29 @@
+name: LiftOrbit verified 916-op checkpoint fallback GA regression
+on:
+  push:
+    branches: [fix/ga-verified-progress-checkpoint-20261117]
+    paths:
+      - python-ga-upstream.mjs
+      - tests/ga-account-owned-recovery.test.mjs
+      - .github/workflows/liftorbit-ga-verified-checkpoint-qa-20261117.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  checkpoint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ga-verified-progress-checkpoint-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check source syntax
+        run: node --check python-ga-upstream.mjs
+      - name: Validate real 916-operation / 90-setup checkpoint salvage and account isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/ga-account-owned-recovery.test.mjs tests/python-ga-upstream.test.mjs
