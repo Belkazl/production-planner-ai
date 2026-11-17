@@ -1,0 +1,174 @@
+name: LiftOrbit guarded OVH preserve GA setup operations in final plan
+# Repair verified real 1008-production-plus-89-setup final regression.
+# Never replace complete checked Setup-aware best with native result missing every Setup.
+# Worker, isolation, Gantt, projects, employees, materials and saved user plans unchanged.
+# Synthetic 1097/89 and restart/foreign isolation regression: 44129398723 passed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-ga-setup-integrity-release-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): preserve setup operations at GA final result')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout currently deployed verified GA checkpoint source
+        uses: actions/checkout@v4
+        with:
+          ref: 5fb424919bf73e34ee2c3a1674facb576eb0a1b7
+          path: deployed
+          persist-credentials: false
+      - name: Checkout setup integrity test-passed GA bridge
+        uses: actions/checkout@v4
+        with:
+          ref: 401d530aaf61eebb1f8f1e896ef5fcf4cc449df1
+          path: repaired
+          persist-credentials: false
+      - name: Checkout already released GA JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
+          path: compact
+          persist-credentials: false
+      - name: Verify exact one-file change and pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp deployed/python-ga-upstream.mjs old/app/python-ga-upstream.mjs
+          cp repaired/python-ga-upstream.mjs new/app/python-ga-upstream.mjs
+          # The current production Docker build already uses the updated
+          # continuation contract installed with the previous GA release.
+          # Pinned 2026-10 tests predate that fix and are intentionally obsolete.
+          cp deployed/tests/continuation-compat-contract.cjs old/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/continuation-compat-contract.cjs new/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/python-ga-upstream.test.mjs old/app/tests/python-ga-upstream.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          for side in old new; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+            node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
+          done
+          node --check old/app/python-ga-upstream.mjs
+          node --check new/app/python-ga-upstream.mjs
+          cp repaired/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          cp repaired/tests/ga-account-owned-recovery.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
+          node --test new/app/tests/python-ga-upstream.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          rm -f new/app/tests/ga-account-owned-recovery.test.mjs
+          diff -qr old/app new/app > "$RUNNER_TEMP/ga-setup-integrity-patch-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/ga-setup-integrity-patch-diff")" -eq 1
+          grep -Fqx 'Files old/app/python-ga-upstream.mjs and new/app/python-ga-upstream.mjs differ' "$RUNNER_TEMP/ga-setup-integrity-patch-diff"
+          grep -q 'verifiedWorkerCheckpoint' new/app/python-ga-upstream.mjs
+          grep -q 'setupOperationsDropped' new/app/python-ga-upstream.mjs
+          grep -q 'PP_GA_FINAL_SETUP_LOSS_REPLACED_BY_VERIFIED_BEST' new/app/python-ga-upstream.mjs
+          sha256sum old/app/python-ga-upstream.mjs | cut -d' ' -f1 > old.python-upstream.sha
+          sha256sum new/app/python-ga-upstream.mjs | cut -d' ' -f1 > new.python-upstream.sha
+          echo 'GA_SETUP_INTEGRITY_EXACT_ONE_SOURCE_CHANGED'
+          docker build --progress=plain -t liftorbit-setup-integrity:preflight new/app > "$RUNNER_TEMP/ga-setup-integrity-docker-build.log" 2>&1 || {
+            echo 'GA_SETUP_INTEGRITY_DOCKER_BUILD_FAILED'
+            echo 'GA_SETUP_INTEGRITY_DOCKER_FAILURE_TAIL_BEGIN'
+            tail -n 35 "$RUNNER_TEMP/ga-setup-integrity-docker-build.log" | cut -c 1-300
+            echo 'GA_SETUP_INTEGRITY_DOCKER_FAILURE_TAIL_END'
+            exit 22
+          }
+          echo 'GA_SETUP_INTEGRITY_DOCKER_BUILD_PASSED'
+      - name: Apply guarded OVH app update with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldSha=$(cat old.python-upstream.sha)
+          newSha=$(cat new.python-upstream.sha)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/app/python-ga-upstream.mjs "$target:$root/sources/ovh-app/python-ga-upstream.mjs.setup-integrity.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/python-ga-upstream.mjs"
+          next="$root/sources/ovh-app/python-ga-upstream.mjs.setup-integrity.next"
+          backup="$root/patch-backups/ga-setup-integrity-20261117"
+          expectedOld="$1"; expectedNew="$2"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -f "$app" && test -f "$next"
+          test "$(sha "$app")" = "$expectedOld" || { echo 'GA_SETUP_INTEGRITY_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$expectedNew" || { echo 'GA_SETUP_INTEGRITY_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_SETUP_INTEGRITY_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$app" "$backup/python-ga-upstream.mjs"
+          test "$(sha "$backup/python-ga-upstream.mjs")" = "$expectedOld"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/python-ga-upstream.mjs" "$app" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_SETUP_INTEGRITY_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$next" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_SETUP_INTEGRITY_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$app")" = "$expectedNew"
+          trap - ERR
+          echo 'GA_SETUP_INTEGRITY_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'GA_SETUP_INTEGRITY_PUBLIC_API_HEALTHY'
