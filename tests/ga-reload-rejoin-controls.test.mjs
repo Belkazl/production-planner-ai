@@ -101,7 +101,7 @@ test("after refresh, running account GA restores Stop and progress, disables res
   assert.equal(q.btn.disabled,false);
   assert.equal(q.fresh.disabled,false);
   console.log("GA_RELOAD_RUNNING_STOP_CHOICE_PASS");
- }finally{q.close()}
+ }finally{await delay(3300);q.close()}
 });
 test("a calculation completed during reload is accepted and shown without a new GA run",async()=>{
  const q=build({running:true});
