@@ -86,6 +86,9 @@ jobs:
           echo 'GA_STALE_MODEL_EXACT_ONE_SOURCE_CHANGED'
           docker build --quiet -t liftorbit-stale-model-release:preflight new/app > "$RUNNER_TEMP/ga-stale-model-docker-build.log" 2>&1 || {
             echo 'GA_STALE_MODEL_DOCKER_BUILD_FAILED'
+            echo 'GA_STALE_MODEL_DOCKER_FAILURE_TAIL_BEGIN'
+            tail -n 35 "$RUNNER_TEMP/ga-stale-model-docker-build.log" | cut -c 1-300
+            echo 'GA_STALE_MODEL_DOCKER_FAILURE_TAIL_END'
             exit 22
           }
           echo 'GA_STALE_MODEL_DOCKER_BUILD_PASSED'
