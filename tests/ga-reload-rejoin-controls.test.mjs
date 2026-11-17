@@ -80,8 +80,8 @@ test("after refresh, running account GA restores Stop and progress, disables res
   assert.equal(q.fresh.disabled,true);
   assert.equal(q.stop.disabled,false);
   assert.equal(q.stop.classList.contains("pp-on"),true);
-  assert.equal(q.w.document.getElementById("valid").textContent,"GA: оптимизация · 19%");
-  assert.equal(q.w.document.getElementById("meta").textContent,"GA: оптимизация · 19%");
+  assert.equal(q.w.document.getElementById("valid").textContent,"GA: Идёт оптимизация · 19%");
+  assert.equal(q.w.document.getElementById("meta").textContent,"GA: Идёт оптимизация · 19%");
   assert.equal(q.btn.textContent,"Оптимизация 19%");
   assert.equal(q.postPlan,0);
   await q.fresh.onclick();
@@ -90,7 +90,7 @@ test("after refresh, running account GA restores Stop and progress, disables res
   assert.equal(q.postPlan,0,"must never fire original optimizer while recovered job runs");
   q.setProgress(43);
   await until(()=>q.debug.remotePercent===43,3500);
-  assert.equal(q.w.document.getElementById("valid").textContent,"GA: оптимизация · 43%");
+  assert.equal(q.w.document.getElementById("valid").textContent,"GA: Идёт оптимизация · 43%");
   await q.stop.onclick();
   await until(()=>q.debug.running===false);
   assert.equal(q.cancels,1);
