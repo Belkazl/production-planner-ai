@@ -4,6 +4,18 @@ import {chromium} from "playwright";
 import {randomUUID,randomBytes} from "node:crypto";
 import assert from "node:assert/strict";
 const BASE="https://app.liftorbit.app";
+const rq=(kind,ref)=>({resource_type:kind,resource_ref:ref,resource_refs:[ref],match_mode:"specific",quantity:1});
+const testModel={
+ scheduler_mode:"resource",start:"2026-11-17T08:00:00",
+ equipment:Array.from({length:14},(_,i)=>({id:"U_EQ"+i,name:"Synthetic machine "+i,kind:"workstation",capacity:600,capacity_unit:"m2"})),
+ employees:Array.from({length:5},(_,i)=>({id:"U_EMP"+i,name:"Synthetic operator "+i,shift:"day"})),
+ shifts:{day:[["08:00","12:00"],["13:00","17:00"]]},
+ orders:Array.from({length:12},(_,i)=>({id:"U_ORD"+i,quantity:7200,unit:"m2",technical_process_id:"U_PROC"})),
+ technical_processes:[{id:"U_PROC",name:"Synthetic process",operations:Array.from({length:7},(_,i)=>({
+  id:"U_OP"+i,name:"Process "+i,sequence:i+1,duration_min:30,
+  resource_requirements:[rq("equipment","U_EQ"+i),rq("employee","U_EMP"+i%5)]
+ }))}],materials:[],setup_rules:[]
+};
 const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
 const context=await browser.newContext({viewport:{width:1650,height:930}});
 const page=await context.newPage();
@@ -26,8 +38,30 @@ try{
  },{email,password});
  assert.equal(account,200,"Disposable account creation");
  await page.goto(BASE,{waitUntil:"domcontentloaded",timeout:60000});
+ // The real planner hides the optimizer until an account owns a production model.
+ // Seed a dedicated, disposable project and persist it exactly as the UI would.
+ const id="qa-unlock-"+randomUUID().replaceAll("-","");
+ const projects=JSON.stringify([{id,name:"Synthetic restart QA",model:testModel}]);
+ await page.evaluate(({id,projects})=>{
+  localStorage.setItem("prodplan.project.active.v2",id);
+  localStorage.setItem("prodplan.projects.v2",projects);
+ },{id,projects});
+ const saved=await page.evaluate(async({id,projects})=>{
+  const r=await fetch("/api/db-storage",{method:"POST",credentials:"same-origin",
+   headers:{"content-type":"application/json"},body:JSON.stringify({storage:{
+    "prodplan.projects.v2":projects,"prodplan.project.active.v2":id}})});
+  return r.status;
+ },{id,projects});
+ assert.equal(saved,200,"Disposable account model persistence");
+ await page.reload({waitUntil:"domcontentloaded",timeout:60000});
  await page.waitForFunction(()=>!!window.__PP_STOP_DEBUG__&&
   !!document.getElementById("ppOptimizerStartOver"),null,{timeout:30000});
+ console.log("GA_UNLOCK_LIVE_PLANNING_VISIBLE",JSON.stringify(await page.evaluate(()=>({
+  planView:getComputedStyle(document.getElementById("planView")).display,
+  restartDisplay:getComputedStyle(document.getElementById("ppOptimizerStartOver")).display,
+  restartVisible:document.getElementById("ppOptimizerStartOver").getBoundingClientRect().width>0,
+  mainDisabled:document.getElementById("opt").disabled
+ }))));
  // Reproduce the actual bug: the account progress API is unavailable
  // after reloading a previously saved optimization.
  await page.route(/\/api\/plan-progress(?:\?|$)/,async route=>{
