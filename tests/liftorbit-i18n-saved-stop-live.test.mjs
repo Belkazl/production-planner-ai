@@ -61,6 +61,7 @@ test("English dynamically rendered Saved plans, warnings, stop validator and Bes
 test("RU -> EN -> RU preserves every original UI string and all project data",()=>{
  const q=mount();
  try{
+  q.w.__PP_LANGUAGE__.set("ru");
   const initial=new Map(expected.map(([id])=>[id,q.el(id).textContent.trim()]));
   q.w.__PP_LANGUAGE__.set("en");
   q.w.__PP_LANGUAGE__.set("ru");
