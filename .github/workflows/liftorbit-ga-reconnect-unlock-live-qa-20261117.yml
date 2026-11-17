@@ -1,5 +1,6 @@
 name: LiftOrbit live browser Start again unlock after status failures
 # Test installed OVH release 44081635423 and retained server 409 safety gate.
+# Use a disposable stored 12-order model to make Planning actions visible for the browser click.
 on:
   push:
     branches: [main]
