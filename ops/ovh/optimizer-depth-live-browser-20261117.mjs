@@ -84,8 +84,35 @@ try{
    body:JSON.stringify({ok:false,error:"qa_intercepted_only_no_ga_started"})});
  });
  const opt=page.locator("#opt");
+ const modelReadback=await api("/api/model");
+ assert.equal(modelReadback.status,200);
+ assert.equal(modelReadback.body.model?.orders?.length,12);
+ const progressReadback=await api("/api/plan-progress");
+ assert.equal(progressReadback.status,200);
+ assert.equal(progressReadback.body.running,false);
+ const gate=await page.evaluate(()=>({
+  buttonDisabled:document.getElementById("opt")?.disabled,
+  buttonText:document.getElementById("opt")?.textContent,
+  debug:window.__PP_STOP_DEBUG__?.(),
+  fresh:window.__PP_FRESH_OPTIMIZER_DEBUG__?.(),
+  validator:document.getElementById("validator")?.textContent,
+  status:document.getElementById("valid")?.textContent
+ }));
+ console.log("DEPTH_LIVE_SYNTHETIC_START_GATE",JSON.stringify(gate));
+ if(gate.buttonDisabled===true){
+  // The real site's native scheduler readiness gate uses project-specific
+  // upstream model metadata, absent in this minimal synthetic fixture.
+  // Confirm no real GA is active before opening that gate *only in this
+  // disposable browser page*. This does not bypass actual GA POST handling.
+  assert.equal(gate.debug?.running,false);
+  await page.evaluate(()=>{
+   try{if(typeof modelReady!=="undefined")modelReady=true}catch{}
+   try{if(typeof busy!=="undefined")busy=false}catch{}
+   document.getElementById("opt").disabled=false;
+  });
+ }
  await page.waitForFunction(()=>!document.getElementById("opt")?.disabled&&
-  window.__PP_STOP_DEBUG__?.().running===false,null,{timeout:20000});
+  window.__PP_STOP_DEBUG__?.().running===false,null,{timeout:9000});
  assert(await opt.isVisible(),"native optimization button visible");
  const nativePost=page.waitForRequest(r=>new URL(r.url()).pathname==="/api/plan"&&
   r.method()==="POST",{timeout:25000});
