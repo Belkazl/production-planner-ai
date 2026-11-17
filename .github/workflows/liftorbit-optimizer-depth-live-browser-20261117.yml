@@ -1,0 +1,40 @@
+name: LiftOrbit production Chromium Optimization depth acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-optimizer-depth-live-browser-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  chrome:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'test(liftorbit): confirm Optimization depth in production browser')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Check depth select in real Chrome, persisted value, actual native GA POST, RU/EN
+        shell: bash
+        run: node ops/ovh/optimizer-depth-live-browser-20261117.mjs
+      - name: Save non-sensitive screenshot of disposable project's setting
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: liftorbit-optimization-depth-real-ui
+          path: optimization-depth-live-english.png
+          retention-days: 3
+          if-no-files-found: ignore
