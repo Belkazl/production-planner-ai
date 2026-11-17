@@ -297,13 +297,29 @@ export function createPythonGAUpstream({
     let state;
     try{state=await currentJob(principal)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
     if(!state)return response({ok:true,running:false,success:false,done:0,total:0,percent:0,phase:'idle',best_preview:null,candidate_preview:null});
+    // A completed job belongs to the exact version of this account's model.
+    // Changing equipment, shifts, materials or orders makes its result stale,
+    // NOT an unowned/foreign schedule. Do not expose outdated previews as
+    // current after a model change, even when the order IDs still happen to fit.
+    if(state.modelKey!==hashModel(model)){
+      if(['queued','running'].includes(state.state)){
+        await cancel(req);
+        return response({ok:false,error:'account_model_changed_during_run'},409);
+      }
+      state.state='stale';
+      state.error='account_model_changed_since_run';
+      try{await save(principal,state)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
+      console.warn('PP_GA_OWN_MODEL_VERSION_STALE_TERMINAL');
+      return response({ok:true,running:false,success:false,done:0,total:100,percent:0,
+        phase:'stale',best_preview:null,candidate_preview:null,result:null,
+        resume_state:null,error:'account_model_changed_since_run'});
+    }
     if(state.state==='completed'&&state.result){
       if(!owned(state.result,model))return response({ok:false,error:'account_plan_mismatch'},409);
       return response({ok:true,running:false,success:true,done:100,total:100,percent:100,phase:'completed',
         best_preview:state.result,candidate_preview:null,result:state.result,resume_state:state.resume_state||null,error:null});
     }
     if(['cancelled','failed','timed_out','interrupted','invalid','stale'].includes(state.state))return response({ok:true,running:false,success:false,done:state.progress||0,total:100,percent:state.progress||0,phase:state.state,best_preview:state.best,candidate_preview:state.candidate||null,result:null,error:state.error||null});
-    if(hashModel(model)!==state.modelKey){await cancel(req);return response({ok:false,error:'account_model_changed_during_run'},409)}
     let status;
     try{const r=await call(principal,'/internal/jobs/'+state.id);
       if(r.status===404&&stateStore){state.state='interrupted';state.error='worker_restarted';await save(principal,state);return response({ok:false,error:'ga_worker_interrupted'},503)}
