@@ -18,7 +18,7 @@ async function scenario({previous=false,chooseBest=true}={}){
  w.fetch=async function(input,options={}){
   const url=typeof input==="string"?input:input.url;
   if(url.includes("/api/optimizer-stop"))return new Response(JSON.stringify({ok:true,stopped:true,best_preview:best,variants:[{plan:best}]}),{status:200,headers:{"content-type":"application/json"}});
-  if(url.includes("/api/plan-progress"))return new Response(JSON.stringify({ok:true,running:true,best_preview:best,candidate_preview:best}),{status:200,headers:{"content-type":"application/json"}});
+  if(url.includes("/api/plan-progress"))return new Response(JSON.stringify({ok:true,running:runCount>0,phase:runCount>0?"running":"idle",best_preview:runCount>0?best:null,candidate_preview:runCount>0?best:null}),{status:200,headers:{"content-type":"application/json"}});
   throw Error("Unexpected endpoint "+url);
  };
  btn.onclick=function(){
@@ -33,6 +33,8 @@ async function scenario({previous=false,chooseBest=true}={}){
  assert.equal(stop.textContent,"Остановить оптимизацию");
  assert.equal(btn.textContent,"Запустить оптимизацию");
  assert.equal(stop.classList.contains("pp-on"),false);
+ await delay(180); // New controller must verify account's idle GA status first.
+ assert.equal(w.__PP_STOP_DEBUG__().reconnecting,false);
  const runningPromise=btn.onclick({type:"click"});
  assert.equal(runCount,1,"GA should start on initial button");
  assert.equal(stop.classList.contains("pp-on"),true);
