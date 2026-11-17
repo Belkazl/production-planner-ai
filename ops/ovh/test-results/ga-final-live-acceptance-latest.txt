@@ -1,0 +1,7 @@
+workflow_run=44150266932
+probe_result=failure
+OWN900_START 202 ok True error None
+OWN900_SETUP_PROGRESS 0 http 200 phase running percent 5 valid True partial False sequence_size 12 missing_order 0 missing_order_setups 0 missing_order_nonsetup 0 material_ids 0 native_ops 1097 native_setups 89 bad_sequence 0 batch_count 144 bad_batch_order 0 bad_batch_equipment 0 variants 0 native_bad_order 0 native_bad_equipment 0 native_missing_order 0 missing_duration False error None best_ops 1097 setup_ops 89 bad_order 0 bad_equipment_id 0 bad_employee_id 0 bad_resource_id 0
+OWN900_SETUP_PROGRESS 3 http 200 phase running percent 70 valid True partial False sequence_size 12 missing_order 0 missing_order_setups 0 missing_order_nonsetup 0 material_ids 0 native_ops 1097 native_setups 89 bad_sequence 0 batch_count 144 bad_batch_order 0 bad_batch_equipment 0 variants 0 native_bad_order 0 native_bad_equipment 0 native_missing_order 0 missing_duration False error None best_ops 1097 setup_ops 89 bad_order 0 bad_equipment_id 0 bad_employee_id 0 bad_resource_id 0
+OWN900_SETUP_PROGRESS 5 http 200 phase completed percent 100 valid True partial None sequence_size 12 missing_order 0 missing_order_setups 0 missing_order_nonsetup 0 material_ids 0 native_ops 1097 native_setups 89 bad_sequence 0 batch_count 144 bad_batch_order 0 bad_batch_equipment 0 variants 0 native_bad_order 0 native_bad_equipment 0 native_missing_order 0 missing_duration False error None best_ops 1097 setup_ops 89 bad_order 0 bad_equipment_id 0 bad_employee_id 0 bad_resource_id 0
+first_error_hint=
