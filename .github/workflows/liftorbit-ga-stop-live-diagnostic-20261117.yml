@@ -25,9 +25,9 @@ jobs:
             req=urllib.request.Request(base+path,data=body,method=method,headers=h)
             try:
               with urllib.request.urlopen(req,timeout=30) as r:
-                st=r.status;raw=r.read(240000);respheaders=r.headers
+                st=r.status;raw=r.read(16000000);respheaders=r.headers
             except urllib.error.HTTPError as e:
-              st=e.code;raw=e.read(240000);respheaders=e.headers
+              st=e.code;raw=e.read(16000000);respheaders=e.headers
             if path=="/api/auth/register" and st==200:cookie=(respheaders.get("Set-Cookie") or "").split(";")[0]
             try:data=json.loads(raw)
             except ValueError:data={}
