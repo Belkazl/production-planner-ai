@@ -63,7 +63,7 @@ jobs:
           cp deployed/python-ga-upstream.mjs old/app/python-ga-upstream.mjs
           cp repaired/python-ga-upstream.mjs new/app/python-ga-upstream.mjs
           for side in old new; do
-            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-continuation.mjs repair-async-ga.mjs; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
               node "prior/ops/ovh/$script" "$side/app"
             done
             node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
