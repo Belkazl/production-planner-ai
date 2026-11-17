@@ -1,0 +1,168 @@
+name: LiftOrbit OVH GA progress and Stop recovery after browser reload
+# Reattach the running account GA after reload: percent, Stop, previews and final result.
+# Exact two-file UI update with SHA guards, Docker preflight and rollback.
+# Live and browser tests: 44070907794 validates reload, Stop, idle, completion and old button behavior.
+# Do not reset or start a second GA while an existing account job is running.
+# No changes to auth, saved plans, GA worker, Gantt or production data.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-ga-reconnect-after-reload-release.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): reconnect active GA after browser reload on OVH')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout deployed Stop UI baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 1a949a33a26500afed651cb316c94c9a0f2fba61
+          path: previous-stop
+          persist-credentials: false
+      - name: Checkout tested reload and restart controls
+        uses: actions/checkout@v4
+        with:
+          ref: 8e0db0d39f837865792ca20a67d0ec1d3d81269e
+          path: repaired
+          persist-credentials: false
+      - name: Checkout already released GA JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
+          path: compact
+          persist-credentials: false
+      - name: Verify exact two UI files and pinned Docker build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp previous-stop/stop-ui.js old/app/stop-ui.js
+          cp repaired/stop-ui.js new/app/stop-ui.js
+          cp repaired/restart-optimizer-ui.js new/app/restart-optimizer-ui.js
+          for side in old new; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-continuation.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+            node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
+          done
+          for src in stop-ui.js restart-optimizer-ui.js; do
+            node --check old/app/"$src"
+            node --check new/app/"$src"
+          done
+          (cd new/app && node tests/early-stop-contract.cjs)
+          grep -q 'PP_GA_RECONNECT_RETRY' new/app/stop-ui.js
+          grep -q 'ppAttachRecoveredJob' new/app/stop-ui.js
+          grep -q 'ppFinishRecoveredJob' new/app/stop-ui.js
+          grep -q 'reconnecting===true' new/app/restart-optimizer-ui.js
+          grep -q 'ppConfirmStoppedAfterAmbiguousResponse' new/app/stop-ui.js
+          diff -qr old/app new/app > "$RUNNER_TEMP/reconnect-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/reconnect-diff")" -eq 2
+          grep -Fqx 'Files old/app/stop-ui.js and new/app/stop-ui.js differ' "$RUNNER_TEMP/reconnect-diff"
+          grep -Fqx 'Files old/app/restart-optimizer-ui.js and new/app/restart-optimizer-ui.js differ' "$RUNNER_TEMP/reconnect-diff"
+          sha256sum old/app/stop-ui.js | cut -d' ' -f1 > old.stop.sha
+          sha256sum new/app/stop-ui.js | cut -d' ' -f1 > new.stop.sha
+          sha256sum old/app/restart-optimizer-ui.js | cut -d' ' -f1 > old.restart.sha
+          sha256sum new/app/restart-optimizer-ui.js | cut -d' ' -f1 > new.restart.sha
+          echo 'GA_RECONNECT_TWO_UI_FILES_PINNED'
+          docker build --quiet -t liftorbit-reconnect-release:preflight new/app > "$RUNNER_TEMP/reconnect-build.log" 2>&1 || {
+            echo 'GA_RECONNECT_DOCKER_BUILD_FAILED'
+            exit 22
+          }
+          echo 'GA_RECONNECT_DOCKER_BUILD_PASSED'
+      - name: Apply guarded OVH app update with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldSha=$(cat old.stop-ui.sha)
+          newSha=$(cat new.stop-ui.sha)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/app/stop-ui.js "$target:$root/sources/ovh-app/stop-ui.js.stop.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/stop-ui.js"
+          next="$root/sources/ovh-app/stop-ui.js.stop.next"
+          backup="$root/patch-backups/ga-stop-ui-20261117"
+          expectedOld="$1"; expectedNew="$2"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -f "$app" && test -f "$next"
+          test "$(sha "$app")" = "$expectedOld" || { echo 'GA_STOP_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$expectedNew" || { echo 'GA_STOP_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_STOP_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$app" "$backup/stop-ui.js"
+          test "$(sha "$backup/stop-ui.js")" = "$expectedOld"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/stop-ui.js" "$app" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_STOP_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$next" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_STOP_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$app")" = "$expectedNew"
+          trap - ERR
+          echo 'GA_STOP_UI_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'GA_STOP_PUBLIC_API_HEALTHY'
