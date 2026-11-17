@@ -1,0 +1,40 @@
+name: LiftOrbit live English Saved plans after OVH release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-i18n-saved-ga-live-browser-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-i18n:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'test(liftorbit): verify live English saved plans and GA messages')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium for authenticated browser QA
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Open LiftOrbit, inject only synthetic UI, validate locale mutation and RU roundtrip
+        shell: bash
+        run: node ops/ovh/i18n-saved-live-browser-20261117.mjs
+      - name: Attach public screenshot evidence without private account data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: english-saved-plans-qa
+          path: i18n-live-english-qa.png
+          retention-days: 3
+          if-no-files-found: ignore
