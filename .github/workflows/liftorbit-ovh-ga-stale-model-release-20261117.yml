@@ -45,7 +45,7 @@ jobs:
       - name: Checkout tested current GA stale model fix
         uses: actions/checkout@v4
         with:
-          ref: d27ae8b8c63afeba7753302fdc62373df65ea7bb
+          ref: e37784584b1bfe8f51b556f7bd37276e3914005f
           path: repaired
           persist-credentials: false
       - name: Checkout already released GA JSON compactor
