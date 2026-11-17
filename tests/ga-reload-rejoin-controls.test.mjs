@@ -35,11 +35,11 @@ function build({running=true,autoComplete=false}={}){
  w.fetch=async input=>{
   const path=new URL(String(input),w.location.href).pathname;
   if(path==="/api/plan-progress"){
-   const done=phase==="completed",active=phase==="running";
+   const done=phase==="completed"||phase==="complete",active=phase==="running";
    return new Response(JSON.stringify({ok:true,running:active,phase,
     success:done,percent:active?percent:done?100:0,
     best_preview:phase==="idle"?null:best,
-    candidate_preview:active?best:null,result:done?best:null}),{
+    candidate_preview:active?best:null,result:phase==="completed"?best:null}),{
      status:200,headers:{"content-type":"application/json"}});
   }
   if(path==="/api/optimizer-stop"){
@@ -120,6 +120,19 @@ test("a calculation completed during reload is accepted and shown without a new 
   assert.equal(q.kpi>=1,true);
   console.log("GA_RELOAD_COMPLETED_RESULT_RESTORED_PASS");
  }finally{q.close()}
+});
+test("legacy terminal 'complete' with verified best_preview restores a plan after reload",async()=>{
+ const q=build({running:true});
+ try{
+  await until(()=>q.debug.recoveredSession);
+  q.setPhase("complete");
+  await until(()=>q.debug.running===false&&q.w.__ppOptimizerCommittedPlan?.duration_minutes===4389,3500);
+  assert.equal(q.btn.disabled,false);
+  assert.equal(q.btn.textContent,"Продолжить оптимизацию");
+  assert.equal(q.w.document.getElementById("valid").textContent,"GA: расчёт завершён");
+  assert.equal(q.postPlan,0,"must not silently issue a new GA POST");
+  console.log("GA_RELOAD_LEGACY_COMPLETE_BEST_RESTORED_PASS");
+ }finally{await delay(3300);q.close()}
 });
 test("when there is no active job, startup probe unlocks existing native Start and saved plans",async()=>{
  const q=build({running:false});
