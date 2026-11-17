@@ -1,2 +1,6 @@
 probe_outcome=failure
-source_copy_or_parser_failed=true
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current type=symbolic link mode=777 owner=liftorbit-ci
+NOT_PRESENT /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs type=regular file mode=644 owner=liftorbit-ci
+SOURCE_SCP_FAILED
+scp: /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts: No such file or directory
