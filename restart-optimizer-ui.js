@@ -381,7 +381,7 @@ fresh.onclick=async function(){
   try{
    const target=typeof input==="string"?input:input?.url||"";
    const path=new URL(target,location.href).pathname;
-   const method=String(init?.method||(input instanceof Request?input.method:"GET")).toUpperCase();
+   const method=String(init?.method||(typeof Request!=="undefined"&&input instanceof Request?input.method:"GET")).toUpperCase();
    // Restrict to a real UI run initiated by the original Stop controller.
    // Synthetic API calls, resets, progress polling and saved-plan endpoints
    // bypass the preference wrapper completely.
