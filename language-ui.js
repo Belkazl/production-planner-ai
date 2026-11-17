@@ -116,6 +116,13 @@ const texts={
  "простой оборудования":"equipment idle time",
  "Простой":"Idle time",
  "Валидатор":"Validator",
+ "Занятость автоклавов":"Equipment utilization",
+ "Остановлено пользователем. Выбранный план показан на Ганте и пока не сохранён.":"Stopped by user. The selected plan is shown on the Gantt chart and has not been saved yet.",
+ "Остановлено пользователем. Выбранный план показан на Ганте и ещё не сохранён.":"Stopped by user. The selected plan is shown on the Gantt chart and has not been saved yet.",
+ "Остановлено пользователем. План показан на Ганте и пока не сохранён.":"Stopped by user. The plan is shown on the Gantt chart and has not been saved yet.",
+ "Выбранный план показан на Ганте и пока не сохранён.":"Selected plan shown on the Gantt chart; not saved yet.",
+ "GA: остановка не подтверждена · повтори Stop":"GA: stop not confirmed · retry Stop",
+ "Остановлено пользователем. Выбери найденный вариант. Сохранённые планы не изменены.":"Stopped by user. Choose a found plan. Saved plans have not been changed.",
  "Выгрузка":"Export",
  "Загрузка":"Load",
  "Процесс":"Process",
@@ -138,6 +145,8 @@ const texts={
  "Лучший найденный вариант":"Best found plan",
  "Сохранить план":"Save plan",
  "Сохранённые планы":"Saved plans",
+ "Открыть":"Open",
+ "Открыть сохранённый план":"Open saved plan",
  "Начать оптимизацию заново":"Start optimization again",
  "Продолжить оптимизацию":"Continue optimization",
  "Запустить оптимизацию":"Start optimization",
@@ -472,6 +481,27 @@ const changed=new Set();
 
 function dynamic(text){
  let m;
+ // Generated labels in Saved plans are UI metadata, not saved account data.
+ // Keep dates, numbers, project names and stored plans unchanged.
+ if((m=/^План\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})$/.exec(text)))
+  return "Plan "+m[1]+" "+m[2];
+ if((m=/^(\d+)\s+парт(?:ия|ии|ий)$/.exec(text)))
+  return m[1]+" batches";
+ if((m=/^переналадки\s+([\d\s.,]+)\s+мин$/.exec(text)))
+  return "setups "+m[1].trim()+" min";
+ if((m=/^Условия изменились:\s*(.+)$/.exec(text))){
+  const labels={
+   "старт":"start date","начало":"start date","заказы":"orders",
+   "техпроцесс":"production process","технологический процесс":"production process",
+   "оборудование":"equipment","сотрудники":"employees",
+   "смены":"shifts","сотрудники/смены":"employees / shifts",
+   "материалы":"materials","переналадки":"setup rules",
+   "параметры":"parameters"
+  };
+  const parts=m[1].split(/\s*,\s*/);
+  // Unknown fields are never guessed or translated as if they were known UI.
+  return "Conditions changed: "+parts.map(p=>labels[p]||trMap.get(p)||p).join(", ");
+ }
  // Statistics, setup operations and Gantt captions are generated with live
  // values, so a fixed-text dictionary cannot translate their whole text nodes.
  if((m=/^Переналадка:\s*(.+)$/.exec(text))){
@@ -488,7 +518,7 @@ function dynamic(text){
   return "Stock: "+m[1]+" "+translate(m[2]);
  if((m=/^Ед\.:\s*(.+)$/.exec(text)))return "Unit: "+translate(m[1]);
  if((m=/^GA: запуск\s+(\d+)\s+завершён$/.exec(text)))return "GA: run "+m[1]+" completed";
- if((m=/^((?:Тестируемый вариант|Лучший найденный)):\s*([\d.,]+\s+мин|—)(?:\s+·\s+Принятый план:\s*([\d.,]+)\s+мин)?\s+·\s+Временный просмотр, не сохранён$/.exec(text)))
+ if((m=/^((?:Тестируемый вариант|Лучший найденный)):\s*([\d.,]+\s+мин|—)(?:\s+·\s+Принятый план:\s*([\d.,]+)\s+мин)?\s+·\s+[Вв]ременный просмотр, не сохранён$/.exec(text)))
   return translate(m[1])+": "+m[2].replace(/мин$/,"min")+
    (m[3]?" · Accepted plan: "+m[3]+" min":"")+" · Temporary preview, not saved";
  if((m=/^(.*?)\s*Всего проверено\s+(\d+)\s+поколений\.\s+Лучший план\s+([\d.,]+)\s+мин\s+сохранён;\s+следующая итерация продолжит поиск\.$/.exec(text))){
