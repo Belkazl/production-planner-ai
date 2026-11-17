@@ -3,6 +3,7 @@ name: LiftOrbit guarded OVH preserve GA setup operations in final plan
 # Never replace complete checked Setup-aware best with native result missing every Setup.
 # Worker, isolation, Gantt, projects, employees, materials and saved user plans unchanged.
 # Synthetic 1097/89 and restart/foreign isolation regression: 44129398723 passed.
+# Trusted checkpoint now protects both 409 mismatch and setup-less terminal plan.
 
 on:
   push:
