@@ -4,6 +4,7 @@ name: LiftOrbit guarded OVH GA stale model versus foreign plan correction
 # Stale equipment, stale setup and foreign-account isolation regressions passed 44111694762.
 # Strict source hash, full Docker build and automatic rollback required.
 # Verified in isolated account GA regressions 44111694762; no database changes.
+# Repair anchored OVH progress persistence kept unchanged; tests passed 44112678060.
 on:
   push:
     branches: [main]
