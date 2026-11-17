@@ -1,0 +1,40 @@
+name: LiftOrbit GA page reload restores live job controls and progress
+on:
+  push:
+    branches: [fix/ga-page-reload-reconnect-20261117]
+    paths:
+      - stop-ui.js
+      - restart-optimizer-ui.js
+      - tests/ga-reload-rejoin-controls.test.mjs
+      - tests/stop-confirmed-late-ga-race.test.mjs
+      - .github/workflows/liftorbit-ga-reload-controls-qa-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reload-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ga-page-reload-reconnect-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated DOM test driver
+        run: npm install --no-save --no-package-lock jsdom@26
+      - name: Verify syntax and existing optimizer Stop/Restart contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check stop-ui.js
+          node --check restart-optimizer-ui.js
+          node tests/early-stop-contract.cjs
+          node tests/optimizer-action-labels.cjs
+      - name: Reload during GA, real Stop state, no duplicate launch, result completion, stale Stop race
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/ga-reload-rejoin-controls.test.mjs tests/stop-confirmed-late-ga-race.test.mjs
