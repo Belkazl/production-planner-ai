@@ -100,6 +100,16 @@ jobs:
                   "missing_order_setups",sum(x.get("order") is None and bool(x.get("is_setup")) for x in rows),
                   "missing_order_nonsetup",sum(x.get("order") is None and not bool(x.get("is_setup")) for x in rows),
                   "material_ids",sum(len(x.get("material_ids") or []) for x in rows),
+                  "native_ops",len(best.get("operations") or []),
+                  "native_setups",sum(bool(x.get("is_setup")) for x in best.get("operations") or []),
+                  "bad_sequence",sum(str(x) not in own_orders for x in best.get("order_sequence") or []),
+                  "batch_count",len(best.get("batches") or []),
+                  "bad_batch_order",sum(str(x.get("order")) not in own_orders for x in best.get("batches") or [] if x.get("order") is not None),
+                  "bad_batch_equipment",sum(str(v) not in eq for x in best.get("batches") or [] for v in x.get("equipment_ids") or []),
+                  "variants",len(best.get("variants") or []),
+                  "native_bad_order",sum(str(x.get("order")) not in own_orders for x in best.get("operations") or [] if x.get("order") is not None),
+                  "native_bad_equipment",sum(str(v) not in eq for x in best.get("operations") or [] for v in x.get("equipment_ids") or []),
+                  "native_missing_order",sum(x.get("order") is None for x in best.get("operations") or []),
                   "missing_duration",best.get("duration_minutes") is None,
                   "error",d.get("error"),"best_ops",len(rows),"setup_ops",sum(bool(x.get("is_setup")) for x in rows),
                   "bad_order",bad_orders,"bad_equipment_id",bad_eq,
@@ -113,7 +123,8 @@ jobs:
               if phase=="completed" and d.get("success"):
                 result=d.get("result") or {}
                 assert len(result.get("operations") or [])>0
-                print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),flush=True)
+                print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),
+                  "recovered",result.get("optimization_account_check_recovered"),"reason",result.get("optimization_termination_reason"),flush=True)
                 break
             else:raise SystemExit("DIAG_NO_FINAL_RESULT_WITHIN_POLL_BUDGET")
           finally:
