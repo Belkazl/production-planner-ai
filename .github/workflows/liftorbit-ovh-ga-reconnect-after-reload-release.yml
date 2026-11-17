@@ -3,6 +3,7 @@ name: LiftOrbit OVH GA progress and Stop recovery after browser reload
 # Exact two-file UI update with SHA guards, Docker preflight and rollback.
 # Live and browser tests: 44070907794 validates reload, Stop, idle, completion and old button behavior.
 # Final source 004efa53: 44071883095 passed, including legacy complete/best fallback.
+# Only the client's running-session controls will change; GA worker and persistence remain intact.
 # Do not reset or start a second GA while an existing account job is running.
 # No changes to auth, saved plans, GA worker, Gantt or production data.
 on:
