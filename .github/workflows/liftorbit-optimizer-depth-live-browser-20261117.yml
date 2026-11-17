@@ -1,4 +1,5 @@
 name: LiftOrbit production Chromium Optimization depth acceptance
+# Verify installed release 44118287154 using a disposable registered production account.
 on:
   push:
     branches: [main]
