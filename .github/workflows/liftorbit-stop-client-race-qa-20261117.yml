@@ -1,0 +1,34 @@
+name: LiftOrbit stop client race tests 2026-11-17
+on:
+  push:
+    branches: [fix/stop-client-race-20261117]
+    paths:
+      - stop-ui.js
+      - tests/stop-confirmed-late-ga-race.test.mjs
+      - .github/workflows/liftorbit-stop-client-race-qa-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stop-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stop-client-race-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install minimal DOM runner only
+        shell: bash
+        run: npm install --no-save --no-package-lock jsdom@26
+      - name: Verify stop button, cancellation reconciliation, first valid plan and previous UX contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check stop-ui.js
+          node tests/early-stop-contract.cjs
+          node tests/optimizer-action-labels.cjs
+          node --test tests/stop-confirmed-late-ga-race.test.mjs
