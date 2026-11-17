@@ -88,12 +88,29 @@ export function createPythonGAUpstream({
        !owned(best,model))return null;
     return best;
   };
-  const restoreOwnedBest = best => {
+  const restoreOwnedBest = (best,reason="unowned_native_final_rejected") => {
     const restored={...best,optimization_account_check_recovered:true,
       optimization_completed_early:true,
-      optimization_termination_reason:"unowned_native_final_rejected"};
+      optimization_termination_reason:reason};
     delete restored._pp_verified_checkpoint_v1;
     return restored;
+  };
+  // Worker may emit a setup-aware Best found while its terminal result
+  // unexpectedly contains only the unprocessed production operations.
+  // The final can still be marked valid and account-owned, but it is NOT a
+  // valid replacement for the complete earlier setup-aware schedule.
+  const setupOperationsDropped = (final,best,model) => {
+    if(!Array.isArray(model?.setup_rules)||!model.setup_rules.length||!final||!best)return false;
+    const rows=p=>(Array.isArray(p.generic_operations)&&p.generic_operations.length)
+      ?p.generic_operations:(Array.isArray(p.operations)?p.operations:[]);
+    const isSetup=x=>x?.is_setup===true||String(x?.phase||"").toLowerCase()==="setup"||
+      String(x?.type||"").toLowerCase()==="setup";
+    const current=rows(final),earlier=rows(best);
+    const before=earlier.filter(isSetup).length,after=current.filter(isSetup).length;
+    // Identical production workload plus all previously verified setup tasks
+    // missing is a structural regression, not an optimization improvement.
+    return before>0&&after===0&&
+      earlier.length-before===current.length-after;
   };
   const compactResumePlan = plan => {
     if(!plan||typeof plan!=='object')return null;
@@ -314,11 +331,16 @@ export function createPythonGAUpstream({
           const fresh=await readAccountModel(req);
           if(hashModel(fresh)!==modelKey){state.state='stale';return response({ok:false,error:'account_model_changed_during_run'},409)}
           let selected=data.result;
-          if(!owned(selected,fresh)){
-            const verified=verifiedAccountBest(state,fresh);
+          const finalOwned=owned(selected,fresh);
+          const verified=!finalOwned||(fresh.setup_rules||[]).length
+            ?verifiedAccountBest(state,fresh):null;
+          if(!finalOwned){
             if(!verified){state.state='invalid';await save(principal,state);return response({ok:false,error:'account_plan_mismatch'},409)}
             console.warn("PP_GA_SYNC_UNOWNED_FINAL_REPLACED_BY_VERIFIED_OWNED_BEST");
             selected=restoreOwnedBest(verified);
+          }else if(verified&&setupOperationsDropped(selected,verified,fresh)){
+            console.warn("PP_GA_SYNC_FINAL_SETUP_LOSS_REPLACED_BY_VERIFIED_BEST");
+            selected=restoreOwnedBest(verified,"final_dropped_setup_operations");
           }
           state.result=publicPlan(selected);state.best=state.result;state.progress=100;
           state.resume_state=state.result?.resume_state||null;
@@ -397,8 +419,10 @@ export function createPythonGAUpstream({
     }
     if(status.status==='completed'){
       let selected=status.result;
-      if(!owned(selected,model)){
-        const verified=verifiedAccountBest(state,model);
+      const finalOwned=owned(selected,model);
+      const verified=!finalOwned||(model.setup_rules||[]).length
+        ?verifiedAccountBest(state,model):null;
+      if(!finalOwned){
         if(!verified){
           state.state='invalid';state.error='account_plan_mismatch';
           await save(principal,state);
@@ -406,6 +430,9 @@ export function createPythonGAUpstream({
         }
         console.warn("PP_GA_UNOWNED_FINAL_REPLACED_BY_VERIFIED_OWNED_BEST");
         selected=restoreOwnedBest(verified);
+      }else if(verified&&setupOperationsDropped(selected,verified,model)){
+        console.warn("PP_GA_FINAL_SETUP_LOSS_REPLACED_BY_VERIFIED_BEST");
+        selected=restoreOwnedBest(verified,"final_dropped_setup_operations");
       }
       const finalPlan=publicPlan(selected);
       state.best=finalPlan;state.result=finalPlan;state.resume_state=finalPlan?.resume_state||null;state.error=null;
