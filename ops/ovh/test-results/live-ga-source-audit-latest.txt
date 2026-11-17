@@ -1,0 +1,6 @@
+workflow_run=44138157366
+audit_utc=2026-11-17T17:32:56Z
+source_sha256=9ac47f48fddac6458ea4ece4949ae7f29219a15a2eb0ecbfdce21a8fc4dd2874
+verified_best_checkpoint=yes
+final_setup_preservation=yes
+stale_model_fix=yes
