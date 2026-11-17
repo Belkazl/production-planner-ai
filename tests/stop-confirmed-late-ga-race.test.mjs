@@ -16,11 +16,12 @@ function createFixture({stopStatus=200,ack=true,hasPlan=true}={}){
  });
  const w=dom.window;
  w.Response=Response;
- let stopCalls=0,progressCalls=0, originalDone, originalLateFail=false, renders=0;
+ let stopCalls=0,progressCalls=0,clientRun=false, originalDone, originalLateFail=false, renders=0;
  w.renderPlan=()=>{renders++};
  w.renderKpisWithDelta=()=>{};
  const opt=w.document.getElementById('opt');
  opt.onclick=async ()=>{
+  clientRun=true;
   opt.disabled=true;opt.textContent='Optimization 19%';
   await new Promise(done=>{originalDone=done});
   if(originalLateFail){
@@ -42,7 +43,7 @@ function createFixture({stopStatus=200,ack=true,hasPlan=true}={}){
   }
   if(url.includes('/api/plan-progress')){
    progressCalls++;
-   const data={ok:true,running:!stopCalls,phase:stopCalls?'cancelled':'running',
+   const data={ok:true,running:clientRun&&!stopCalls,phase:stopCalls?'cancelled':clientRun?'running':'idle',
      best_preview:hasPlan?best:null,candidate_preview:hasPlan?best:null};
    return new Response(JSON.stringify(data),{
     status:200,headers:{'content-type':'application/json'}});
@@ -67,6 +68,8 @@ function createFixture({stopStatus=200,ack=true,hasPlan=true}={}){
 test('confirmed stop survives delayed optimization_stopped error and allows choosing best plan',async()=>{
  const q=createFixture();
  try{
+  await wait(150); // Wait for authoritative idle account probe before starting a new local run.
+  assert.equal(q.debug.reconnecting,false);
   q.opt.click();
   assert.equal(q.debug.running,true);
   assert.equal(q.stop.disabled,false,'Stop available before first preview');
@@ -94,6 +97,8 @@ test('confirmed stop survives delayed optimization_stopped error and allows choo
 test('HTTP409 after already-cancelled worker is confirmed via scoped progress and unlocks UI',async()=>{
  const q=createFixture({stopStatus:409,ack:false,hasPlan:true});
  try{
+  await wait(150); // Wait for authoritative idle account probe before starting a new local run.
+  assert.equal(q.debug.reconnecting,false);
   q.opt.click();
   assert.equal(q.debug.running,true);
   await q.stop.onclick();
@@ -113,6 +118,8 @@ test('HTTP409 after already-cancelled worker is confirmed via scoped progress an
 test('Stop stays enabled before first candidate and does not require a plan',async()=>{
  const q=createFixture({hasPlan:false});
  try{
+  await wait(150); // Wait for authoritative idle account probe before starting a new local run.
+  assert.equal(q.debug.reconnecting,false);
   q.opt.click();
   assert.equal(q.stop.disabled,false);
   await q.stop.onclick();
