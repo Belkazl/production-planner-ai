@@ -57,18 +57,20 @@ try{
  await page.waitForSelector('#opt',{timeout:30000});
  const before=await snapshot();
  console.log('STOP_BROWSER_BEFORE',JSON.stringify(before));
- await page.evaluate(({project,model})=>{
+ await page.evaluate(({project,synthetic})=>{
    localStorage.setItem('prodplan.project.active.v2',project);
-   localStorage.setItem('prodplan.projects.v2',JSON.stringify([{id:project,name:'Synthetic stop QA',revision:1,model}]));
+   localStorage.setItem('prodplan.projects.v2',JSON.stringify([{id:project,name:'Synthetic stop QA',revision:1,model:synthetic}]));
    try{
      document.body.classList.remove('projects-mode');
      document.getElementById('planView').style.display='block';
      document.getElementById('sectionView').style.display='none';
    }catch{}
-   try{window.model=model}catch{}
+   try{model=synthetic}catch{}
+   try{model_ready=()=>true}catch{}
    try{modelReady=true;hasResult=false;busy=false}catch{}
+   console.log("Synthetic model test override only");
    const b=document.getElementById('opt');b.disabled=false;b.textContent='Start optimization';
- },{project,model});
+ },{project,synthetic:model});
  const prepared=await snapshot();
  console.log('STOP_BROWSER_PREPARED',JSON.stringify(prepared));
  const btn=page.locator('#opt');
