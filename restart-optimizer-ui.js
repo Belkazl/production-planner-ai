@@ -369,7 +369,13 @@ fresh.onclick=async function(){
   info.append(helpSummary,help);
   container.append(heading,select,note,info);
   const mode=toolbar.querySelector('[data-mode="best"]')||toolbar.querySelector('[data-mode="candidate"]');
-  if(mode)toolbar.insertBefore(container,mode);
+  // The real production Gantt nests mode buttons inside a separate wrapper;
+  // insertBefore requires a direct child of toolbar, not a descendant.
+  let anchor=mode;
+  while(anchor?.parentElement&&anchor.parentElement!==toolbar){
+   anchor=anchor.parentElement;
+  }
+  if(anchor?.parentElement===toolbar)toolbar.insertBefore(container,anchor);
   else toolbar.append(container);
   syncProject();render();
   return true;
