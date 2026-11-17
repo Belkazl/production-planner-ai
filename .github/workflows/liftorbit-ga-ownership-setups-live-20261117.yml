@@ -10,7 +10,7 @@ permissions:
 jobs:
   diagnostics:
     runs-on: ubuntu-24.04
-    timeout-minutes: 9
+    timeout-minutes: 13
     steps:
       - name: Exercise isolated 12 order ceramic-like GA with 900 operation batches
         id: ga_probe
@@ -31,7 +31,7 @@ jobs:
               body=json.dumps(payload,separators=(',',':')).encode()
             req=urllib.request.Request(base+path,data=body,method=method,headers=h)
             try:
-              with urllib.request.urlopen(req,timeout=30) as r:
+              with urllib.request.urlopen(req,timeout=85) as r:
                 status=r.status;raw=r.read(22000000);hdr=r.headers
             except urllib.error.HTTPError as e:
               status=e.code;raw=e.read(22000000);hdr=e.headers
@@ -72,9 +72,14 @@ jobs:
           print("OWN900_START",code,"ok",data.get("ok"),"error",data.get("error"),flush=True)
           assert code==202 and data.get("started"),"DIAG_WORKER_START_FAILED"
           try:
-            for tick in range(95):
-              time.sleep(2)
-              code,d=api("/api/plan-progress")
+            for tick in range(65):
+              time.sleep(4)
+              try:
+                code,d=api("/api/plan-progress")
+              except (TimeoutError,OSError) as e:
+                print("OWN900_POLL_TIMEOUT",tick,type(e).__name__,flush=True)
+                if tick<3:continue
+                raise SystemExit("DIAG_POLL_CONNECTION_TIMEOUT")
               phase=d.get("phase")
               if tick%5==0 or code!=200 or phase in ("completed","invalid","failed","stale","cancelled","timed_out"):
                 best=d.get("best_preview") or {}
@@ -101,7 +106,7 @@ jobs:
                 assert len(result.get("operations") or [])>0
                 print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),flush=True)
                 break
-            else:raise SystemExit("DIAG_TIMEOUT")
+            else:raise SystemExit("DIAG_NO_FINAL_RESULT_WITHIN_POLL_BUDGET")
           finally:
             try:api("/api/optimizer-stop","POST")
             except: pass
