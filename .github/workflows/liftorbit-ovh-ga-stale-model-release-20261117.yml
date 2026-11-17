@@ -65,6 +65,11 @@ jobs:
           cp -a pinned/. new/app/
           cp deployed/python-ga-upstream.mjs old/app/python-ga-upstream.mjs
           cp repaired/python-ga-upstream.mjs new/app/python-ga-upstream.mjs
+          # The current production Docker build already uses the updated
+          # continuation contract installed with the previous GA release.
+          # Pinned 2026-10 tests predate that fix and are intentionally obsolete.
+          cp deployed/tests/continuation-compat-contract.cjs old/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/continuation-compat-contract.cjs new/app/tests/continuation-compat-contract.cjs
           for side in old new; do
             for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
               node "prior/ops/ovh/$script" "$side/app"
