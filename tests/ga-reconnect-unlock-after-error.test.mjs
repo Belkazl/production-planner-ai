@@ -64,14 +64,14 @@ test("Saved plan: failed progress checks unlock Start optimization again instead
  const q=fixture();
  try{
   assert.equal(q.fresh.disabled,true,"during initial read-only check restart may be gated");
-  assert.equal(q.btn.textContent,"Continue optimization");
+  assert.match(q.btn.textContent,/^(Continue optimization|Продолжить оптимизацию)$/);
   await until(()=>q.debug.reconnecting===false);
   assert.equal(q.debug.remotePhase,"unavailable");
   assert.equal(q.debug.remoteFailureCount,3,"bounded retries");
   assert.equal(q.debug.running,false);
   assert.equal(q.fresh.disabled,false,"fresh optimization must not stay disabled after status failure");
   assert.equal(q.btn.disabled,false,"continue remains available, server is authoritative");
-  assert.equal(q.btn.textContent,"Continue optimization");
+  assert.match(q.btn.textContent,/^(Continue optimization|Продолжить оптимизацию)$/);
   assert.equal(q.w.__ppOptimizerCommittedPlan.duration_minutes,4438,"existing saved plan must stay unchanged");
   assert.match(q.w.document.getElementById("valid").textContent,/status unavailable|состояние недоступно/);
   await q.fresh.onclick();
