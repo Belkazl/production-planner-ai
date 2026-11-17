@@ -2,6 +2,7 @@ name: LiftOrbit guarded OVH Optimization depth presets release
 # Only restart-optimizer-ui.js changes; existing GA, database, Gantt, Stop and authentication retained.
 # Four depth modes alter solely next GA POST generations/population; no server worker changes.
 # Preset, Stop, resume, restart, bilingual and model-preserving tests: 44117515410 passed.
+# Actual nested toolbar regression fixed and retested in 44119483891.
 # Strict prior-source hash, Docker build, account auth boundary and rollback required.
 # Preset regression passed; production build must modify no files except restart-optimizer-ui.js.
 on:
