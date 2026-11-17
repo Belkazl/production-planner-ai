@@ -2,6 +2,7 @@ name: LiftOrbit OVH GA progress and Stop recovery after browser reload
 # Reattach the running account GA after reload: percent, Stop, previews and final result.
 # Exact two-file UI update with SHA guards, Docker preflight and rollback.
 # Live and browser tests: 44070907794 validates reload, Stop, idle, completion and old button behavior.
+# Final source 004efa53: 44071883095 passed, including legacy complete/best fallback.
 # Do not reset or start a second GA while an existing account job is running.
 # No changes to auth, saved plans, GA worker, Gantt or production data.
 on:
@@ -45,7 +46,7 @@ jobs:
       - name: Checkout tested reload and restart controls
         uses: actions/checkout@v4
         with:
-          ref: 8e0db0d39f837865792ca20a67d0ec1d3d81269e
+          ref: 004efa53f5ac620079bef769b79cc9da8f6b8a06
           path: repaired
           persist-credentials: false
       - name: Checkout already released GA JSON compactor
