@@ -118,7 +118,11 @@ try{
   r.method()==="POST",{timeout:25000});
  await opt.click();
  await nativePost;
- assert.equal(posted.length,1,"exactly one GA POST");
+ // Playwright request observation can fire before the route handler parses
+ // postDataJSON. Wait for the intercepted payload, not just request creation.
+ for(let check=0;check<100&&posted.length===0;check++)
+  await new Promise(resolve=>setTimeout(resolve,25));
+ assert.equal(posted.length,1,"exactly one intercepted GA POST");
  assert.equal(posted[0].generations,180,"Thorough UI mode must reach the real POST");
  assert.equal(posted[0].population,48);
  assert.equal(posted[0].objective||"duration","duration");
