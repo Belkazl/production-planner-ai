@@ -72,6 +72,8 @@ jobs:
           # Pinned 2026-10 tests predate that fix and are intentionally obsolete.
           cp deployed/tests/continuation-compat-contract.cjs old/app/tests/continuation-compat-contract.cjs
           cp deployed/tests/continuation-compat-contract.cjs new/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/python-ga-upstream.test.mjs old/app/tests/python-ga-upstream.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
           for side in old new; do
             for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
               node "prior/ops/ovh/$script" "$side/app"
@@ -83,7 +85,7 @@ jobs:
           cp repaired/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
           cp repaired/tests/ga-account-owned-recovery.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
           node --test new/app/tests/python-ga-upstream.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
-          cp old/app/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
           rm -f new/app/tests/ga-account-owned-recovery.test.mjs
           diff -qr old/app new/app > "$RUNNER_TEMP/ga-stale-model-patch-diff" || test "$?" -eq 1
           test "$(wc -l < "$RUNNER_TEMP/ga-stale-model-patch-diff")" -eq 1
