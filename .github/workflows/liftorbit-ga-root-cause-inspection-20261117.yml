@@ -124,7 +124,10 @@ jobs:
                 result=d.get("result") or {}
                 assert len(result.get("operations") or [])>0
                 print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),
-                  "recovered",result.get("optimization_account_check_recovered"),"reason",result.get("optimization_termination_reason"),flush=True)
+                  "recovered",result.get("optimization_account_check_recovered"),"reason",result.get("optimization_termination_reason"),
+                  "final_generic_ops",len(result.get("generic_operations") or []),
+                  "final_generic_setups",sum(bool(x.get("is_setup")) for x in result.get("generic_operations") or []),
+                  "final_setup_rules_processed",result.get("setup_rules_processed"),flush=True)
                 break
             else:raise SystemExit("DIAG_NO_FINAL_RESULT_WITHIN_POLL_BUDGET")
           finally:
