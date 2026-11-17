@@ -1,0 +1,84 @@
+name: LiftOrbit GA stop action live diagnostic (disposable account only)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ga-stop-live-diagnostic-20261117.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Test stop endpoint after real GA started (84 operations), never access another account
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,uuid,secrets,time,urllib.request,urllib.error
+          base="https://app.liftorbit.app";cookie=""
+          def api(path,method="GET",payload=None):
+            global cookie
+            h={"Origin":base,"Sec-Fetch-Site":"same-origin","Accept":"application/json"}
+            if cookie:h["Cookie"]=cookie
+            body=None
+            if payload is not None:h["Content-Type"]="application/json";body=json.dumps(payload).encode()
+            req=urllib.request.Request(base+path,data=body,method=method,headers=h)
+            try:
+              with urllib.request.urlopen(req,timeout=30) as r:
+                st=r.status;raw=r.read(240000);respheaders=r.headers
+            except urllib.error.HTTPError as e:
+              st=e.code;raw=e.read(240000);respheaders=e.headers
+            if path=="/api/auth/register" and st==200:cookie=(respheaders.get("Set-Cookie") or "").split(";")[0]
+            try:data=json.loads(raw)
+            except ValueError:data={}
+            return st,data
+          rq=lambda typ,ref:{"resource_type":typ,"resource_ref":ref,
+                "resource_refs":[ref],"match_mode":"specific","quantity":1}
+          equipment=[{"id":"QA_EQ_"+str(i),"name":"Test workstation","kind":"workstation","capacity":600,"capacity_unit":"m2"} for i in range(14)]
+          staff=[{"id":"QA_EM_"+str(i),"name":"Test operator","shift":"day"} for i in range(5)]
+          ops=[{"id":"QA_ST_"+str(i),"name":"Test process","sequence":i+1,"duration_min":30,
+                 "resource_requirements":[rq("equipment","QA_EQ_"+str(i)),
+                     rq("employee","QA_EM_"+str(i%5))]} for i in range(7)]
+          model={"scheduler_mode":"resource","start":"2026-11-17T08:00:00",
+            "equipment":equipment,"employees":staff,
+            "shifts":{"day":[["08:00","12:00"],["13:00","17:00"]]},
+            "orders":[{"id":"QA_O_"+str(i),"quantity":7200,"unit":"m2",
+                 "technical_process_id":"QA_TECH"} for i in range(12)],
+            "technical_processes":[{"id":"QA_TECH","name":"QA tech","operations":ops}],
+            "materials":[],"setup_rules":[]}
+          # 7200 units * 12 orders encourages a real long-running search.
+          st,data=api("/api/auth/register","POST",{"email":"stop-qa-"+uuid.uuid4().hex+"@liftorbit.invalid",
+             "password":secrets.token_urlsafe(28),"company":"Test stop API isolated"})
+          assert st==200 and cookie,("REGISTER",st)
+          pid="stop-qa-"+uuid.uuid4().hex
+          st,data=api("/api/db-storage","POST",{"storage":{
+             "prodplan.projects.v2":json.dumps([{"id":pid,"name":"Test stop","model":model}]),
+             "prodplan.project.active.v2":pid}})
+          assert st==200,("STORAGE",st)
+          st,data=api("/api/plan","POST",{"generations":15000,"population":80,
+             "seed":1729,"objective":"duration","__pp_async_start":True})
+          print("STOP_QA_START",st,"started",data.get("started"),"error",str(data.get("error") or "none")[:65],flush=True)
+          assert st==202 and data.get("started"),"GA_START_FAILED"
+          try:
+            time.sleep(4)
+            st,first=api("/api/plan-progress")
+            print("STOP_QA_BEFORE",st,"running",first.get("running"),"phase",str(first.get("phase") or "none")[:30],
+                  "best",len((first.get("best_preview") or {}).get("operations") or []),flush=True)
+            st,data=api("/api/optimizer-stop","POST")
+            print("STOP_QA_STOP_RESULT",st,"ok",data.get("ok"),
+              "stopped",data.get("stopped"),"error",str(data.get("error") or "none")[:90],
+              "variants_count",len(data.get("variants") or []),flush=True)
+            for tick in range(4):
+              time.sleep(1)
+              ps,p=api("/api/plan-progress")
+              print("STOP_QA_AFTER",tick,"http",ps,"running",p.get("running"),
+                "phase",str(p.get("phase") or "none")[:25],
+                "error",str(p.get("error") or "none")[:60],flush=True)
+            assert st==200 and data.get("ok") and data.get("stopped"),"STOP_ACTION_BROKEN"
+            assert ps==200 and not p.get("running"),"RUN_CONTINUED_AFTER_STOP"
+          finally:
+            # Never stop a different account, only the just-created test one.
+            try:api("/api/optimizer-stop","POST")
+            except Exception:pass
+          print("STOP_QA_CANCEL_E2E_PASS",flush=True)
+          PY
