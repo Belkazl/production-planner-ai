@@ -3,6 +3,7 @@ name: LiftOrbit OVH unlock Start again after transient GA status errors
 # Exact two-file UI update with SHA guards, Docker preflight and rollback.
 # New test run 44081370286 passed 11 scenarios: failed status, safe HTTP409 reattach, Stop and reload.
 # Old source 004efa53 already deployed; new source f3b252e passed tests.
+# No optimizer worker, project, storage or saved-plan source changes.
 # Only the client's running-session controls will change; GA worker and persistence remain intact.
 # Do not reset or start a second GA while an existing account job is running.
 # No changes to auth, saved plans, GA worker, Gantt or production data.
