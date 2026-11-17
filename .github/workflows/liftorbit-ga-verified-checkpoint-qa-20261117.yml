@@ -5,6 +5,7 @@ on:
     paths:
       - python-ga-upstream.mjs
       - tests/ga-account-owned-recovery.test.mjs
+      - tests/ga-checkpoint-rehydrate.test.mjs
       - .github/workflows/liftorbit-ga-verified-checkpoint-qa-20261117.yml
   workflow_dispatch:
 permissions: {contents: read}
@@ -26,4 +27,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test tests/ga-account-owned-recovery.test.mjs tests/python-ga-upstream.test.mjs
+          node --test tests/ga-account-owned-recovery.test.mjs tests/ga-checkpoint-rehydrate.test.mjs tests/python-ga-upstream.test.mjs
