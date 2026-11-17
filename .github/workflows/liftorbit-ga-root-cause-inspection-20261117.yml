@@ -1,0 +1,154 @@
+name: LiftOrbit production GA root-cause inspection with setup and checkpoint shapes
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-root-cause-inspection-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - name: Exercise isolated 12 order ceramic-like GA with 900 operation batches
+        id: ga_probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' 2>&1 | tee "$RUNNER_TEMP/ga-own-setup.log"
+          import json,urllib.request,urllib.error,uuid,secrets,time
+          base="https://app.liftorbit.app"
+          cookie=""
+          def api(path,method="GET",payload=None):
+            global cookie
+            h={"Origin":base,"Sec-Fetch-Site":"same-origin","Accept":"application/json"}
+            if cookie:h["Cookie"]=cookie
+            body=None
+            if payload is not None:
+              h["Content-Type"]="application/json"
+              body=json.dumps(payload,separators=(',',':')).encode()
+            req=urllib.request.Request(base+path,data=body,method=method,headers=h)
+            try:
+              with urllib.request.urlopen(req,timeout=85) as r:
+                status=r.status;raw=r.read(22000000);hdr=r.headers
+            except urllib.error.HTTPError as e:
+              status=e.code;raw=e.read(22000000);hdr=e.headers
+            if path=="/api/auth/register" and status==200:
+              cookie=(hdr.get("Set-Cookie") or "").split(";")[0]
+            try:data=json.loads(raw)
+            except: data={}
+            return status,data
+          rq=lambda kind,key:{"resource_type":kind,"resource_ref":key,
+            "resource_refs":[key],"match_mode":"specific","quantity":1}
+          equipment=[{"id":"QEQ_"+str(i),"name":"Autoclave "+str(i),"kind":"workstation",
+            "capacity":600,"capacity_unit":"m2"} for i in range(14)]
+          staff=[{"id":"QEMP_"+str(i),"name":"Operator "+str(i),"shift":"day"} for i in range(5)]
+          operations=[{"id":"QOP_"+str(i),"name":"Operation "+str(i),"sequence":i+1,
+            "duration_min":10,"resource_requirements":[rq("equipment","QEQ_"+str(i)),
+              rq("employee","QEMP_"+str(i%5))]} for i in range(7)]
+          model={"scheduler_mode":"resource","start":"2026-11-17T08:00:00",
+            "equipment":equipment,"employees":staff,
+            "shifts":{"day":[["08:00","12:00"],["13:00","17:00"]]},
+            "orders":[{"id":"QORD_"+str(i),"quantity":7200,"unit":"m2",
+              "technical_process_id":"QPROCESS","parameters":{"color":str(i%4)}} for i in range(12)],
+            "technical_processes":[{"id":"QPROCESS","name":"Ceramic-like QA","operations":operations}],
+            "materials":[],"setup_rules":[{"id":"QA_COLOR_SETUP","equipment_ref":"*",
+              "setup_parameter":"color","from_state":"*","to_state":"*",
+              "duration_min":10,"employee_count":0}]}
+          code,_=api("/api/auth/register","POST",{"email":"own900-"+uuid.uuid4().hex+"@liftorbit.invalid",
+            "password":secrets.token_urlsafe(28),"company":"Disposable 900 operation validator test"})
+          assert code==200 and cookie,"DIAG_TEST_ACCOUNT_CREATION_FAILED"
+          project="qa-own900-"+uuid.uuid4().hex
+          code,storage_payload=api("/api/db-storage","POST",{"storage":{
+            "prodplan.projects.v2":json.dumps([{"id":project,"name":"Large isolated QA","model":model}]),
+            "prodplan.project.active.v2":project}})
+          if code!=200:
+            print("OWN900_STORAGE_FAILED","http",code,"error",str(storage_payload.get("error") or storage_payload.get("message") or "")[:100],flush=True)
+          assert code==200,"DIAG_TEST_MODEL_STORAGE_FAILED"
+          code,m=api("/api/model")
+          assert code==200 and len(m.get("model",{}).get("orders",[]))==12
+          code,data=api("/api/plan","POST",{"generations":2,"population":4,
+            "objective":"duration","seed":1729,"__pp_async_start":True})
+          print("OWN900_START",code,"ok",data.get("ok"),"error",data.get("error"),flush=True)
+          assert code==202 and data.get("started"),"DIAG_WORKER_START_FAILED"
+          try:
+            for tick in range(65):
+              time.sleep(4)
+              try:
+                code,d=api("/api/plan-progress")
+              except (TimeoutError,OSError) as e:
+                print("OWN900_POLL_TIMEOUT",tick,type(e).__name__,flush=True)
+                if tick<3:continue
+                raise SystemExit("DIAG_POLL_CONNECTION_TIMEOUT")
+              phase=d.get("phase")
+              if tick%3==0 or code!=200 or phase in ("completed","invalid","failed","stale","cancelled","timed_out"):
+                best=d.get("best_preview") or {}
+                rows=best.get("generic_operations") or best.get("operations") or []
+                own_orders={x["id"] for x in model["orders"]}
+                eq={x["id"] for x in equipment}
+                em={x["id"] for x in staff}
+                bad_orders=sum(str(x.get("order")) not in own_orders for x in rows if x.get("order") is not None)
+                bad_eq=sum(str(v) not in eq for x in rows for v in (x.get("equipment_ids") or []))
+                bad_em=sum(str(v) not in em for x in rows for v in (x.get("employee_ids") or []))
+                resources=[v for x in rows for v in (x.get("resources") or []) if isinstance(v,dict) and v.get("resource_type") in ("equipment","employee")]
+                bad_res=sum(bool(v.get("id")) and str(v.get("id")) not in eq|em for v in resources)
+                print("OWN900_SETUP_PROGRESS",tick,"http",code,"phase",phase,"percent",d.get("percent"),
+                  "valid",best.get("valid"),"partial",best.get("partial"),"sequence_size",len(best.get("order_sequence") or []),
+                  "missing_order",sum(x.get("order") is None for x in rows),
+                  "missing_order_setups",sum(x.get("order") is None and bool(x.get("is_setup")) for x in rows),
+                  "missing_order_nonsetup",sum(x.get("order") is None and not bool(x.get("is_setup")) for x in rows),
+                  "material_ids",sum(len(x.get("material_ids") or []) for x in rows),
+                  "missing_duration",best.get("duration_minutes") is None,
+                  "error",d.get("error"),"best_ops",len(rows),"setup_ops",sum(bool(x.get("is_setup")) for x in rows),
+                  "bad_order",bad_orders,"bad_equipment_id",bad_eq,
+                  "bad_employee_id",bad_em,"bad_resource_id",bad_res,flush=True)
+              if code!=200:
+                print("OWN900_HTTP_FAILURE",code,"phase",phase,"error",d.get("error"),flush=True)
+                assert d.get("error")!="account_plan_mismatch","DIAG_REPRO_ACCOUNT_PLAN_MISMATCH"
+                raise SystemExit("DIAG_PROGRESS_HTTP_FAILURE")
+              if phase in ("failed","invalid","timed_out","stale","interrupted"):
+                raise SystemExit("DIAG_WORKER_TERMINAL_"+str(phase))
+              if phase=="completed" and d.get("success"):
+                result=d.get("result") or {}
+                assert len(result.get("operations") or [])>0
+                print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),flush=True)
+                break
+            else:raise SystemExit("DIAG_NO_FINAL_RESULT_WITHIN_POLL_BUDGET")
+          finally:
+            try:api("/api/optimizer-stop","POST")
+            except: pass
+          print("OWN900_LIVE_SETUPS_OWNERSHIP_DIAGNOSTIC_PASS",flush=True)
+          PY
+
+      - name: Checkout repository for diagnostic report
+        if: always()
+        uses: actions/checkout@v4
+      - name: Publish safe synthetic GA result summary
+        if: always()
+        shell: bash
+        env:
+          GA_TEST_OUTCOME: ${{ steps.ga_probe.outcome }}
+          GA_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          report=ops/ovh/test-results/ga-root-cause-inspection-latest.txt
+          mkdir -p "$(dirname "$report")"
+          {
+            printf 'workflow_run=%s\n' "$GA_RUN_ID"
+            printf 'probe_result=%s\n' "$GA_TEST_OUTCOME"
+            if [[ -f "$RUNNER_TEMP/ga-own-setup.log" ]]; then
+              grep -E '^(OWN900_|DIAG_)' "$RUNNER_TEMP/ga-own-setup.log" | tail -n 55 || true
+              printf 'first_error_hint=%s\n' "$(grep -Eo 'DIAG_[A-Z_]+' "$RUNNER_TEMP/ga-own-setup.log" | tail -n 1 || true)"
+            else
+              echo 'diagnostic_log_missing=true'
+            fi
+          } > "$report"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$report"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record root-cause GA shape inspection'
+            git push origin HEAD:main
+          fi
