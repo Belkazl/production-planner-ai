@@ -98,6 +98,92 @@ test("rejected terminal result recovers only previously verified same-account ch
  assert.equal(persisted.state.result.operations[0].order,"A-ORDER");
 });
 
+test("916 account-owned operations with 90 setups: real worker preview becomes verified recovery when final rejected",async()=>{
+ const rows=Array.from({length:916},(_,i)=>({
+  order:"A-ORDER",equipment_ids:["A-EQ"],employee_ids:["A-EMP"],
+  resources:[{resource_type:"equipment",id:"A-EQ",name:"Account machine"},
+   {resource_type:"employee",id:"A-EMP",name:"Account operator"}],
+  is_setup:i<90,phase:i<90?"setup":"process",
+  duration_min:5,start_min:i*5,end_min:(i+1)*5,operation_id:"QAOP_"+i
+ }));
+ const ownBest={ok:true,valid:true,partial:false,operations:rows,
+  generic_operations:structuredClone(rows),batches:[{order:"A-ORDER",
+   equipment_ids:["A-EQ"]}],duration_minutes:4445,
+  batch_count:118,operator_wait_minutes:1200,machine_idle_minutes:500};
+ const foreign={ok:true,valid:true,operations:[{order:"FOREIGN-ORDER",
+  equipment_ids:["OTHER-EQ"]}],duration_minutes:1};
+ const a=environment([
+  {status:"running",progress:67,best_preview:ownBest},
+  {status:"completed",progress:100,best_preview:foreign,result:foreign}
+ ]);
+ await a.start();
+ let p=await a.progress();
+ assert.equal(p.status,200);
+ assert.equal(p.data.best_preview.operations.length,916);
+ assert.equal(p.data.best_preview.operations.filter(x=>x.is_setup).length,90);
+ assert.equal(p.data.best_preview._pp_verified_checkpoint_v1,undefined,
+  "internal verification attestation must not leak in progress API");
+ const persisted=a.events.save.at(-1);
+ assert.equal(persisted.state.best._pp_verified_checkpoint_v1,true,
+  "only checked worker snapshot may become durable verified checkpoint");
+ assert.deepEqual(persisted.state.best.resume_state.order_sequence,["A-ORDER"]);
+ p=await a.progress();
+ assert.equal(p.status,200,"complete own verified best must not be replaced by 409");
+ assert.equal(p.data.phase,"completed");
+ assert.equal(p.data.success,true);
+ assert.equal(p.data.result.operations.length,916);
+ assert.equal(p.data.result.duration_minutes,4445);
+ assert.equal(p.data.result.optimization_account_check_recovered,true);
+ assert.equal(p.data.result._pp_verified_checkpoint_v1,undefined);
+ assert.equal(p.data.result.optimization_termination_reason,"unowned_native_final_rejected");
+ assert.equal(a.events.save.at(-1).state.state,"completed");
+ assert.equal(a.events.save.at(-1).state.result.operations.length,916);
+ console.log("GA_916_OPERATIONS_90_SETUPS_VERIFIED_CHECKPOINT_SALVAGE_PASS");
+});
+
+test("worker cannot forge a trusted checkpoint for foreign orders or physical equipment",async()=>{
+ const foreignRow={order:"FOREIGN-ORDER",equipment_ids:["A-EQ"],
+  resources:[{resource_type:"equipment",id:"A-EQ"}]};
+ const ownOrderForeignResource={order:"A-ORDER",
+  equipment_ids:["FOREIGN-EQ"],
+  resources:[{resource_type:"equipment",id:"A-EQ"}]};
+ for(const rows of [[foreignRow],[ownOrderForeignResource]]){
+  const a=environment([
+   {status:"running",progress:20,best_preview:{
+    ok:true,valid:true,_pp_verified_checkpoint_v1:true,operations:rows,
+    duration_minutes:400,resume_state:{version:1,order_sequence:["A-ORDER"]}}},
+   {status:"completed",progress:100,result:{ok:true,valid:true,
+     operations:[{order:"FOREIGN-ORDER"}],duration_minutes:1}}
+  ]);
+  await a.start();
+  const first=await a.progress();
+  assert.equal(first.status,200);
+  assert.equal(first.data.best_preview,null);
+  const terminal=await a.progress();
+  assert.equal(terminal.status,409);
+  assert.equal(terminal.data.error,"account_plan_mismatch");
+ }
+ console.log("GA_FORGED_CHECKPOINT_FOREIGN_ORDER_AND_RESOURCE_DENIED_PASS");
+});
+
+test("partial or incomplete previews can be displayed but never salvaged as finished plan",async()=>{
+ const raw={ok:true,valid:true,partial:true,duration_minutes:3200,
+   operations:[{order:"A-ORDER",equipment_ids:["A-EQ"]}]};
+ const a=environment([
+  {status:"running",progress:30,best_preview:raw},
+  {status:"completed",progress:100,result:{ok:true,valid:true,
+   operations:[{order:"FOREIGN-ORDER"}],duration_minutes:1}}
+ ]);
+ await a.start();
+ const progress=await a.progress();
+ assert.equal(progress.status,200);
+ assert.equal(progress.data.best_preview.partial,true);
+ const result=await a.progress();
+ assert.equal(result.status,409);
+ assert.equal(result.data.error,"account_plan_mismatch");
+ console.log("GA_PARTIAL_PROGRESS_NEVER_TERMINAL_RECOVERY_PASS");
+});
+
 test("foreign terminal plan without earlier verified incumbent still fails closed",async()=>{
  const e=environment([{status:"completed",progress:100,best_preview:null,
     result:{ok:true,valid:true,operations:[{order:"FOREIGN-ORDER"}],duration_minutes:12}}]);
