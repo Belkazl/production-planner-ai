@@ -1,0 +1,2 @@
+probe_outcome=failure
+source_copy_or_parser_failed=true
