@@ -3,6 +3,7 @@ name: LiftOrbit guarded OVH GA trusted best preview checkpoint recovery
 # Real 916-operation/90-setup verified preview survives rejected final without cross-account data.
 # Foreign orders, foreign equipment, partial previews and unverified client plans still fail closed.
 # Source tests: 44127135354. Existing Stop, UI, PostgreSQL, worker and isolation are unchanged.
+# Pinned current OVH GA bridge e37784584; new source 5fb424919; one-file release only.
 
 on:
   push:
