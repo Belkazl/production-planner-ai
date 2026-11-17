@@ -1,0 +1,111 @@
+name: LiftOrbit live OVH 1000-op 89-setup GA final ownership acceptance after trusted best recovery
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-verified-checkpoint-live-acceptance-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Exercise isolated 12 order ceramic-like GA with 900 operation batches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,uuid,secrets,time
+          base="https://app.liftorbit.app"
+          cookie=""
+          def api(path,method="GET",payload=None):
+            global cookie
+            h={"Origin":base,"Sec-Fetch-Site":"same-origin","Accept":"application/json"}
+            if cookie:h["Cookie"]=cookie
+            body=None
+            if payload is not None:
+              h["Content-Type"]="application/json"
+              body=json.dumps(payload,separators=(',',':')).encode()
+            req=urllib.request.Request(base+path,data=body,method=method,headers=h)
+            try:
+              with urllib.request.urlopen(req,timeout=85) as r:
+                status=r.status;raw=r.read(22000000);hdr=r.headers
+            except urllib.error.HTTPError as e:
+              status=e.code;raw=e.read(22000000);hdr=e.headers
+            if path=="/api/auth/register" and status==200:
+              cookie=(hdr.get("Set-Cookie") or "").split(";")[0]
+            try:data=json.loads(raw)
+            except: data={}
+            return status,data
+          rq=lambda kind,key:{"resource_type":kind,"resource_ref":key,
+            "resource_refs":[key],"match_mode":"specific","quantity":1}
+          equipment=[{"id":"QEQ_"+str(i),"name":"Autoclave "+str(i),"kind":"workstation",
+            "capacity":600,"capacity_unit":"m2"} for i in range(14)]
+          staff=[{"id":"QEMP_"+str(i),"name":"Operator "+str(i),"shift":"day"} for i in range(5)]
+          operations=[{"id":"QOP_"+str(i),"name":"Operation "+str(i),"sequence":i+1,
+            "duration_min":10,"resource_requirements":[rq("equipment","QEQ_"+str(i)),
+              rq("employee","QEMP_"+str(i%5))]} for i in range(7)]
+          model={"scheduler_mode":"resource","start":"2026-11-17T08:00:00",
+            "equipment":equipment,"employees":staff,
+            "shifts":{"day":[["08:00","12:00"],["13:00","17:00"]]},
+            "orders":[{"id":"QORD_"+str(i),"quantity":7200,"unit":"m2",
+              "technical_process_id":"QPROCESS","parameters":{"color":str(i%4)}} for i in range(12)],
+            "technical_processes":[{"id":"QPROCESS","name":"Ceramic-like QA","operations":operations}],
+            "materials":[],"setup_rules":[{"id":"QA_COLOR_SETUP","equipment_ref":"*",
+              "setup_parameter":"color","from_state":"*","to_state":"*",
+              "duration_min":10,"employee_count":0}]}
+          code,_=api("/api/auth/register","POST",{"email":"own900-"+uuid.uuid4().hex+"@liftorbit.invalid",
+            "password":secrets.token_urlsafe(28),"company":"Disposable 900 operation validator test"})
+          assert code==200 and cookie,"DIAG_TEST_ACCOUNT_CREATION_FAILED"
+          project="qa-own900-"+uuid.uuid4().hex
+          code,_=api("/api/db-storage","POST",{"storage":{
+            "prodplan.projects.v2":json.dumps([{"id":project,"name":"Large isolated QA","model":model}]),
+            "prodplan.project.active.v2":project}})
+          assert code==200,"DIAG_TEST_MODEL_STORAGE_FAILED"
+          code,m=api("/api/model")
+          assert code==200 and len(m.get("model",{}).get("orders",[]))==12
+          code,data=api("/api/plan","POST",{"generations":2,"population":4,
+            "objective":"duration","seed":1729,"__pp_async_start":True})
+          print("OWN900_START",code,"ok",data.get("ok"),"error",data.get("error"),flush=True)
+          assert code==202 and data.get("started"),"DIAG_WORKER_START_FAILED"
+          try:
+            for tick in range(95):
+              time.sleep(2)
+              code,d=api("/api/plan-progress")
+              phase=d.get("phase")
+              if tick%5==0 or code!=200 or phase in ("completed","invalid","failed","stale","cancelled","timed_out"):
+                best=d.get("best_preview") or {}
+                rows=best.get("generic_operations") or best.get("operations") or []
+                own_orders={x["id"] for x in model["orders"]}
+                eq={x["id"] for x in equipment}
+                em={x["id"] for x in staff}
+                bad_orders=sum(str(x.get("order")) not in own_orders for x in rows if x.get("order") is not None)
+                bad_eq=sum(str(v) not in eq for x in rows for v in (x.get("equipment_ids") or []))
+                bad_em=sum(str(v) not in em for x in rows for v in (x.get("employee_ids") or []))
+                resources=[v for x in rows for v in (x.get("resources") or []) if isinstance(v,dict) and v.get("resource_type") in ("equipment","employee")]
+                bad_res=sum(bool(v.get("id")) and str(v.get("id")) not in eq|em for v in resources)
+                print("OWN900_SETUP_PROGRESS",tick,"http",code,"phase",phase,"percent",d.get("percent"),
+                  "error",d.get("error"),"best_ops",len(rows),"setup_ops",sum(bool(x.get("is_setup")) for x in rows),
+                  "bad_order",bad_orders,"bad_equipment_id",bad_eq,
+                  "bad_employee_id",bad_em,"bad_resource_id",bad_res,flush=True)
+              if code!=200:
+                assert d.get("error")!="account_plan_mismatch","VERIFIED_CHECKPOINT_FINAL_MISMATCH_REPRODUCED"
+                raise SystemExit("DIAG_PROGRESS_HTTP_FAILURE")
+              if phase in ("failed","invalid","timed_out","stale","interrupted"):
+                raise SystemExit("DIAG_WORKER_TERMINAL_"+str(phase))
+              if phase=="completed" and d.get("success"):
+                result=d.get("result") or {}
+                assert len(result.get("operations") or [])>0
+                print("OWN900_WITH_SETUPS_COMPLETED",len(result.get("operations") or []),"setup_ops",sum(bool(x.get("is_setup")) for x in result.get("operations") or []),
+                  "result_valid",result.get("valid"),"recovered",result.get("optimization_account_check_recovered",False),flush=True)
+                assert result.get("valid") is True,"FINAL_PLAN_INVALID"
+                assert len(result.get("operations") or [])>=1000,"FINAL_OPERATIONS_DROPPED"
+                assert sum(bool(x.get("is_setup")) for x in result.get("operations") or [])>=60,"FINAL_SETUPS_DROPPED"
+                break
+            else:raise SystemExit("DIAG_TIMEOUT")
+          finally:
+            try:api("/api/optimizer-stop","POST")
+            except: pass
+          print("GA_1000_OP_89_SETUP_PRODUCTION_FINAL_AND_BEST_CHECKPOINT_PASS",flush=True)
+          PY
