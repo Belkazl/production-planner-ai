@@ -1,6 +1,57 @@
-probe_outcome=failure
+probe_outcome=success
 /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current type=symbolic link mode=777 owner=liftorbit-ci
 NOT_PRESENT /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts
 /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs type=regular file mode=644 owner=liftorbit-ci
-SOURCE_SCP_FAILED
-scp: /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts: No such file or directory
+DIRECTORY_TARGET=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2
+tests/password-reset-security.mjs size=1346
+tests/python-ga-state.test.mjs size=3481
+tests/planner-html-mock.ts size=468
+tests/python-ga-upstream.test.mjs size=11173
+tests/auth-gateway-mock.ts size=2195
+language-build.ts size=4385
+feature-stop.ts size=3892
+gantt-details.ts size=3017
+nonblocking-db-shim.js size=3184
+restart-optimizer.ts size=4447
+restart-optimizer-ui.js size=22255
+order-accordion.ts size=1213
+ga-worker-build.ts size=1743
+order-accordion.js size=3939
+tenant-model-runtime.js size=9151
+ceramics-resource-repair.js size=4368
+async-plan-transport.js size=4977
+auth-runtime.js size=35929
+ga-python-state-store.mjs size=1733
+tenant-model-build.ts size=1657
+ga_python_workers/qa_runner/run.mjs size=12672
+ga_python_workers/qa_runner/Dockerfile size=113
+ga_python_workers/qa_auth/index.ts size=17754
+ga_python_workers/qa_auth/Dockerfile size=179
+ga_python_workers/qa_e2e/run.mjs size=5271
+ga_python_workers/qa_e2e/Dockerfile size=113
+ga_python_workers/Dockerfile size=153
+ga_python_workers/qa_heavy/run.mjs size=4707
+ga_python_workers/qa_heavy/Dockerfile size=113
+ga-workers-enable.ts size=1719
+documents-tab-ui.js size=4505
+python-ga-upstream-build.ts size=2920
+bootstrap.ts size=909
+language-ui.js size=48004
+ga-execution-budget.ts size=1579
+documents-tab.ts size=1707
+gantt-details.js size=7221
+restart-optimizer-server.js size=2490
+build-bridge.ts size=5607
+ceramics-resource-repair.ts size=1737
+restart-optimizer-html.js size=1485
+Dockerfile size=936
+python-ga-upstream.mjs size=28201
+tools/inspect-optimizer.ts size=2057
+worker-manager.ts size=4433
+auth-bridge.ts size=3514
+stop-ui.js size=23835
+PROGRESS_MATCHES
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/baselines/2026-10-10/aps-setup-bridge/index.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs
+NO_INDEX_TS_COPIED
