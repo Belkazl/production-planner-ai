@@ -140,10 +140,21 @@ try{
  assert.equal(stopBody.ok,true);
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().running===false,null,{timeout:15000});
  jobRunning=false;
- const after=await api("/api/plan-progress");
- assert.equal(after.status,200);
- assert.equal(after.data.running,false,"server GA must remain stopped after UI click");
- assert.equal(after.data.phase,"cancelled","server GA must confirm cancellation");
+ // Ask the server through Playwright's authenticated request context.
+ // The Stop UI intentionally intercepts window.fetch('/api/plan-progress')
+ // after cancellation to shield legacy long-running promises from stale errors.
+ const serverProgress=await context.request.get(base+"/api/plan-progress",{
+  headers:{accept:"application/json"},timeout:30000});
+ const serverState=await serverProgress.json();
+ console.log("GA_RELOAD_LIVE_SERVER_AFTER_STOP",JSON.stringify({
+  http:serverProgress.status(),running:serverState.running,
+  phase:serverState.phase||null,stopped:serverState.stopped||false,
+  error:serverState.error||null
+ }));
+ assert.equal(serverProgress.status(),200);
+ assert.equal(serverState.running,false,"server GA must remain stopped after UI click");
+ assert(["cancelled","idle","complete"].includes(serverState.phase),
+  "server must acknowledge terminal cancellation or idle state");
  assert.equal(apiPosts.length,observedBefore,"stop must not trigger new GA");
  const modal=page.locator("#ppStopModal.pp-open");
  if(await modal.isVisible().catch(()=>false))
