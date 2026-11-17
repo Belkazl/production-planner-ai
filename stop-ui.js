@@ -17,6 +17,7 @@ style.id="ppStopOptimizerStyles";
 style.textContent="#ppStopOptimizer{display:none;align-items:center;justify-content:center;border:1px solid #e49a95;background:#fff2f0;color:#af2f24;padding:11px 15px;border-radius:10px;cursor:pointer;min-height:42px;font:700 14px/1.2 system-ui;max-width:100%}#ppStopOptimizer.pp-on{display:inline-flex}#ppStopOptimizer:disabled{opacity:.55;cursor:wait}#ppStopModal{position:fixed;inset:0;z-index:2147483600;padding:16px;align-items:center;justify-content:center;background:rgba(8,27,55,.62);box-sizing:border-box}#ppStopModal.pp-open{display:flex!important}#ppStopModal .pp-box{max-width:580px;width:100%;max-height:88vh;overflow-y:auto;box-sizing:border-box;background:#fff;border-radius:16px;padding:20px;color:#223752;box-shadow:0 18px 70px #14253f40;font:14px/1.45 system-ui,sans-serif}#ppStopModal h3{font-size:20px;margin:0 0 8px}#ppStopModal p{color:#5a6c84;margin:0 0 15px}#ppStopModal .pp-choice{display:flex;gap:10px;align-items:center;padding:12px;margin-bottom:8px;border:1px solid #d2dce9;border-radius:9px;cursor:pointer}#ppStopModal .pp-choice:has(input:checked){border-color:#3377d8;background:#eff5ff}#ppStopModal .pp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}#ppStopModal button{background:#2566cc;color:#fff;border:0;border-radius:9px;padding:11px 14px;font:700 14px system-ui;cursor:pointer}#ppStopModal button.pp-secondary{background:#eef1f7;color:#33445e}";
 document.head.appendChild(style);
 let generation=0,running=false,requestStop=false,prevPlan=null,items=[],timer=null,criterion="duration",originalBtn=btn.onclick,selectedPlan=null,modalShown=false,stoppedPlanAvailable=false,candidateAvailable=false;
+let reconnecting=true,recoveredSession=false,remotePercent=0,remotePhase="checking",remoteFailureCount=0;
 const keys={duration:"duration_minutes",wait:"operator_wait_minutes",idle:"machine_idle_minutes",cycles:"batch_count"};
 const label={duration:"Общее время",wait:"Ожидание оператора",idle:"Простой оборудования",cycles:"Число циклов"};
 function key(){return keys[criterion]||keys.duration}
@@ -53,6 +54,106 @@ function record(p){
  if(items.length>16)items.length=16;
  stop.disabled=false;stop.title="Корректных вариантов: "+items.length;
 }
+// The GA belongs to the account on the server and survives a browser reload.
+// The public progress API is read-only. A reload must JOIN it, not reset/start.
+function ppRecoveredProgressLabel(data){
+ const pct=Number(data?.percent);
+ remotePercent=Number.isFinite(pct)?Math.min(100,Math.max(0,Math.round(pct))):remotePercent;
+ remotePhase=String(data?.phase||"running");
+ const status=document.getElementById("valid");
+ if(status)status.textContent="GA: оптимизация · "+remotePercent+"%";
+ const metadata=document.getElementById("meta");
+ if(metadata)metadata.textContent="GA: оптимизация · "+remotePercent+"%";
+ btn.disabled=true;
+ btn.textContent="Оптимизация "+remotePercent+"%";
+ stop.disabled=false;
+ stop.textContent="Остановить оптимизацию";
+ if(!stop.classList.contains("pp-on"))stop.classList.add("pp-on");
+}
+function ppFinishRecoveredJob(data){
+ if(!recoveredSession)return;
+ recoveredSession=false;reconnecting=false;running=false;requestStop=false;
+ clearTimeout(timer);timer=null;candidateAvailable=false;
+ stop.classList.remove("pp-on");stop.disabled=false;
+ const candidate=liveModeButton("candidate");
+ if(candidate){candidate.disabled=false;candidate.removeAttribute("aria-disabled");candidate.title=""}
+ window.__ppOptimizationInFlight=false;
+ window.__ppStopUiLocked=false;
+ const result=data?.success===true&&valid(data?.result)?data.result:null;
+ if(result){
+  restore(result);
+  try{if(typeof hasResult!=="undefined")hasResult=true}catch(_){}
+  selectedPlan=result;stoppedPlanAvailable=true;
+  const status=document.getElementById("valid"),meta=document.getElementById("meta");
+  if(status)status.textContent="GA: расчёт завершён";
+  if(meta)meta.textContent="GA: расчёт завершён";
+  const note=document.getElementById("validator");
+  if(note)note.textContent="План показан на Ганте";
+ }else if(data?.phase==="cancelled"||data?.stopped===true){
+  const status=document.getElementById("valid");if(status)status.textContent="GA: остановлено · выбери вариант";
+  const note=document.getElementById("validator");
+  if(note)note.textContent="Остановлено пользователем. Выбери найденный вариант. Сохранённые планы не изменены.";
+ }else if(data?.error){
+  const status=document.getElementById("valid");if(status)status.textContent="Ошибка GA";
+  const note=document.getElementById("validator");if(note)note.textContent=String(data.error).slice(0,140);
+ }
+ btn.disabled=false;setActionAfterStop();
+ window.dispatchEvent(new Event("pp:optimizer-finished"));
+}
+function ppAttachRecoveredJob(data){
+ if(running||!data||data.ok!==true||data.running!==true)return false;
+ reconnecting=false;recoveredSession=true;remoteFailureCount=0;
+ const my=++generation;
+ running=true;requestStop=false;items=[];selectedPlan=null;modalShown=false;
+ stoppedPlanAvailable=false;candidateAvailable=false;window.__ppStopUiLocked=false;
+ criterion=(typeof window.ppOptimizerObjective==="function"?window.ppOptimizerObjective():null)||
+  (typeof model!=="undefined"&&model?.objective)||"duration";
+ prevPlan=window.__ppOptimizerCommittedPlan||window.__ppTabPlan||window.__ppFreshDisplayBaseline||null;
+ window.__ppOptimizationInFlight=true;
+ ppRecoveredProgressLabel(data);
+ record(data.best_preview);record(data.candidate_preview);
+ window.dispatchEvent(new Event("pp:optimizer-started"));
+ timer=setTimeout(()=>poll(my),1800);
+ return true;
+}
+async function ppRecoverRunningGaFromAccount(){
+ // Until the first authoritative response, never offer a destructive restart.
+ if(!reconnecting||running)return;
+ try{
+  const response=await fetch("/api/plan-progress?ppReconnect="+Date.now(),{
+   method:"GET",cache:"no-store",credentials:"same-origin",
+   headers:{accept:"application/json"}
+  });
+  if(!response.ok)throw Error("HTTP "+response.status);
+  const status=await response.json();
+  if(!status||status.ok!==true)throw Error("unavailable");
+  reconnecting=false;remoteFailureCount=0;
+  if(status.running===true){
+   ppAttachRecoveredJob(status);
+  }else{
+   remotePhase=String(status.phase||"idle");
+   // A result already completed during reload must be shown without
+   // sending POST /api/plan. Do not write or change saved plans.
+   if(status.success===true&&valid(status.result)){
+    recoveredSession=true;
+    ppFinishRecoveredJob(status);
+   }else window.dispatchEvent(new Event("pp:optimizer-finished"));
+  }
+ }catch(error){
+  remoteFailureCount++;
+  console.warn("PP_GA_RECONNECT_RETRY",remoteFailureCount,String(error).slice(0,70));
+  if(remoteFailureCount<8&&reconnecting){
+   setTimeout(ppRecoverRunningGaFromAccount,Math.min(3500,400*remoteFailureCount));
+  }else if(reconnecting){
+   // Fail closed: if we cannot read the account's running status, do NOT
+   // offer a fresh search that would hit optimization_running_stop_first.
+   const note=document.getElementById("validator");
+   if(note)note.textContent="Не удалось проверить активную оптимизацию. Обновите страницу для повторного подключения.";
+   const status=document.getElementById("valid");
+   if(status)status.textContent="GA: подключение недоступно";
+  }
+ }
+}
 async function poll(my){
  if(!running||requestStop||my!==generation)return;
  try{
@@ -61,7 +162,11 @@ async function poll(my){
   if(my===generation&&running&&!requestStop&&data&&data.ok){
    candidateAvailable=valid(data.candidate_preview);
    if(!candidateAvailable&&valid(data.best_preview))preferBestLivePreview();
-   record(data.candidate_preview);record(data.best_preview)
+   record(data.candidate_preview);record(data.best_preview);
+   if(recoveredSession){
+    if(data.running===false){ppFinishRecoveredJob(data);return;}
+    ppRecoveredProgressLabel(data);
+   }
   }
  }catch(e){console.warn("PP_STOP_PROGRESS",String(e))}
  if(my===generation&&running&&!requestStop){stop.disabled=false;timer=setTimeout(()=>poll(my),1750);}
@@ -170,7 +275,7 @@ function ppScheduleStopReconciliation(expectedGeneration){
 }
 
 btn.onclick=async function(event){
- if(running || btn.disabled)return;
+ if(reconnecting||running||btn.disabled)return;
  const my=++generation;
  running=true;requestStop=false;items=[];stop.disabled=false;selectedPlan=null;modalShown=false;stoppedPlanAvailable=false;candidateAvailable=false;window.__ppStopUiLocked=false;
  preferBestLivePreview();
@@ -264,5 +369,6 @@ window.fetch=function(input,init){
  }
  return ppFetchOriginal(input,init);
 };
-window.__PP_STOP_DEBUG__=()=>({running,stopped:requestStop,variants:items.length,criterion,stoppedPlanAvailable,buttonText:btn.textContent});
+window.__PP_STOP_DEBUG__=()=>({running,reconnecting,recoveredSession,remotePercent,remotePhase,remoteFailureCount,stopped:requestStop,variants:items.length,criterion,stoppedPlanAvailable,buttonText:btn.textContent});
+setTimeout(ppRecoverRunningGaFromAccount,80);
 })();
