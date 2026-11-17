@@ -1,5 +1,6 @@
 name: LiftOrbit live Chromium GA reattach after page refresh
 # Validate installed 2026-11-17 reattachment release 44072034992, disposable account only.
+# Synchronize synthetic test model in browser and isolated database before refreshing.
 on:
   push:
     branches: [main]
