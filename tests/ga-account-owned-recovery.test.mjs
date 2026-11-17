@@ -141,6 +141,73 @@ test("916 account-owned operations with 90 setups: real worker preview becomes v
  console.log("GA_916_OPERATIONS_90_SETUPS_VERIFIED_CHECKPOINT_SALVAGE_PASS");
 });
 
+test("real 1008 production + 89 setups Best found survives native final that silently drops all setups",async()=>{
+ const production=Array.from({length:1008},(_,i)=>({
+  order:"A-ORDER",equipment_ids:["A-EQ"],employee_ids:["A-EMP"],
+  resources:[{resource_type:"equipment",id:"A-EQ",name:"Account machine"}],
+  is_setup:false,phase:"process",start_min:i*2,end_min:i*2+2
+ }));
+ const setups=Array.from({length:89},(_,i)=>({
+  order:"A-ORDER",equipment_ids:["A-EQ"],employee_ids:["A-EMP"],
+  resources:[{resource_type:"equipment",id:"A-EQ",name:"Account machine"}],
+  is_setup:true,phase:"setup",setup_rule_id:"COLOR",start_min:i*2,end_min:i*2+2
+ }));
+ const rows=[...production,...setups];
+ const best={ok:true,valid:true,partial:false,operations:rows,
+  generic_operations:structuredClone(rows),setup_operation_count:89,
+  duration_minutes:4900,operator_wait_minutes:500,machine_idle_minutes:100,
+  batches:[{order:"A-ORDER",equipment_ids:["A-EQ"]}]};
+ const native={ok:true,valid:true,operations:production,
+  generic_operations:structuredClone(production),setup_operation_count:0,
+  duration_minutes:4200,batches:[{order:"A-ORDER",equipment_ids:["A-EQ"]}]};
+ const e=environment([
+  {status:"running",progress:75,best_preview:best},
+  {status:"completed",progress:100,best_preview:best,result:native}
+ ]);
+ // This is the actual production condition: setup rules exist, so the
+ // unprocessed terminal result is NOT a valid improvement over Best found.
+ e.model.setup_rules=[{id:"COLOR",setup_parameter:"color",duration_min:10}];
+ await e.start();
+ const running=await e.progress();
+ assert.equal(running.status,200);
+ assert.equal(running.data.best_preview.operations.length,1097);
+ assert.equal(running.data.best_preview.operations.filter(x=>x.is_setup).length,89);
+ const finished=await e.progress();
+ assert.equal(finished.status,200);
+ assert.equal(finished.data.success,true);
+ assert.equal(finished.data.result.operations.length,1097,
+  "unprocessed 1008-row worker final must not replace 1097-row verified plan");
+ assert.equal(finished.data.result.operations.filter(x=>x.is_setup).length,89);
+ assert.equal(finished.data.result.duration_minutes,4900);
+ assert.equal(finished.data.result.optimization_termination_reason,
+  "final_dropped_setup_operations");
+ assert.equal(finished.data.result.optimization_account_check_recovered,true);
+ assert.equal(e.events.save.at(-1).state.result.operations.length,1097);
+ console.log("GA_REAL_SETUP_LOSS_1097_TO_1008_FIXED_PASS");
+});
+
+test("native final with legitimate setups remains authoritative even when setup count decreases",async()=>{
+ const original=Array.from({length:1008},(_,i)=>({
+  order:"A-ORDER",equipment_ids:["A-EQ"],is_setup:false,phase:"process"
+ }));
+ const build=n=>({ok:true,valid:true,partial:false,operations:[
+  ...original,...Array.from({length:n},()=>({order:"A-ORDER",
+   equipment_ids:["A-EQ"],is_setup:true,phase:"setup"}))],
+  duration_minutes:5000-n});
+ const e=environment([
+  {status:"running",progress:65,best_preview:build(89)},
+  {status:"completed",progress:100,result:build(22)}
+ ]);
+ e.model.setup_rules=[{id:"COLOR",setup_parameter:"color",duration_min:10}];
+ await e.start();
+ assert.equal((await e.progress()).status,200);
+ const done=await e.progress();
+ assert.equal(done.status,200);
+ assert.equal(done.data.result.operations.filter(x=>x.is_setup).length,22);
+ assert.equal(done.data.result.optimization_account_check_recovered,undefined);
+ console.log("GA_LEGITIMATE_SETUP_REDUCTION_NOT_BLOCKED_PASS");
+});
+
 test("worker cannot forge a trusted checkpoint for foreign orders or physical equipment",async()=>{
  const foreignRow={order:"FOREIGN-ORDER",equipment_ids:["A-EQ"],
   resources:[{resource_type:"equipment",id:"A-EQ"}]};
