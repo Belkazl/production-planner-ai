@@ -1,0 +1,29 @@
+name: LiftOrbit English dynamic Saved plans and GA messages QA
+on:
+  push:
+    branches: [fix/liftorbit-i18n-dynamic-20261117]
+    paths:
+      - language-ui.js
+      - tests/liftorbit-i18n-saved-stop-live.test.mjs
+      - .github/workflows/liftorbit-i18n-saved-stop-qa-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  i18n:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/liftorbit-i18n-dynamic-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify production translation JS syntax
+        run: node --check language-ui.js
+      - name: Install DOM test runner
+        run: npm install --no-save --no-package-lock jsdom@26
+      - name: Dynamic plan history, warnings, preview, Stop and RU/EN regression tests
+        run: node --test tests/liftorbit-i18n-saved-stop-live.test.mjs
