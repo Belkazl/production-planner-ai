@@ -3,6 +3,7 @@ name: LiftOrbit guarded OVH GA stale model versus foreign plan correction
 # Suppress obsolete best previews when account model has changed.
 # Stale equipment, stale setup and foreign-account isolation regressions passed 44111694762.
 # Strict source hash, full Docker build and automatic rollback required.
+# Verified in isolated account GA regressions 44111694762; no database changes.
 on:
   push:
     branches: [main]
