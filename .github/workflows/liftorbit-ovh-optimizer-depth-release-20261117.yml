@@ -45,7 +45,7 @@ jobs:
       - name: Checkout deployed Stop and restart UI source
         uses: actions/checkout@v4
         with:
-          ref: f3b252e0881e8744dcec94c486890ed285dd73ca
+          ref: a55bf999d515958781867e67b6a5a9b02fd11e46
           path: deployed-ui
           persist-credentials: false
       - name: Checkout thoroughly tested optimization depth source
@@ -127,7 +127,7 @@ jobs:
           root="$HOME/liftorbit-migration"
           app="$root/sources/ovh-app/current/restart-optimizer-ui.js"
           next="$root/sources/ovh-app/restart-optimizer-ui.js.depth.next"
-          backup="$root/patch-backups/optimization-depth-20261117"
+          backup="$root/patch-backups/optimization-depth-toolbar-repair-20261117"
           expectedOld="$1"; expectedNew="$2"
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
           test -f "$app" && test -f "$next"
