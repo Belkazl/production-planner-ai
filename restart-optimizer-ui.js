@@ -29,7 +29,7 @@ function isBusy(){
  // The original opt.disabled and __ppOptimizationInFlight can remain stale
  // after a normal completion; neither should lock an independent restart.
  // The server also rejects a reset if a pass is still actually running.
- return resetting || window.__PP_STOP_DEBUG__?.().running===true;
+ return resetting || window.__PP_STOP_DEBUG__?.().running===true || window.__PP_STOP_DEBUG__?.().reconnecting===true;
 }
 function updateDisabled(){fresh.disabled=isBusy()}
 function restoreSavedPlanReadiness(){
@@ -56,7 +56,7 @@ function releaseStalePrimaryGuard(){
  // The upstream UI can leave its lexical "busy" guard stuck after a failed
  // pre-flight save/import while later wrappers visually re-enable the button.
  // Only release it when the stop controller confirms no real GA pass is running.
- if(window.__PP_STOP_DEBUG__?.().running===true)return false;
+ if(window.__PP_STOP_DEBUG__?.().running===true || window.__PP_STOP_DEBUG__?.().reconnecting===true)return false;
  try{if(typeof busy!=="undefined")busy=false}catch(_){}
  try{
   if(typeof modelReady!=="undefined"&&typeof model!=="undefined"&&model&&Array.isArray(model.orders)&&model.orders.length)
