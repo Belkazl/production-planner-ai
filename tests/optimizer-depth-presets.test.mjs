@@ -14,7 +14,7 @@ function fixture({defer=false}={}){
  '<span id="meta">Saved optimization · 15.10.26</span><span id="valid">Ready to optimize</span>',
  '<div id="validator"></div><div id="ppOptimizerCandidateStatus"></div>',
  '<div id="planView"><div class="toolbar"><label>Optimize for: <select><option>Duration</option></select></label>',
- '<button data-mode="best">Best found</button><button data-mode="candidate">Candidate plan</button></div></div>',
+ '<span class="nested-live-modes"><button data-mode="best">Best found</button><button data-mode="candidate">Candidate plan</button></span></div></div>',
  '<button id="opt" type="button">Continue optimization</button></body></html>'
  ].join("");
  const dom=new JSDOM(html,{url:"https://app.liftorbit.app/",runScripts:"outside-only",pretendToBeVisual:true});
@@ -65,6 +65,8 @@ test("setting is visible in Gantt toolbar, baseline 60x32 preserved, explanation
  const q=fixture();try{
   await q.ready();
   assert(q.doc.querySelector("#planView .toolbar #ppOptimizerDepth"));
+  assert.equal(q.doc.getElementById("ppOptimizerDepth")?.parentElement?.className,"toolbar",
+   "production nested preview buttons must not break control insertion");
   assert.deepEqual([...q.control.options].map(o=>o.value),["quick","standard","thorough","maximum"]);
   assert.equal(q.depth.mode,"standard");
   assert.equal(q.depth.generations,60);assert.equal(q.depth.population,32);
