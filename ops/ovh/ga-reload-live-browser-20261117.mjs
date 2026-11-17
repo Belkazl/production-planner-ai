@@ -46,14 +46,31 @@ try{
  accountCreated=true;
  await page.goto(base,{waitUntil:"domcontentloaded",timeout:60000});
  const project="rr-"+randomUUID().replaceAll("-","");
+ const projects=JSON.stringify([{id:project,name:"Synthetic reload test",model}]);
+ await page.waitForFunction(()=>window.__PP_ASYNC_DB_SYNC__===true,null,{timeout:20000});
+ // Keep browser localStorage and the isolated account DB in sync, just like
+ // saving a model through the real UI. Otherwise the app may upload its older
+ // empty localStorage snapshot over a bare test-only /api/db-storage POST.
+ await page.evaluate(({project,projects})=>{
+  localStorage.setItem("prodplan.projects.v2",projects);
+  localStorage.setItem("prodplan.project.active.v2",project);
+ },{project,projects});
  const saved=await api("/api/db-storage","POST",{storage:{
-  "prodplan.projects.v2":JSON.stringify([{id:project,name:"Synthetic reload test",model}]),
+  "prodplan.projects.v2":projects,
   "prodplan.project.active.v2":project
  }});
  assert.equal(saved.status,200,"synthetic model storage");
- await page.reload({waitUntil:"domcontentloaded",timeout:60000});
  let own=await api("/api/model");
+ console.log("GA_RELOAD_LIVE_MODEL_STORED",JSON.stringify({http:own.status,
+  orders:own.data.model?.orders?.length||0}));
  assert.equal(own.status,200,"model ownership boundary");
+ assert.equal(own.data.model?.orders?.length,12,"synthetic model must be stored before refresh");
+ await page.reload({waitUntil:"domcontentloaded",timeout:60000});
+ await page.waitForFunction(()=>window.__PP_ASYNC_DB_SYNC__===true,null,{timeout:20000});
+ own=await api("/api/model");
+ console.log("GA_RELOAD_LIVE_MODEL_AFTER_RELOAD",JSON.stringify({http:own.status,
+  orders:own.data.model?.orders?.length||0}));
+ assert.equal(own.status,200,"model ownership after reload");
  assert.equal(own.data.model?.orders?.length,12,"model orders must survive refresh");
  await page.waitForSelector("#opt",{timeout:30000});
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,null,{timeout:25000});
