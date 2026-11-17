@@ -1,0 +1,68 @@
+name: LiftOrbit inspect deployed progress handler via read-only SSH file copy
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-bun-progress-readonly-scp-audit-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Read current OVH index source via SSH copy
+        id: probe
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = '51.255.163.121'
+          test "$OVH_USER" = 'liftorbit-ci'
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          remote="$OVH_USER@$OVH_HOST"
+          source=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts
+          scp -q "${opts[@]}" "$remote:$source" "$RUNNER_TEMP/ovh-index.ts"
+          node - "$RUNNER_TEMP/ovh-index.ts" > "$RUNNER_TEMP/bun-progress-audit.txt" <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const s=fs.readFileSync(process.argv[2],'utf8');
+          console.log('source_sha256='+crypto.createHash('sha256').update(s).digest('hex'));
+          for(const m of ['async function progress(req){','async function plan(req){','data.best_preview=convertOne','data.result=','ppPythonGAUpstream.fetch(req,'])
+            console.log('anchor_'+m.replace(/[^a-z]/gi,'_').slice(0,28)+'='+s.split(m).length.toString());
+          const i=s.indexOf('async function progress(req){'),j=s.indexOf('async function plan(req){',i);
+          if(i<0||j<=i)throw Error('DEPLOYED_PROGRESS_OR_PLAN_NOT_FOUND');
+          console.log('progress_begin'); console.log(s.slice(i,Math.min(j,i+7200))); console.log('progress_end');
+          NODE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Store inspection result without source files
+        if: always()
+        shell: bash
+        env:
+          PROBE: ${{ steps.probe.outcome }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/bun-progress-source-scp-latest.txt
+          mkdir -p "$(dirname "$target")"
+          printf 'probe_outcome=%s\n' "$PROBE" > "$target"
+          if [[ -s "$RUNNER_TEMP/bun-progress-audit.txt" ]]; then
+            cat "$RUNNER_TEMP/bun-progress-audit.txt" >> "$target"
+          else
+            echo 'source_copy_or_parser_failed=true' >> "$target"
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record read-only current Bun progress handler audit'
+            git push origin HEAD:main
+          fi
