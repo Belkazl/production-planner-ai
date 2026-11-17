@@ -61,9 +61,9 @@ function ppRecoveredProgressLabel(data){
  remotePercent=Number.isFinite(pct)?Math.min(100,Math.max(0,Math.round(pct))):remotePercent;
  remotePhase=String(data?.phase||"running");
  const status=document.getElementById("valid");
- if(status)status.textContent="GA: оптимизация · "+remotePercent+"%";
+ if(status)status.textContent="GA: Идёт оптимизация · "+remotePercent+"%";
  const metadata=document.getElementById("meta");
- if(metadata)metadata.textContent="GA: оптимизация · "+remotePercent+"%";
+ if(metadata)metadata.textContent="GA: Идёт оптимизация · "+remotePercent+"%";
  btn.disabled=true;
  btn.textContent="Оптимизация "+remotePercent+"%";
  stop.disabled=false;
