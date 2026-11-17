@@ -79,7 +79,8 @@ function ppFinishRecoveredJob(data){
  if(candidate){candidate.disabled=false;candidate.removeAttribute("aria-disabled");candidate.title=""}
  window.__ppOptimizationInFlight=false;
  window.__ppStopUiLocked=false;
- const result=data?.success===true&&valid(data?.result)?data.result:null;
+ const terminalPlan=data?.result||data?.best_preview;
+ const result=data?.success===true&&valid(terminalPlan)?terminalPlan:null;
  if(result){
   restore(result);
   try{if(typeof hasResult!=="undefined")hasResult=true}catch(_){}
@@ -134,7 +135,7 @@ async function ppRecoverRunningGaFromAccount(){
    remotePhase=String(status.phase||"idle");
    // A result already completed during reload must be shown without
    // sending POST /api/plan. Do not write or change saved plans.
-   if(status.success===true&&valid(status.result)){
+   if(status.success===true&&valid(status.result||status.best_preview)){
     recoveredSession=true;
     ppFinishRecoveredJob(status);
    }else window.dispatchEvent(new Event("pp:optimizer-finished"));
