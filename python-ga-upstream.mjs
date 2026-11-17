@@ -308,7 +308,9 @@ export function createPythonGAUpstream({
       }
       state.state='stale';
       state.error='account_model_changed_since_run';
-      try{await save(principal,state)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
+      try{
+        await save(principal,state);
+      }catch{return response({ok:false,error:'ga_state_unavailable'},503)}
       console.warn('PP_GA_OWN_MODEL_VERSION_STALE_TERMINAL');
       return response({ok:true,running:false,success:false,done:0,total:100,percent:0,
         phase:'stale',best_preview:null,candidate_preview:null,result:null,
