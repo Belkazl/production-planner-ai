@@ -144,6 +144,46 @@ export function createPythonGAUpstream({
       optimization_run:Number.isInteger(runs)&&runs>=1&&runs<=1000000?runs:1,
       total_generations:Number.isInteger(trials)&&trials>=0&&trials<=100000000?trials:0};
   };
+  // Only worker-supplied, account-owned, fully valid previews can become
+  // server-verified checkpoints. The worker response is fetched through the
+  // private account-scoped API; client resume plans can NEVER call this path.
+  // This evidence is retained across progress polls / worker finalization.
+  const verifiedWorkerCheckpoint = (raw,model) => {
+    const plan=publicPlan(raw);
+    if(!plan||plan.valid!==true||plan.partial===true||
+       !Array.isArray(plan.operations)||!plan.operations.length||
+       !Number.isFinite(Number(plan.duration_minutes))||
+       Number(plan.duration_minutes)<0||!owned(plan,model))return null;
+    const ownOrders=new Set((model.orders||[]).map(x=>String(x.id)));
+    const ownEq=new Set((model.equipment||model.autoclaves||[]).map(x=>String(x.id)));
+    const ownEmp=new Set((model.employees||[]).map(x=>String(x.id)));
+    const ownMat=new Set((model.materials||[]).map(x=>String(x.id)));
+    if((plan.order_sequence||[]).some(x=>!ownOrders.has(String(x))))return null;
+    const rows=plan.generic_operations?.length?plan.generic_operations:plan.operations;
+    for(const row of rows){
+      if(!row||row.order==null||!ownOrders.has(String(row.order)))return null;
+      if((row.equipment_ids||[]).some(id=>!ownEq.has(String(id))))return null;
+      if((row.employee_ids||[]).some(id=>!ownEmp.has(String(id))))return null;
+      if((row.material_ids||[]).some(id=>!ownMat.has(String(id))))return null;
+    }
+    for(const batch of plan.batches||[]){
+      if(batch?.order!=null&&!ownOrders.has(String(batch.order)))return null;
+      if((batch?.equipment_ids||[]).some(id=>!ownEq.has(String(id))))return null;
+    }
+    const seed=normalizedContinuationSeed(plan,model,false);
+    if(!seed||!seed.order_sequence.length)return null;
+    // This is a verified ordering hint, not an untrusted client-provided
+    // Python runtime state. The worker will reconstruct a fresh schedule.
+    const saved={...plan,_pp_verified_checkpoint_v1:true,
+      resume_state:{version:0,order_sequence:seed.order_sequence}};
+    return saved;
+  };
+  const publicCheckpoint = plan => {
+    if(!plan)return null;
+    const copy={...plan};
+    delete copy._pp_verified_checkpoint_v1;
+    return copy;
+  };
   async function currentJob(principal){
     const local=jobs.get(principal);
     if(local||!stateStore)return local||null;
@@ -252,7 +292,10 @@ export function createPythonGAUpstream({
         const r=await call(principal,'/internal/jobs/'+state.id);
         if(r.status!==200)throw Error('ga_worker_status_unavailable');
         const data=r.body;
-        if(data.best_preview){const live=publicPlan(data.best_preview);if(owned(live,model))state.best=live;}
+        if(data.best_preview){
+          const checked=verifiedWorkerCheckpoint(data.best_preview,model);
+          if(checked)state.best=checked;
+        }
         if(data.candidate_preview){const liveCandidate=publicPlan(data.candidate_preview);if(owned(liveCandidate,model))state.candidate=liveCandidate;}
         state.state=data.status;state.progress=Math.max(0,Math.min(100,Number(data.progress)||0));
         if(stateStore&&data.status!=='completed')await save(principal,state);
@@ -321,7 +364,7 @@ export function createPythonGAUpstream({
       return response({ok:true,running:false,success:true,done:100,total:100,percent:100,phase:'completed',
         best_preview:state.result,candidate_preview:null,result:state.result,resume_state:state.resume_state||null,error:null});
     }
-    if(['cancelled','failed','timed_out','interrupted','invalid','stale'].includes(state.state))return response({ok:true,running:false,success:false,done:state.progress||0,total:100,percent:state.progress||0,phase:state.state,best_preview:state.best,candidate_preview:state.candidate||null,result:null,error:state.error||null});
+    if(['cancelled','failed','timed_out','interrupted','invalid','stale'].includes(state.state))return response({ok:true,running:false,success:false,done:state.progress||0,total:100,percent:state.progress||0,phase:state.state,best_preview:publicCheckpoint(state.best),candidate_preview:state.candidate||null,result:null,error:state.error||null});
     let status;
     try{const r=await call(principal,'/internal/jobs/'+state.id);
       if(r.status===404&&stateStore){state.state='interrupted';state.error='worker_restarted';await save(principal,state);return response({ok:false,error:'ga_worker_interrupted'},503)}
@@ -329,9 +372,9 @@ export function createPythonGAUpstream({
     catch{return response({ok:false,error:'ga_worker_unavailable'},503)}
     state.state=status.status;state.progress=Math.max(0,Math.min(100,Number(status.progress)||0));
     if(status.best_preview){
-      const live=publicPlan(status.best_preview);
-      if(owned(live,model))state.best=live;
-      else console.warn("PP_GA_UNOWNED_BEST_PREVIEW_DISCARDED");
+      const checked=verifiedWorkerCheckpoint(status.best_preview,model);
+      if(checked)state.best=checked;
+      else console.warn("PP_GA_UNOWNED_OR_INCOMPLETE_BEST_PREVIEW_DISCARDED");
     }
     if(status.candidate_preview){
       const liveCandidate=publicPlan(status.candidate_preview);
@@ -362,7 +405,7 @@ export function createPythonGAUpstream({
     try{await save(principal,state)}catch{return response({ok:false,error:'ga_state_unavailable'},503)}
     const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));
     return response({ok:true,running,success:status.status==='completed',done:pct,total:100,
-      percent:pct,phase:status.status,best_preview:state.best,candidate_preview:running?(state.candidate||null):null,
+      percent:pct,phase:status.status,best_preview:publicCheckpoint(state.best),candidate_preview:running?(state.candidate||null):null,
       result:status.status==='completed'?state.result:null,resume_state:status.status==='completed'?(state.resume_state||null):null,
       error:state.error||null});
   }
