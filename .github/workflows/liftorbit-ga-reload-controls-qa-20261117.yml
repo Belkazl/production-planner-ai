@@ -7,6 +7,7 @@ on:
       - restart-optimizer-ui.js
       - tests/ga-reload-rejoin-controls.test.mjs
       - tests/stop-confirmed-late-ga-race.test.mjs
+      - tests/optimizer-action-labels.cjs
       - .github/workflows/liftorbit-ga-reload-controls-qa-20261117.yml
   workflow_dispatch:
 permissions:
