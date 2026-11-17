@@ -32,7 +32,8 @@ jobs:
           remote="$OVH_USER@$OVH_HOST"
           source=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts
           ssh "${opts[@]}" "$remote" "for p in /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/index.ts /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs; do if test -e \"\$p\"; then stat -c '%n type=%F mode=%a owner=%U' \"\$p\"; else echo \"NOT_PRESENT \$p\"; fi; done; find /home/liftorbit-ci/liftorbit-migration/sources/ovh-app -maxdepth 3 -name index.ts -printf '%p mode=%m\\n' 2>/dev/null | head -n 15" > "$RUNNER_TEMP/bun-progress-audit.txt"
-          scp -q "${opts[@]}" "$remote:$source" "$RUNNER_TEMP/ovh-index.ts" 2> "$RUNNER_TEMP/scp-error.txt" || { echo 'SOURCE_SCP_FAILED' >> "$RUNNER_TEMP/bun-progress-audit.txt"; cat "$RUNNER_TEMP/scp-error.txt" | cut -c 1-180 >> "$RUNNER_TEMP/bun-progress-audit.txt"; exit 8; }
+          ssh "${opts[@]}" "$remote" "root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current; echo DIRECTORY_TARGET=\$(readlink -f \$root); find -L \$root -maxdepth 3 -type f \\( -name '*.mjs' -o -name '*.js' -o -name '*.ts' -o -name '*.html' -o -name 'Dockerfile' \\) -printf '%P size=%s\\n' | head -n 100; echo PROGRESS_MATCHES; grep -rl --include='*.js' --include='*.mjs' --include='*.ts' -F 'async function progress(req){' \$root 2>/dev/null | head -n 12 || true" >> "$RUNNER_TEMP/bun-progress-audit.txt"
+          if [[ ! -f "$RUNNER_TEMP/ovh-index.ts" ]]; then echo 'NO_INDEX_TS_COPIED' >> "$RUNNER_TEMP/bun-progress-audit.txt"; exit 0; fi
           node - "$RUNNER_TEMP/ovh-index.ts" >> "$RUNNER_TEMP/bun-progress-audit.txt" <<'NODE'
           const fs=require('fs'),crypto=require('crypto');
           const s=fs.readFileSync(process.argv[2],'utf8');
