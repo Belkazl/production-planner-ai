@@ -1,0 +1,27 @@
+name: LiftOrbit GA owned stale model vs foreign result regression
+on:
+  push:
+    branches: [fix/ga-account-model-stale-20261117]
+    paths:
+      - python-ga-upstream.mjs
+      - tests/python-ga-upstream.test.mjs
+      - .github/workflows/liftorbit-ga-account-model-stale-qa.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  account-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ga-account-model-stale-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check production Python-GA upstream syntax
+        run: node --check python-ga-upstream.mjs
+      - name: Verify changed equipment/setup rules, old final, same-account restart and foreign isolation
+        run: node --test tests/python-ga-upstream.test.mjs
