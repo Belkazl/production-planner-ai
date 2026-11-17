@@ -174,9 +174,23 @@ export function createPythonGAUpstream({
     if(!seed||!seed.order_sequence.length)return null;
     // This is a verified ordering hint, not an untrusted client-provided
     // Python runtime state. The worker will reconstruct a fresh schedule.
+    const nativeState=plan.resume_state&&typeof plan.resume_state==="object"&&!Array.isArray(plan.resume_state)
+      ?plan.resume_state:null;
     const saved={...plan,_pp_verified_checkpoint_v1:true,
-      resume_state:{version:0,order_sequence:seed.order_sequence}};
+      resume_state:nativeState||{version:0,order_sequence:seed.order_sequence}};
     return saved;
+  };
+  const rememberWorkerBest = (raw,model,state) => {
+    const checked=verifiedWorkerCheckpoint(raw,model);
+    if(checked){state.best=checked;return true}
+    // Backwards compatibility: show an incomplete-but-owned progress preview,
+    // but never promote it to a verified terminal fallback.
+    const ordinary=publicPlan(raw);
+    if(owned(ordinary,model)){
+      if(state.best?._pp_verified_checkpoint_v1!==true)state.best=ordinary;
+      return true;
+    }
+    return false;
   };
   const publicCheckpoint = plan => {
     if(!plan)return null;
@@ -292,10 +306,7 @@ export function createPythonGAUpstream({
         const r=await call(principal,'/internal/jobs/'+state.id);
         if(r.status!==200)throw Error('ga_worker_status_unavailable');
         const data=r.body;
-        if(data.best_preview){
-          const checked=verifiedWorkerCheckpoint(data.best_preview,model);
-          if(checked)state.best=checked;
-        }
+        if(data.best_preview)rememberWorkerBest(data.best_preview,model,state);
         if(data.candidate_preview){const liveCandidate=publicPlan(data.candidate_preview);if(owned(liveCandidate,model))state.candidate=liveCandidate;}
         state.state=data.status;state.progress=Math.max(0,Math.min(100,Number(data.progress)||0));
         if(stateStore&&data.status!=='completed')await save(principal,state);
@@ -372,9 +383,8 @@ export function createPythonGAUpstream({
     catch{return response({ok:false,error:'ga_worker_unavailable'},503)}
     state.state=status.status;state.progress=Math.max(0,Math.min(100,Number(status.progress)||0));
     if(status.best_preview){
-      const checked=verifiedWorkerCheckpoint(status.best_preview,model);
-      if(checked)state.best=checked;
-      else console.warn("PP_GA_UNOWNED_OR_INCOMPLETE_BEST_PREVIEW_DISCARDED");
+      if(!rememberWorkerBest(status.best_preview,model,state))
+        console.warn("PP_GA_UNOWNED_BEST_PREVIEW_DISCARDED");
     }
     if(status.candidate_preview){
       const liveCandidate=publicPlan(status.candidate_preview);
