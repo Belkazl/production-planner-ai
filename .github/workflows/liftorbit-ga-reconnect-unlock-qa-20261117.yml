@@ -1,0 +1,35 @@
+name: LiftOrbit unlock Start again after failed GA status reconnect
+on:
+  push:
+    branches: [fix/ga-reconnect-unlock-after-error-20261117]
+    paths:
+      - stop-ui.js
+      - restart-optimizer-ui.js
+      - tests/ga-reconnect-unlock-after-error.test.mjs
+      - .github/workflows/liftorbit-ga-reconnect-unlock-qa-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ga-reconnect-unlock-after-error-20261117
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated DOM runtime
+        run: npm install --no-save --no-package-lock jsdom@26
+      - name: Validate syntax, old UX contracts and failure/unlock/409 tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check stop-ui.js
+          node --check restart-optimizer-ui.js
+          node tests/early-stop-contract.cjs
+          node tests/optimizer-action-labels.cjs
+          node --test tests/ga-reconnect-unlock-after-error.test.mjs tests/ga-reload-rejoin-controls.test.mjs tests/stop-confirmed-late-ga-race.test.mjs
