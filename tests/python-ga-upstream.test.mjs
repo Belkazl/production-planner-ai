@@ -101,6 +101,64 @@ test('async start returns immediately and progress carries candidate then final 
  assert.equal(state.result.operations.length,12);
  assert.equal(state.candidate_preview,null);
 });
+test('completed same-account GA becomes stale after equipment or configuration update, never foreign-plan mismatch',async()=>{
+ const id='A2',oldModel=models.get(id);
+ const {bridge,jobs}=makeEnv({hold:true});
+ const req=request(id,'/api/plan','POST',{});
+ try{
+  const start=await bridge.fetch(req,{body:new TextEncoder().encode(JSON.stringify({__pp_async_start:true})).buffer});
+  assert.equal(start.status,202);
+  const job=[...jobs.values()][0];
+  job.status='completed';
+  let res=await bridge.fetch(request(id,'/api/plan-progress'),{});
+  let data=await res.json();
+  assert.equal(res.status,200);
+  assert.equal(data.success,true);
+  assert.equal(data.result.operations.length,12);
+  // All order IDs still belong to the account. A later equipment edit is
+  // nonetheless a different scheduling model and makes this plan obsolete.
+  models.set(id,{...structuredClone(oldModel),
+   equipment:[...oldModel.equipment,{id:'A2-NEW-DEVICE',name:'New device'}]});
+  res=await bridge.fetch(request(id,'/api/plan-progress'),{});
+  data=await res.json();
+  assert.equal(res.status,200);
+  assert.equal(data.ok,true);
+  assert.equal(data.running,false);
+  assert.equal(data.success,false);
+  assert.equal(data.phase,'stale');
+  assert.equal(data.error,'account_model_changed_since_run');
+  assert.equal(data.best_preview,null,'never show old final on edited model');
+  assert.equal(data.candidate_preview,null);
+  assert.equal(data.result,null,'old result cannot be treated as current');
+  assert.equal(data.resume_state,null);
+  const again=await bridge.fetch(req,{body:new TextEncoder().encode(JSON.stringify({__pp_async_start:true})).buffer});
+  assert.equal(again.status,202,'user must be able to start fresh on revised model');
+  assert.equal(jobs.size,2);
+  assert.equal([...jobs.values()][1].model.equipment.length,2);
+  assert.equal((await bridge.fetch(request('A0','/api/plan-progress'),{})).status,200);
+  console.log('GA_OWN_COMPLETED_MODEL_STALE_NOT_ACCOUNT_MISMATCH_PASS');
+ }finally{models.set(id,oldModel)}
+});
+test('stale model check also covers changed setup rules even with identical order/equipment IDs',async()=>{
+ const id='A3',prior=models.get(id);
+ const {bridge,jobs}=makeEnv({hold:true});
+ const req=request(id,'/api/plan','POST',{});
+ try{
+  const start=await bridge.fetch(req,{body:new TextEncoder().encode(JSON.stringify({__pp_async_start:true})).buffer});
+  assert.equal(start.status,202);
+  jobs.values().next().value.status='completed';
+  const done=await bridge.fetch(request(id,'/api/plan-progress'),{});
+  assert.equal((await done.json()).success,true);
+  models.set(id,{...structuredClone(prior),setup_rules:[{id:'S',duration_min:45}]});
+  const changed=await bridge.fetch(request(id,'/api/plan-progress'),{});
+  const result=await changed.json();
+  assert.equal(result.phase,'stale');
+  assert.equal(result.error,'account_model_changed_since_run');
+  assert.equal(result.best_preview,null);
+  assert.equal(changed.status,200);
+  console.log('GA_OWN_CHANGED_SETUP_RULE_STALE_PASS');
+ }finally{models.set(id,prior)}
+});
 test('worker cannot replace schedule with foreign orders',async()=>{
  const {bridge}=makeEnv({foreign:true});
  const res=await bridge.fetch(request('A0','/api/plan','POST',{}),{body:new TextEncoder().encode('{}').buffer});
