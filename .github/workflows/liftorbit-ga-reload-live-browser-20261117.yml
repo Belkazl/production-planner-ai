@@ -1,0 +1,40 @@
+name: LiftOrbit live Chromium GA reattach after page refresh
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-reload-live-browser-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-browser:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'test(liftorbit): verify real browser GA reattachment after OVH deployment')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Start real GA, reload browser, assert percent and Stop, cancel, reload again
+        shell: bash
+        run: node ops/ovh/ga-reload-live-browser-20261117.mjs
+      - name: Attach public synthetic browser proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ga-reloaded-running-chromium
+          path: ga-after-reload-running.png
+          retention-days: 3
+          if-no-files-found: ignore
