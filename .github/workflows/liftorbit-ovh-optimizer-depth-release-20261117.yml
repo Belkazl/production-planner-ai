@@ -45,13 +45,13 @@ jobs:
       - name: Checkout deployed Stop and restart UI source
         uses: actions/checkout@v4
         with:
-          ref: a55bf999d515958781867e67b6a5a9b02fd11e46
+          ref: 3b7f532bf061d5031dc9ec52bbe1d3afac15fb30
           path: deployed-ui
           persist-credentials: false
       - name: Checkout thoroughly tested optimization depth source
         uses: actions/checkout@v4
         with:
-          ref: 3b7f532bf061d5031dc9ec52bbe1d3afac15fb30
+          ref: a55bf999d515958781867e67b6a5a9b02fd11e46
           path: repaired
           persist-credentials: false
       - name: Checkout already released GA JSON compactor
