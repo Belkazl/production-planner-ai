@@ -1,0 +1,171 @@
+name: LiftOrbit guarded OVH Optimization depth presets release
+# Only restart-optimizer-ui.js changes; existing GA, database, Gantt, Stop and authentication retained.
+# Four depth modes alter solely next GA POST generations/population; no server worker changes.
+# Preset, Stop, resume, restart, bilingual and model-preserving tests: 44117515410 passed.
+# Strict prior-source hash, Docker build, account auth boundary and rollback required.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-optimizer-depth-release-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): add optimization depth choices to production')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout current deployed GA and current model-version guard
+        uses: actions/checkout@v4
+        with:
+          ref: e37784584b1bfe8f51b556f7bd37276e3914005f
+          path: deployed-ga
+          persist-credentials: false
+      - name: Checkout deployed Stop and restart UI source
+        uses: actions/checkout@v4
+        with:
+          ref: f3b252e0881e8744dcec94c486890ed285dd73ca
+          path: deployed-ui
+          persist-credentials: false
+      - name: Checkout thoroughly tested optimization depth source
+        uses: actions/checkout@v4
+        with:
+          ref: 3b7f532bf061d5031dc9ec52bbe1d3afac15fb30
+          path: repaired
+          persist-credentials: false
+      - name: Checkout already released GA JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
+          path: compact
+          persist-credentials: false
+      - name: Verify precisely one UI file changed with no GA or Stop modifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          for side in old new; do
+            cp deployed-ga/python-ga-upstream.mjs "$side/app/python-ga-upstream.mjs"
+            cp deployed-ga/tests/continuation-compat-contract.cjs "$side/app/tests/continuation-compat-contract.cjs"
+            cp deployed-ga/tests/python-ga-upstream.test.mjs "$side/app/tests/python-ga-upstream.test.mjs"
+            cp deployed-ui/stop-ui.js "$side/app/stop-ui.js"
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+            node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
+          done
+          cp deployed-ui/restart-optimizer-ui.js old/app/restart-optimizer-ui.js
+          cp repaired/restart-optimizer-ui.js new/app/restart-optimizer-ui.js
+          node --check old/app/restart-optimizer-ui.js
+          node --check new/app/restart-optimizer-ui.js
+          (cd new/app && node tests/early-stop-contract.cjs)
+          grep -q 'PP_OPTIMIZER_DEPTH__' new/app/restart-optimizer-ui.js
+          grep -q 'generations:360,population:64' new/app/restart-optimizer-ui.js
+          grep -q 'pp:optimizer-reconnect-pending' new/app/restart-optimizer-ui.js
+          grep -q 'e.ppReconnecting=true' new/app/restart-optimizer-ui.js
+          diff -qr old/app new/app > "$RUNNER_TEMP/depth-change-list" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/depth-change-list")" -eq 1
+          grep -Fqx 'Files old/app/restart-optimizer-ui.js and new/app/restart-optimizer-ui.js differ' "$RUNNER_TEMP/depth-change-list"
+          sha256sum old/app/restart-optimizer-ui.js | cut -d' ' -f1 > old.depth.sha
+          sha256sum new/app/restart-optimizer-ui.js | cut -d' ' -f1 > new.depth.sha
+          echo 'PP_DEPTH_EXACT_ONE_UI_FILE_CHANGED'
+          docker build --progress=plain -t liftorbit-optimizer-depth:preflight new/app > "$RUNNER_TEMP/depth-docker-build.log" 2>&1 || {
+            echo 'PP_DEPTH_DOCKER_BUILD_FAILED'
+            tail -n 42 "$RUNNER_TEMP/depth-docker-build.log" | cut -c 1-250
+            exit 22
+          }
+          echo 'PP_DEPTH_DOCKER_BUILD_PASSED'
+      - name: Apply guarded OVH app update with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldSha=$(cat old.depth.sha)
+          newSha=$(cat new.depth.sha)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/app/restart-optimizer-ui.js "$target:$root/sources/ovh-app/restart-optimizer-ui.js.depth.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          next="$root/sources/ovh-app/restart-optimizer-ui.js.depth.next"
+          backup="$root/patch-backups/optimization-depth-20261117"
+          expectedOld="$1"; expectedNew="$2"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -f "$app" && test -f "$next"
+          test "$(sha "$app")" = "$expectedOld" || { echo 'PP_DEPTH_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$expectedNew" || { echo 'PP_DEPTH_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'PP_DEPTH_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$app" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$expectedOld"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$app" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'PP_DEPTH_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$next" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'PP_DEPTH_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$app")" = "$expectedNew"
+          trap - ERR
+          echo 'PP_DEPTH_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'PP_DEPTH_PUBLIC_API_HEALTHY'
