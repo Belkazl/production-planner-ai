@@ -64,6 +64,8 @@ jobs:
           code,_=api("/api/db-storage","POST",{"storage":{
             "prodplan.projects.v2":json.dumps([{"id":project,"name":"Large isolated QA","model":model}]),
             "prodplan.project.active.v2":project}})
+          if code!=200:
+            print("OWN900_STORAGE_FAILED","http",code,"error",str(_.get("error") or _.get("message") or "")[:100],flush=True)
           assert code==200,"DIAG_TEST_MODEL_STORAGE_FAILED"
           code,m=api("/api/model")
           assert code==200 and len(m.get("model",{}).get("orders",[]))==12
