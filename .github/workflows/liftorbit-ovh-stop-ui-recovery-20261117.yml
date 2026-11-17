@@ -3,6 +3,7 @@ name: LiftOrbit OVH Stop button cancellation UI recovery 2026-11-17
 # Only stop-ui.js changes with strict SHA, Docker preflight and rollback.
 # Worker cancel live 44057183015 and Stop race 44059488526 passed.
 # Tested delayed GA error, cancelled worker HTTP409 and early Stop.
+# Strict stop source SHA and account-scoped API cancellation required.
 on:
   push:
     branches: [main]
