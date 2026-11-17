@@ -1,0 +1,187 @@
+name: LiftOrbit OVH unlock Start again after transient GA status errors
+# Release stuck reconnecting lock after three failed GA checks; server still prevents concurrent reset.
+# Exact two-file UI update with SHA guards, Docker preflight and rollback.
+# New test run 44081370286 passed 11 scenarios: failed status, safe HTTP409 reattach, Stop and reload.
+# Old source 004efa53 already deployed; new source f3b252e passed tests.
+# Only the client's running-session controls will change; GA worker and persistence remain intact.
+# Do not reset or start a second GA while an existing account job is running.
+# No changes to auth, saved plans, GA worker, Gantt or production data.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-ga-reconnect-unlock-release-20261117.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): unblock fresh optimizer after failed GA status probe')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout deployed reload controls from pinned source
+        uses: actions/checkout@v4
+        with:
+          ref: 004efa53f5ac620079bef769b79cc9da8f6b8a06
+          path: deployed-ui
+          persist-credentials: false
+      - name: Checkout fully tested unlock and guarded reattach patch
+        uses: actions/checkout@v4
+        with:
+          ref: f3b252e0881e8744dcec94c486890ed285dd73ca
+          path: repaired
+          persist-credentials: false
+      - name: Checkout already released GA JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
+          path: compact
+          persist-credentials: false
+      - name: Verify exact two UI files and pinned Docker build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp deployed-ui/stop-ui.js old/app/stop-ui.js
+          cp deployed-ui/restart-optimizer-ui.js old/app/restart-optimizer-ui.js
+          cp repaired/stop-ui.js new/app/stop-ui.js
+          cp repaired/restart-optimizer-ui.js new/app/restart-optimizer-ui.js
+          for side in old new; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-continuation.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+            node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
+          done
+          for src in stop-ui.js restart-optimizer-ui.js; do
+            node --check old/app/"$src"
+            node --check new/app/"$src"
+          done
+          (cd new/app && node tests/early-stop-contract.cjs)
+          grep -q 'PP_GA_RECONNECT_RETRY' new/app/stop-ui.js
+          grep -q 'ppAttachRecoveredJob' new/app/stop-ui.js
+          grep -q 'ppFinishRecoveredJob' new/app/stop-ui.js
+          grep -q 'reconnecting===true' new/app/restart-optimizer-ui.js
+          grep -q 'remotePhase="unavailable"' new/app/stop-ui.js
+          grep -q 'window.__PP_GA_RECHECK__' new/app/stop-ui.js
+          grep -q 'pp:optimizer-reconnect-pending' new/app/restart-optimizer-ui.js
+          grep -q 'e.ppReconnecting=true' new/app/restart-optimizer-ui.js
+          grep -q 'ppConfirmStoppedAfterAmbiguousResponse' new/app/stop-ui.js
+          diff -qr old/app new/app > "$RUNNER_TEMP/reconnect-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/reconnect-diff")" -eq 2
+          grep -Fqx 'Files old/app/stop-ui.js and new/app/stop-ui.js differ' "$RUNNER_TEMP/reconnect-diff"
+          grep -Fqx 'Files old/app/restart-optimizer-ui.js and new/app/restart-optimizer-ui.js differ' "$RUNNER_TEMP/reconnect-diff"
+          sha256sum old/app/stop-ui.js | cut -d' ' -f1 > old.stop.sha
+          sha256sum new/app/stop-ui.js | cut -d' ' -f1 > new.stop.sha
+          sha256sum old/app/restart-optimizer-ui.js | cut -d' ' -f1 > old.restart.sha
+          sha256sum new/app/restart-optimizer-ui.js | cut -d' ' -f1 > new.restart.sha
+          echo 'GA_RECONNECT_TWO_UI_FILES_PINNED'
+          docker build --quiet -t liftorbit-reconnect-release:preflight new/app > "$RUNNER_TEMP/reconnect-build.log" 2>&1 || {
+            echo 'GA_RECONNECT_DOCKER_BUILD_FAILED'
+            exit 22
+          }
+          echo 'GA_RECONNECT_DOCKER_BUILD_PASSED'
+      - name: Deploy exact two-file UI change to OVH with automatic rollback
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          root=/home/liftorbit-ci/liftorbit-migration
+          oldStop=$(cat old.stop.sha)
+          newStop=$(cat new.stop.sha)
+          oldRestart=$(cat old.restart.sha)
+          newRestart=$(cat new.restart.sha)
+          scp -q "${opts[@]}" new/app/stop-ui.js "$target:$root/sources/ovh-app/stop-ui.js.reconnect.next"
+          scp -q "${opts[@]}" new/app/restart-optimizer-ui.js "$target:$root/sources/ovh-app/restart-optimizer-ui.js.reconnect.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldStop" "$newStop" "$oldRestart" "$newRestart" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current"
+          stop="$app/stop-ui.js"
+          restart="$app/restart-optimizer-ui.js"
+          nextStop="$root/sources/ovh-app/stop-ui.js.reconnect.next"
+          nextRestart="$root/sources/ovh-app/restart-optimizer-ui.js.reconnect.next"
+          backup="$root/patch-backups/ga-reconnect-unlock-20261117"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          for file in "$stop" "$restart" "$nextStop" "$nextRestart"; do test -f "$file"; done
+          test "$(sha "$stop")" = "$1" || { echo 'GA_RECONNECT_STOP_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$restart")" = "$3" || { echo 'GA_RECONNECT_RESTART_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$nextStop")" = "$2" || { echo 'GA_RECONNECT_STOP_UPLOAD_HASH_MISMATCH'; exit 5; }
+          test "$(sha "$nextRestart")" = "$4" || { echo 'GA_RECONNECT_RESTART_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_RECONNECT_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$stop" "$backup/stop-ui.js"
+          cp -p "$restart" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/stop-ui.js")" = "$1"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$3"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/stop-ui.js" "$stop" || true
+            cp -p "$backup/restart-optimizer-ui.js" "$restart" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_RECONNECT_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$nextStop" "$stop"
+          mv "$nextRestart" "$restart"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_RECONNECT_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$stop")" = "$2"
+          test "$(sha "$restart")" = "$4"
+          trap - ERR
+          echo 'GA_RECONNECT_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'GA_RECONNECT_UNLOCK_PUBLIC_API_HEALTHY'
