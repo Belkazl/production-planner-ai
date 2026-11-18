@@ -45,6 +45,10 @@ jobs:
           if test -r tenant-model-runtime.js; then
             grep -n -C 9 -E "checkPlan[[:space:]]*[:=(]|account_plan_mismatch|validate.*plan|plan.*ownership" tenant-model-runtime.js | cut -c 1-250 | head -n 170 || true
           fi
+          echo "TENANT_MODEL_RUNTIME_SOURCE_FIRST_188_LINES"
+          if test -r tenant-model-runtime.js; then sed -n "1,188p" tenant-model-runtime.js | cut -c 1-220; fi
+          echo "PYTHON_GA_UPSTREAM_BUILD_FIRST_80_LINES"
+          if test -r python-ga-upstream-build.ts; then sed -n "1,80p" python-ga-upstream-build.ts | cut -c 1-220; fi
           echo "OTHER_CHECKPLAN_FILES"
           find . -maxdepth 2 -type f \( -name '*.mjs' -o -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0 | xargs -0 grep -l 'checkPlan' | head -n 16 || true
           REMOTE
