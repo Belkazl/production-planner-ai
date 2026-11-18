@@ -1,2 +1,2 @@
-workflow_run=44257310620
-browser_acceptance=failure
+workflow_run=44257595818
+browser_acceptance=success
