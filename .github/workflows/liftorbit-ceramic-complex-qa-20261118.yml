@@ -1,5 +1,5 @@
 name: LiftOrbit ceramic GA 12900 m2 7-stage 14-machine validation
-# Trace batch aliases and order sequences in the confirmed checkpoint.
+# Trace whether best schedule contains foreign nested previews before rejected final.
 on:
   push:
     branches: [main]
