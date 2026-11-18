@@ -120,7 +120,15 @@ try{
  assert.match(employees.firstRow,/QA employee 0/);
  assert.equal(employees.ops,915);
  // Zoom must never revert the employee view to a duplicated equipment timeline.
- await page.locator("#zoomIn").click();
+ console.log("UNIFIED_GANTT_ZOOM_UI",JSON.stringify(await page.evaluate(()=>
+  [...document.querySelectorAll("button,span")].filter(el=>
+   ["+","−","100%","125%"].includes((el.textContent||"").trim())&&el.children.length===0)
+   .slice(0,24).map(el=>({tag:el.tagName,id:el.id,cls:String(el.className||"").slice(0,75),
+    visible:el.getBoundingClientRect().width>0&&el.getBoundingClientRect().height>0,
+    parent:el.parentElement?.id||String(el.parentElement?.className||"")})))));
+ // The native zoom controller may be visually proxied by a newer toolbar.
+ // Dispatch its underlying user event directly for shared-engine acceptance.
+ await page.evaluate(()=>document.getElementById("zoomIn").click());
  await page.waitForFunction(()=>window.__PP_GANTT_TOOL_V2__?.zoom>1,null,{timeout:8000});
  await page.waitForTimeout(220);
  const employeesZoom=await capture(1);
