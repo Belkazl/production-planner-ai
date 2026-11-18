@@ -1,0 +1,32 @@
+name: LiftOrbit strict checkpoint recovery unit regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-reverify-checkpoint-unit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reproduce missing attestation failure, then verify fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/owner-qa/tests
+          cp ops/ovh/ga-complete-setup-final-20261117/python-ga-upstream.mjs /tmp/owner-qa/python-ga-upstream.mjs
+          cp ops/ovh/account-plan-mismatch-20261118/reverify.test.mjs /tmp/owner-qa/tests/reverify.test.mjs
+          if node --test /tmp/owner-qa/tests/reverify.test.mjs > /tmp/pre-fix.log 2>&1; then
+            echo 'UNPATCHED_SHOULD_FAIL'; exit 1
+          fi
+          grep -q '886 operation same-account best survives' /tmp/pre-fix.log
+          node ops/ovh/account-plan-mismatch-20261118/patch-reverify.mjs /tmp/owner-qa
+          node --check /tmp/owner-qa/python-ga-upstream.mjs
+          node --test /tmp/owner-qa/tests/reverify.test.mjs
