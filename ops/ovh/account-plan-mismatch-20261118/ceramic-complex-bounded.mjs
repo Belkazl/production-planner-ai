@@ -126,6 +126,7 @@ try{
  const epochs=Date.now();
  let lastProgress=null;
  for(let i=0;i<48;i++){
+  if(Date.now()-epochs>155000)throw Error("CERAMIC_QA_WALL_TIME_EXCEEDED");
   await page.waitForTimeout(2000);
   let pageState=null,progressState=null;
   try{
