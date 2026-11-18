@@ -1,0 +1,31 @@
+name: LiftOrbit inspect Quick depth release workflow status
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-quick-depth-runs-diagnostic-20261118.yml
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect last 8 release runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/quick-depth-release-runs-latest.txt
+          mkdir -p "$(dirname "$target")"
+          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-quick-depth-v2-release-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record quick optimization release runner states'
+            git push origin HEAD:main
+          fi
