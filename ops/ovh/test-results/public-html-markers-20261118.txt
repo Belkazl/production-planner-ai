@@ -1,0 +1,12 @@
+html_ppFreshFloor=false
+html_ppFreshObjectiveFloorHtml=false
+html_ppIncumbentDecision=false
+html_ganttScroll=false
+html_ppOptimizerStartOver=false
+html_ppOptGuard=false
+html_ppRealOptProgressV1=false
+html_ppLivePanelV2=false
+html_bytes=57558
+script_count=2
+header_HTTP/2_200
+header_content-type:_text/html;_charset=utf-8
