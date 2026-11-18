@@ -1,4 +1,5 @@
 name: LiftOrbit real six-order account ownership regression
+# Capture before/after server account model diff to diagnose stale errors.
 on:
   push:
     branches: [main]
