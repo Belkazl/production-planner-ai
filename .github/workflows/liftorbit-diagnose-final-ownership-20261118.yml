@@ -33,6 +33,14 @@ jobs:
           set -euo pipefail
           root="$HOME/liftorbit-migration/sources/ovh-app/current"
           cd "$root"
+          echo "OVH_DOCKER_READ_ACCESS:"
+          if docker ps --format '{{.Names}}' >/dev/null 2>&1; then
+            echo 'docker_read=yes'
+            echo "OVH_DOCKER_RECENT_GA_REASON_COUNTS:"
+            docker compose -f "$HOME/liftorbit-migration/full.compose.yml" logs --since=3h --tail=6000 --no-color 2>/dev/null | grep -E 'PP_GA_UNOWNED_|PP_ACCOUNT_PLAN_REJECTED|account_plan_mismatch|PP_GA_OWN_MODEL_VERSION_STALE_TERMINAL' | sed -E 's/.*(PP_GA_UNOWNED_[A-Z_]+|PP_ACCOUNT_PLAN_REJECTED|account_plan_mismatch|PP_GA_OWN_MODEL_VERSION_STALE_TERMINAL).*/\\1/' | sort | uniq -c | head -n 20 || true
+          else
+            echo 'docker_read=no'
+          fi
           echo "OVH_RELEASE_CURRENT_SOURCE:"
           for f in tenant-model-runtime.js python-ga-upstream.mjs restart-optimizer-ui.js index.ts; do
             if test -r "$f"; then printf '%s ' "$f"; sha256sum "$f" | cut -c1-64; fi
