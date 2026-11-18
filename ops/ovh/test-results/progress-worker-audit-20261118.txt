@@ -1,0 +1,237 @@
+ROOT=/home/liftorbit-ci/liftorbit-migration
+GA_SOURCE_FILE_PATHS:
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga-python-state-store.mjs
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/__init__.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/compile_legacy_ga.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/constraints.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/continuation.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/fixture.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/full_runtime_adapter.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_adapter.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_test_server.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/manager.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/recovered_adapter.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/server.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_full_runtime.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_legacy_adapter.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_process_isolation.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_real_recovered_ga.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/python-ga-upstream.mjs
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-gateway-smoke.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-live-qa.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-proxy-origin.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/diagnose-ceramic-resources.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/inspect-live-ga-html.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/optimizer-start-over-ui-anchors.py
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/python-ga-state.test.mjs
+sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/python-ga-upstream.test.mjs
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga-python-state-store.mjs
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/__init__.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/compile_legacy_ga.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/constraints.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/continuation.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/fixture.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/full_runtime_adapter.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/legacy_adapter.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/legacy_test_server.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/manager.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/recovered_adapter.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/ga_workers/server.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/tests/test_full_runtime.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/tests/test_legacy_adapter.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/tests/test_process_isolation.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga_python_workers/tests/test_real_recovered_ga.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/python-ga-upstream.mjs
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/auth-gateway-smoke.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/auth-live-qa.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/auth-proxy-origin.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/diagnose-ceramic-resources.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/inspect-live-ga-html.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/optimizer-start-over-ui-anchors.py
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/python-ga-state.test.mjs
+sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/python-ga-upstream.test.mjs
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga-python-state-store.mjs
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/__init__.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/compile_legacy_ga.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/constraints.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/continuation.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/fixture.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/full_runtime_adapter.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/legacy_adapter.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/legacy_test_server.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/manager.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/recovered_adapter.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/ga_workers/server.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/tests/test_full_runtime.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/tests/test_legacy_adapter.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/tests/test_process_isolation.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga_python_workers/tests/test_real_recovered_ga.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/python-ga-upstream.mjs
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/auth-gateway-smoke.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/auth-live-qa.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/auth-proxy-origin.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/diagnose-ceramic-resources.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/inspect-live-ga-html.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/optimizer-start-over-ui-anchors.py
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/python-ga-state.test.mjs
+sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/python-ga-upstream.test.mjs
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga-python-state-store.mjs
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/__init__.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/compile_legacy_ga.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/constraints.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/continuation.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/fixture.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/full_runtime_adapter.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/legacy_adapter.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/legacy_test_server.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/manager.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/recovered_adapter.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/ga_workers/server.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/tests/test_full_runtime.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/tests/test_legacy_adapter.py
+sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga_python_workers/tests/test_process_isolation.py
+GA_PROCESSES:
+LIFTORBIT_SERVICE postgres-main state=running health=healthy oom=false
+LIFTORBIT_SERVICE postgres-auth state=running health=healthy oom=false
+LIFTORBIT_SERVICE planner-gateway state=running health=healthy oom=false
+LIFTORBIT_SERVICE auth-gateway state=running health=healthy oom=false
+LIFTORBIT_SERVICE ga-worker state=running health=healthy oom=false
+LIFTORBIT_SERVICE app state=running health=healthy oom=false
+WORKER_SOURCE_MARKERS:
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-live-qa.py
+15: ("GET","/api/model"),("GET","/api/plan-progress"),
+26:for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-gateway-smoke.py
+16:for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop","/api/secret","/favicon.ico"]:
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/inspect-live-ga-html.py
+4:patterns=[r"/api/plan(?:-progress)?",r"generations",r"gen_count",r"ga_.*(?:iterations|generations)",r"population",r"max(?:imum)?_?(?:gens|generations)",r"batch_size",r"iterations",r"opt.onclick",r"\boptimize\(",r"async function.
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-proxy-origin.py
+12:qa=os.environ.get("PP_ORIGIN_TEST_ALLOWED","https://pp-progress-fix-qa-20261010-production.up.railway.app")
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_real_recovered_ga.py
+39:    output=run({'model':make_model('REAL',8),'options':{'generations':30,'population':20,'seed':42}},lambda _:None)
+61:        snap=manager.submit(name, {'model':make_model(name,8),'options':{'generations':25,'population':15,'seed':i}})
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_full_runtime.py
+27:  model=sample('QA',material=True,setup=True);out=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+37:  base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+41:  result=run({'model':model,'options':{'generations':12,'population':12,'seed':4,'locked_operations':[lock]}},lambda _:None)
+53:  first=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+56:  second=run({'model':model,'options':{'generations':12,'population':12,'seed':12,'continue':True,'resume_state':state}},lambda _:None)
+69:  base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+74:   run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+78:   run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+83:   first=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':5}})
+87:   second=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':9,'continue':True,'resume_state':incumbent}})
+106:   j=manager.submit('cancel-account',{'model':heavy,'options':{'generations':15000,'population':250,'seed':123}})
+128:    item=manager.submit(account,{'model':sample(account,material=(i%3==0),setup=(i%2==0)),'options':{'generations':18,'population':12,'seed':100+i}})
+150:      'options':{'generations':12,'population':12,'seed':101}})
+156:     self.assertTrue(snapshot['progress']==100)
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/full_runtime_adapter.py
+113:def run(payload,progress):
+130:    population=max(2,min(1000,int(opts.get('population',80))))
+150:        try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
+152:    progress({'percent':1,'phase':'starting','running':True})
+168:                progress(preview)
+184:    progress({'percent':100,'phase':'complete','running':False,'best_preview':result})
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/manager.py
+1:"""Per-account, bounded OS-process supervisor with cooperative progress and hard cancellation.
+49:        def progress(snapshot):
+52:                    conn.send({"type": "progress", "data": snapshot})
+56:        result = callback(payload, progress)
+79:    progress: int = 0
+187:        result = {"job_id": job.job_id, "status": job.state, "progress": job.progress,
+264:                        if msg.get("type") == "progress":
+266:                            job.progress = min(99, max(job.progress, int(data.get("percent", 0))))
+296:                        job.progress = 100
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/legacy_adapter.py
+57:def run(payload, progress):
+88:                    status=request(base,"/api/plan-progress",timeout=1)
+90:                        for k in ("candidate_preview","best_preview"):
+92:                        progress(status)
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/legacy_test_server.py
+11:  if self.path=="/api/plan-progress":return self.reply({"ok":True,"running":False})
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/recovered_adapter.py
+90:def run(payload, progress):
+113:    population = max(2, min(int(opts.get('population', 80)), 1000))
+117:    progress({'percent': 1, 'running': True, 'phase': 'initializing'})
+118:    result = engine['optimize'](gens, population, seed, False)
+123:    progress({'percent': 100, 'running': False, 'phase': 'complete', 'best_preview': result})
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/fixture.py
+6:def run(payload, progress):
+20:            progress({"percent": pct, "best_preview": {"operations": [{"order": x} for x in order_ids], "tenant_tag": tenant_tag}})
+FILE=sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/continuation.py
+4:A new OS worker reconstructs its own GA population from this incumbent order;
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-live-qa.py
+15: ("GET","/api/model"),("GET","/api/plan-progress"),
+26:for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-gateway-smoke.py
+16:for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop","/api/secret","/favicon.ico"]:
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/inspect-live-ga-html.py
+4:patterns=[r"/api/plan(?:-progress)?",r"generations",r"gen_count",r"ga_.*(?:iterations|generations)",r"population",r"max(?:imum)?_?(?:gens|generations)",r"batch_size",r"iterations",r"opt.onclick",r"\boptimize\(",r"async function.
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-proxy-origin.py
+12:qa=os.environ.get("PP_ORIGIN_TEST_ALLOWED","https://pp-progress-fix-qa-20261010-production.up.railway.app")
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_real_recovered_ga.py
+39:    output=run({'model':make_model('REAL',8),'options':{'generations':30,'population':20,'seed':42}},lambda _:None)
+61:        snap=manager.submit(name, {'model':make_model(name,8),'options':{'generations':25,'population':15,'seed':i}})
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_full_runtime.py
+27:  model=sample('QA',material=True,setup=True);out=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+37:  base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+41:  result=run({'model':model,'options':{'generations':12,'population':12,'seed':4,'locked_operations':[lock]}},lambda _:None)
+53:  first=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+56:  second=run({'model':model,'options':{'generations':12,'population':12,'seed':12,'continue':True,'resume_state':state}},lambda _:None)
+69:  base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+74:   run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+78:   run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+83:   first=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':5}})
+87:   second=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':9,'continue':True,'resume_state':incumbent}})
+106:   j=manager.submit('cancel-account',{'model':heavy,'options':{'generations':15000,'population':250,'seed':123}})
+128:    item=manager.submit(account,{'model':sample(account,material=(i%3==0),setup=(i%2==0)),'options':{'generations':18,'population':12,'seed':100+i}})
+150:      'options':{'generations':12,'population':12,'seed':101}})
+156:     self.assertTrue(snapshot['progress']==100)
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/full_runtime_adapter.py
+113:def run(payload,progress):
+130:    population=max(2,min(1000,int(opts.get('population',80))))
+150:        try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
+152:    progress({'percent':1,'phase':'starting','running':True})
+168:                progress(preview)
+184:    progress({'percent':100,'phase':'complete','running':False,'best_preview':result})
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/manager.py
+1:"""Per-account, bounded OS-process supervisor with cooperative progress and hard cancellation.
+49:        def progress(snapshot):
+52:                    conn.send({"type": "progress", "data": snapshot})
+56:        result = callback(payload, progress)
+79:    progress: int = 0
+187:        result = {"job_id": job.job_id, "status": job.state, "progress": job.progress,
+264:                        if msg.get("type") == "progress":
+266:                            job.progress = min(99, max(job.progress, int(data.get("percent", 0))))
+296:                        job.progress = 100
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_adapter.py
+57:def run(payload, progress):
+88:                    status=request(base,"/api/plan-progress",timeout=1)
+90:                        for k in ("candidate_preview","best_preview"):
+92:                        progress(status)
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_test_server.py
+11:  if self.path=="/api/plan-progress":return self.reply({"ok":True,"running":False})
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/recovered_adapter.py
+90:def run(payload, progress):
+113:    population = max(2, min(int(opts.get('population', 80)), 1000))
+117:    progress({'percent': 1, 'running': True, 'phase': 'initializing'})
+118:    result = engine['optimize'](gens, population, seed, False)
+123:    progress({'percent': 100, 'running': False, 'phase': 'complete', 'best_preview': result})
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/fixture.py
+6:def run(payload, progress):
+20:            progress({"percent": pct, "best_preview": {"operations": [{"order": x} for x in order_ids], "tenant_tag": tenant_tag}})
+FILE=sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/continuation.py
+4:A new OS worker reconstructs its own GA population from this incumbent order;
+FILE=sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-live-qa.py
+15: ("GET","/api/model"),("GET","/api/plan-progress"),
+26:for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
+FILE=sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-gateway-smoke.py
+16:for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop","/api/secret","/favicon.ico"]:
+FILE=sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/inspect-live-ga-html.py
+4:patterns=[r"/api/plan(?:-progress)?",r"generations",r"gen_count",r"ga_.*(?:iterations|generations)",r"population",r"max(?:imum)?_?(?:gens|generations)",r"batch_size",r"iterations",r"opt.onclick",r"\boptimize\(",r"async function.
+FILE=sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-proxy-origin.py
+12:qa=os.environ.get("PP_ORIGIN_TEST_ALLOWED","https://pp-progress-fix-qa-20261010-production.up.railway.app")
+FILE=sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_real_recovered_ga.py
+39:    output=run({'model':make_model('REAL',8),'options':{'generations':30,'population':20,'seed':42}},lambda _:None)
+61:        snap=manager.submit(name, {'model':make_model(name,8),'options':{'generations':25,'population':15,'seed':i}})
+LIVE_FRONTEND_PROGRESS_MARKERS:
