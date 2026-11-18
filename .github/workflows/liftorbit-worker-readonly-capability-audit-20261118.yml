@@ -1,0 +1,58 @@
+name: LiftOrbit read-only GA worker container inspection capability
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-worker-readonly-capability-audit-20261118.yml
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect non-sensitive runtime service names only
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$OVH_USER@$OVH_HOST" bash -s > "$RUNNER_TEMP/check.txt" <<'REMOTE'
+          set -euo pipefail
+          echo "USER_GROUPS=$(id -nG)"
+          echo "DOCKER_PATH=$(command -v docker || echo missing)"
+          echo "CURRENT_SOURCE=$(readlink "$HOME/liftorbit-migration/sources/ovh-app/current" || true)"
+          if sudo -n docker ps --format 'CONTAINER={{.Names}} STATUS={{.Status}}' >/tmp/liftorbit-readonly-worker-services.txt 2>/dev/null; then
+            grep -i -E 'ga|python|worker|liftorbit|planner' /tmp/liftorbit-readonly-worker-services.txt | head -n 15 || true
+            echo "SUDO_DOCKER_READONLY=yes"
+          else echo "SUDO_DOCKER_READONLY=no";fi
+          if docker ps --format 'CONTAINER={{.Names}} STATUS={{.Status}}' >/tmp/liftorbit-readonly-worker-no-sudo.txt 2>/dev/null; then
+            grep -i -E 'ga|python|worker|liftorbit|planner' /tmp/liftorbit-readonly-worker-no-sudo.txt | head -n 15 || true
+            echo "DOCKER_READONLY=yes"
+          else echo "DOCKER_READONLY=no";fi
+          REMOTE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Record only permissions and service names
+        if: always()
+        run: |
+          set -euo pipefail
+          dest=ops/ovh/test-results/worker-readonly-capability-20261118.txt
+          mkdir -p "$(dirname "$dest")"
+          if test -s "$RUNNER_TEMP/check.txt"; then cp "$RUNNER_TEMP/check.txt" "$dest";else echo 'audit_unavailable' > "$dest";fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dest"
+          if ! git diff --cached --quiet;then
+            git commit -m 'ci: record GA worker read-only inspection capability'
+            for i in 1 2 3;do git pull --rebase origin main;if git push origin HEAD:main;then exit 0;fi;sleep 2;done
+          fi
