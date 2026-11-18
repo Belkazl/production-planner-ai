@@ -1,0 +1,347 @@
+register_status 200
+html_status 200 bytes 308422
+SCRIPT pp-gantt-tool-v2-script start 132555 end 139421 length 6866
+SOURCE_START
+
+(function(){
+"use strict";
+if(window.__PP_GANTT_TOOL_V2__)return;
+var root=document.getElementById("ganttScroll"),legacy=document.getElementById("timeline");
+if(!root||!legacy||typeof renderPlan!=="function"){console.warn("PP_GANTT_V2_UNAVAILABLE");return}
+var stage=document.createElement("div");stage.id="ppGanttToolV2";stage.hidden=true;legacy.insertAdjacentElement("afterend",stage);
+var last=null,scale=1,version="equipment-gantt-component-v2-20261009";
+var palette=["#4d8ffa","#25aea3","#9272dd","#e6ab34","#e56e96","#16a9cf","#58a769","#8d9cc9"];
+function node(cls,txt){var e=document.createElement("div");if(cls)e.className=cls;if(txt!==undefined)e.textContent=String(txt);return e}
+function number(x,def){var n=Number(x);return Number.isFinite(n)?n:(def||0)}
+function sign(x){return String(x==null?"":x).trim()}
+function ids(v){return(Array.isArray(v)?v:[]).map(sign)}
+function chooseRows(p){var a=Array.isArray(p.operations)?p.operations:[],b=Array.isArray(p.generic_operations)?p.generic_operations:[];return a.some(function(o){return o&&o.is_setup===true})?a:(b.length?b:a)}
+function tint(key){var s=sign(key),n=0;for(var i=0;i<s.length;i++)n=(n*31+s.charCodeAt(i))>>>0;return palette[n%palette.length]}
+function clock(start,m){var d=new Date(start);if(isNaN(d.getTime()))return "+"+Math.floor(m/60)+" ч";d=new Date(d.getTime()+m*60000);return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+function draw(p){
+if(!p||typeof p!=="object")return;
+var equipment=(typeof model!=="undefined"&&model)?((model.equipment&&model.equipment.length)?model.equipment:(model.autoclaves||[])):[];
+var ops=chooseRows(p).filter(function(o){return o&&number(o.end_min)>number(o.start_min)});
+if(!equipment.length||!ops.length){stage.hidden=true;legacy.style.removeProperty("display");return}
+last=p;
+var duration=Math.max(number(p.duration_minutes),ops.reduce(function(a,o){return Math.max(a,number(o.end_min))},0));
+var maxMinutes=Math.max(1440,Math.ceil((duration+180)/240)*240);
+var px=0.62*scale,width=Math.round(px*maxMinutes);
+var frag=document.createDocumentFragment(),axis=node("pg2-axis"),axisName=node("pg2-name","Оборудование"),axisTrack=node("pg2-axis-track");
+axisTrack.style.width=width+"px";
+for(var t=0;t<=maxMinutes;t+=240){var tick=node("pg2-tick"),strong=node("",""+clock(p.start,t)),hint=node("","+"+Math.round(t/60)+" ч");tick.style.left=Math.round(px*t)+"px";strong.style.fontWeight="750";hint.style.color="#8291a7";hint.style.fontSize="10px";hint.style.display="block";tick.append(strong,hint);axisTrack.appendChild(tick)}
+axis.append(axisName,axisTrack);frag.appendChild(axis);
+var setupCount=0;
+equipment.forEach(function(eq,i){
+ var row=node("pg2-row"),name=node("pg2-name"),nr=node("pg2-number",i+1),info=node(""),title=node("pg2-title",eq.name||eq.id||("Оборудование "+(i+1))),sub=node("pg2-sub",eq.kind||eq.capacity_unit||((eq.capacity||"")?"Объём "+eq.capacity:""));
+ info.append(title,sub);name.append(nr,info);
+ var lane=node("pg2-lane");lane.style.width=width+"px";
+ for(var t=0;t<=maxMinutes;t+=240){var grid=node("pg2-grid"+(t%1440===0?" pg2-day":""));grid.style.left=Math.round(t*px)+"px";lane.appendChild(grid)}
+ var local=ops.filter(function(o){var ids1=ids(o.equipment_ids);if(!ids1.length&&Array.isArray(o.resources))ids1=o.resources.filter(function(r){return r&&r.resource_type==="equipment"}).map(function(r){return sign(r.id)});
+ return ids1.includes(sign(eq.id))||ids1.includes(sign(eq.name))});
+ local.forEach(function(o){
+  var start=number(o.start_min),end=number(o.end_min),isSetup=o.is_setup===true||/переналад/i.test(sign(o.operation_name||o.name)),bar=node("pg2-bar"+(isSetup?" pg2-setup":""));
+  if(isSetup)setupCount++;
+  bar.style.left=Math.round(px*start)+"px";bar.style.width=Math.max(2,Math.round(px*(end-start)))+"px";
+  if(!isSetup)bar.style.background=tint(o.order||o.operation_id||o.operation_name);
+  var opName=sign(o.operation_name||o.name||(isSetup?"Переналадка":"Операция"));
+  var label=isSetup?"Переналадка":(sign(o.order)?("З"+sign(o.order)):opName);
+  if(end-start>80/px)bar.textContent=label;else if(!isSetup&&end-start>30/px)bar.textContent=sign(o.order);
+  var desc=(isSetup?"Переналадка · ":"")+opName+" · "+(o.order?"Заказ "+o.order+" · ":"")+(o.batch?"Партия "+o.batch+" · ":"")+clock(p.start,start)+" — "+clock(p.start,end)+" · "+Math.round(end-start)+" мин";
+  bar.title=desc;bar.setAttribute("aria-label",desc);bar.tabIndex=0;bar.__ppOperation=o;bar.__ppPlan=p;bar.__ppResource=eq;bar.__ppResourceKind="equipment";bar.__ppKind=isSetup?"setup":"operation";
+  lane.appendChild(bar);
+ });row.append(name,lane);frag.appendChild(row)
+});
+if(Array.isArray(p.blocked_orders))p.blocked_orders.forEach(function(o){
+ var row=node("pg2-row"),name=node("pg2-name","Заказ "+sign(o.order)),lane=node("pg2-lane");lane.style.width=width+"px";
+ var b=node("pg2-bar pg2-blocked","Ожидание материала");b.style.left="8px";b.style.width="250px";b.title=JSON.stringify((o.materials||[]).map(function(m){return m.name||m.id}));b.__ppBlockedOrder=o;b.__ppPlan=p;b.__ppKind="blocked";lane.appendChild(b);row.append(name,lane);frag.appendChild(row)
+});
+var footer=node("pg2-footer"),legend=node("");legend.innerHTML='<span class="pg2-key"></span> Переналадка — отдельная операция';var status=node("",ops.length+" операций · "+setupCount+" переналадок · масштаб "+Math.round(scale*100)+"%");
+footer.append(legend,status);frag.appendChild(footer);
+stage.replaceChildren(frag);stage.hidden=false;legacy.style.setProperty("display","none","important");
+window.__PP_GANTT_TOOL_V2__={version:version,operations:ops.length,setups:setupCount,zoom:scale};
+}
+var originalRender=renderPlan;
+renderPlan=function(p){var result=originalRender.apply(this,arguments);try{draw(p)}catch(err){console.error("PP_GANTT_COMPONENT_DRAW",err);stage.hidden=true;legacy.style.removeProperty("display")}return result};
+if(typeof clearPlan==="function"){var originalClear=clearPlan;clearPlan=function(){last=null;stage.hidden=true;legacy.style.removeProperty("display");return originalClear.apply(this,arguments)}}
+function zoomTo(v){scale=Math.max(.5,Math.min(2.5,Math.round(v*100)/100));var label=document.getElementById("zoomLabel");if(label)label.textContent=Math.round(scale*100)+"%";if(last)draw(last)}
+[["zoomIn",.25],["zoomOut",-.25],["zoomLabel",0]].forEach(function(spec){var b=document.getElementById(spec[0]);if(!b)return;
+ b.addEventListener("click",function(ev){if(stage.hidden)return;ev.preventDefault();ev.stopImmediatePropagation();zoomTo(spec[1]===0?1:scale+spec[1])},true)});
+if(window.__ppTabPlan)try{draw(window.__ppTabPlan)}catch(e){console.warn("PP_GANTT_BOOT_RESTORE",e)}
+window.__PP_GANTT_TOOL_V2_INSTALLED__=true;
+console.log("PP_GANTT_TOOL_V2_READY",version);
+})();
+
+SOURCE_END
+.length){stage.hidden=true;legacy.style.removeProperty("display");return}
+last=p;
+var duration=Math.max(number(p.duration_minutes),ops.reduce(function(a,o){return Math.max(a,number(o.end_min))},0));
+var maxMinutes=Math.max(1440,Math.ceil((duration+180)/240)*240);
+var px=0.62*scale,width=Math.round(px*maxMinutes);
+var frag=document.createDocumentFragment(),axis=node("pg2-axis"),axisName=node("pg2-name","Оборудование"),axisTrack=node("pg2-axis-track");
+axisTrack.style.width=width+"px";
+for(var t=0;t<=maxMinutes;t+=240){var tick=node("pg2-tick"),strong=node("",""+clock(p.start,t)),hint=node("","+"+Math.round(t/60)+" ч");tick.style.left=Math.round(px*t)+"px";strong.style.fontWeight="750";hint.style.color="#8291a7";hint.style.fontSize="10px";hint.style.display="block";tick.append(strong,hint);axisTrack.appendChild(tick)}
+axis.append(axisName,axisTrack);frag.appendChild(axis);
+var setupCount=0;
+equipment.forEach(function(eq,i){
+ var row=node("pg2-row"),name=node("pg2-name"),nr=node("pg2-number",i+1),info=node(""),title=node("pg2-title",eq.name||eq.id||("Оборудование "+(i+1))),sub=node("pg2-sub",eq.kind||eq.capacity_unit||((eq.capacity||"")?"Объём "+eq.capacity:""));
+ info.append(title,sub);name.append(nr,info);
+ var lane=node("pg2-lane");lane.style.width=width+"px";
+ for(var t=0;t<=maxMinutes;t+=240){var grid=node("pg2-grid"+(t%1440===0?" pg2-day":""));grid.style.left=Math.round(t*px)+"px";lane.appendChild(grid)}
+ var local=ops.filter(function(o){var ids1=ids(o.equipment_ids);if(!ids1.length&&Array.isArray(o.resources))ids1=o.resources.filter(function(r){return r&&r.resource_type==="equipment"}).map(function(r){return sign(r.id)});
+ return ids1.includes(sign(eq.id))||ids1.includes(sign(eq.name))});
+ local.forEach(function(o){
+  var start=number(o.start_min),end=number(o.end_min),isSetup=o.is_setup===true||/переналад/i.test(sign(o.operation_name||o.name)),bar=node("pg2-bar"+(isSetup?" pg2-setup":""));
+  if(isSetup)setupCount++;
+  bar.style.left=Math.round(px*start)+"px";bar.style.width=Math.max(2,Math.round(px*(end-start)))+"px";
+  if(!isSetup)bar.style.background=tint(o.order||o.operation_id||o.operation_name);
+  var opName=sign(o.operation_name||o.name||(isSetup?"Переналадка":"Операция"));
+  var label=isSetup?"Переналадка":(sign(o.order)?("З"+sign(o.order)):opName);
+  if(end-start>80/px)bar.textContent=label;else if(!isSetup&&end-start>30/px)bar.textContent=sign(o.order);
+  var desc=(isSetup?"Переналадка · ":"")+opName+" · "+(o.order?"Заказ "+o.order+" · ":"")+(o.batch?"Партия "+o.batch+" · ":"")+clock(p.start,start)+" — "+clock(p.start,end)+" · "+Math.round(end-start)+" мин";
+  bar.title=desc;bar.setAttribute("aria-label",desc);bar.tabIndex=0;bar.__ppOperation=o;bar.__ppPlan=p;bar.__ppResource=eq;bar.__ppResourceKind="equipment";bar.__ppKind=isSetup?"setup":"operation";
+  lane.appendChild(bar);
+ });row.append(name,lane);frag.appendChild(row)
+});
+if(Array.isArray(p.blocked_orders))p.blocked_orders.forEach(function(o){
+ var row=node("pg2-row"),name=node("pg2-name","Заказ "+sign(o.order)),lane=node("pg2-lane");lane.style.width=width+"px";
+ var b=node("pg2-bar pg2-blocked","Ожидание материала");b.style.left="8px";b.style.width="250px";b.title=JSON.stringify((o.materials||[]).map(function(m){return m.name||m.id}));b.__ppBlockedOrder=o;b.__ppPlan=p;b.__ppKind="blocked";lane.appendChild(b);row.append(name,lane);frag.appendChild(row)
+});
+var footer=node("pg2-footer"),legend=node("");legend.innerHTML='<span class="pg2-key"></span> Переналадка — отдельная операция';var status=node("",ops.length+" операций · "+setupCount+" переналадок · масштаб "+Math.round(scale*100)+"%");
+footer.append(legend,status);frag.appendChild(footer);
+stage.replaceChildren(frag);stage.hidden=false;legacy.style.setProperty("display","none","important");
+window.__PP_GANTT_TOOL_V2__={version:version,operations:ops.length,setups:setupCount,zoom:scale};
+}
+var originalRender=renderPlan;
+renderPlan=function(p){var result=originalRender.apply(this,arguments);try{draw(p)}catch(err){console.error("PP_GANTT_COMPONENT_DRAW",err);stage.hidden=true;legacy.style.removeProperty("display")}return result};
+if(typeof clearPlan==="function"){var originalClear=clearPlan;clearPlan=function(){last=null;stage.hidden=true;legacy.style.removeProperty("display");return originalClear.apply(this,arguments)}}
+function zoomTo(v){scale=Math.max(.5,Math.min(2.5,Math.round(v*100)/100));var label=document.getElementById("zoomLabel");if(label)label.textContent=Math.round(scale*100)+"%";if(last)draw(last)}
+[["zoomIn",.25],["zoomOut",-.25],["zoomLabel",0]].forEach(function(spec){var b=document.getElementById(spec[0]);if(!b)return;
+ b.addEventListener("click",function(ev){if(stage.hidden)return;ev.preventDefault();ev.stopImmediatePropagation();zoomTo(spec[1]===0?1:scale+spec[1])},true)});
+if(window.__ppTabPlan)try{draw(window.__ppTabPlan)}catch(e){console.warn("PP_GANTT_BOOT_RESTORE",e)}
+window.__PP_GANTT_TOOL_V2_INSTALLED__=true;
+console.log("PP_GANTT_TOOL_V2_READY",version);
+})();
+
+SCRIPT pp3-secondary-gantts-js start 144134 end 157951 length 13817
+SOURCE_START
+
+(function(){
+"use strict";
+if(window.__PP_SECONDARY_GANTTS_V3__)return;
+var view=document.getElementById("ppTabsView"),tabs=document.querySelector(".tabs");
+if(!view||!tabs||typeof model==="undefined"){console.warn("PP_SECONDARY_GANTTS_NO_TARGET");return}
+var VER="secondary-gantts-v3.1-employee-fix-20261009",z={1:1,2:1,3:1},mounting=false,scheduled=false;
+var colors=["#4d8ffa","#25aea3","#9272dd","#e6ab34","#e56e96","#16a9cf","#58a769","#8d9cc9"];
+var make=(tag,cls,txt)=>{var n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=String(txt);return n};
+function str(x){return String(x==null?"":x).trim()}
+function num(x,d){var v=Number(x);return Number.isFinite(v)?v:(d||0)}
+function normId(x){return str(x).replace(/^__ppb__(.+?)__\d+$/,"$1")}
+function orderId(o){var v=normId(o.order??o.order_id??"");if(!v&&o.batch_id)v=str(o.batch_id).split(".")[0];return v}
+function hash(k){var n=0,s=str(k);for(var i=0;i<s.length;i++)n=(n*31+s.charCodeAt(i))>>>0;return colors[n%colors.length]}
+function opsOf(p){var a=Array.isArray(p.operations)?p.operations:[],b=Array.isArray(p.generic_operations)?p.generic_operations:[];return (a.some(x=>x&&x.is_setup===true)?a:(b.length?b:a)).filter(x=>x&&num(x.end_min)>num(x.start_min))}
+function assigned(o,kind){var idField=kind==="employee"?"employee_ids":"equipment_ids",array=Array.isArray(o[idField])?o[idField]:[];if(!array.length&&kind==="employee"&&o.employee_id!=null)array=[o.employee_id];if(!array.length&&Array.isArray(o.resources))array=o.resources.filter(r=>r&&r.resource_type===kind).map(r=>r.id);return array.map(str)}
+function isSetup(o){return o.is_setup===true||/переналад/i.test(str(o.operation_name||o.name))}
+function dateClock(p,m){var d=new Date(p.start);if(isNaN(d.getTime()))return "Д"+(Math.floor(m/1440)+1)+" "+String(Math.floor(m%1440/60)).padStart(2,"0")+":"+String(Math.floor(m%60)).padStart(2,"0");d=new Date(d.getTime()+m*60000);return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+function getActive(){var t=[...tabs.querySelectorAll(":scope>div")];return t.findIndex(x=>x.classList.contains("a"))}
+function getPlan(){if(window.__ppTabPlan&&typeof window.__ppTabPlan==="object")return window.__ppTabPlan;if(window.__ppManualPlan&&typeof window.__ppManualPlan==="object")return window.__ppManualPlan;try{var aid=localStorage.getItem("prodplan.project.active.v2"),list=JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]");var q=list.find(x=>x.id===aid);if(q&&q.lastPlan)return q.lastPlan}catch(e){}return null}
+function startRelative(p,at){var epoch=Date.parse(at||"");var zero=Date.parse(p.start||"");return Number.isFinite(epoch)&&Number.isFinite(zero)?(epoch-zero)/60000:NaN}
+function row(label,sub,events){return{label:label,sub:sub,events:events||[]}}
+function employeeRows(m,p,ops){return (m.employees||[]).map(function(e){var ee=ops.filter(o=>assigned(o,"employee").includes(str(e.id))||assigned(o,"employee").includes(str(e.name)));return row(str(e.name||e.id||"Сотрудник"),[str(e.role||"Оператор"),str(e.shift||"")].filter(Boolean).join(" · "),ee.map(x=>({start:num(x.start_min),end:num(x.end_min),op:x})))})}
+function orderRows(m,p,ops){
+var result=[],orders=m.orders||[];
+orders.forEach(function(o){
+ var id=str(o.id),local=ops.filter(x=>orderId(x)===id),map=new Map();
+ local.forEach(function(op){var key=str(op.batch_id||(id+"."+(op.batch??op.batch_index??1)));if(!map.has(key))map.set(key,[]);map.get(key).push(op)});
+ if(!map.size){result.push(row("Заказ "+id,str(o.quantity||o.area||"")+" "+str(o.unit||m.quantity_unit||""),[]));return}
+ [...map.entries()].sort((a,b)=>{var x=num(a[1][0]?.start_min),y=num(b[1][0]?.start_min);return x-y}).forEach(function(pair){
+ var label=pair[0].startsWith(id+".")?"Заказ "+pair[0]:"Заказ "+id+" · "+pair[0],first=pair[1][0],sub="Партия "+str(first.batch||1),amount=first.batch_quantity||first.quantity||null;
+ if(amount)sub+=" · "+amount+" "+str(o.unit||m.quantity_unit||"");
+ result.push(row(label,sub,pair[1].map(x=>({start:num(x.start_min),end:num(x.end_min),op:x}))));
+ });
+});
+return result
+}
+function materialsOf(m){
+var items=Array.isArray(m.materials)&&m.materials.length?m.materials:(m.material?[m.material]:[]);
+return items.filter(Boolean)
+}
+function materialRows(m,p,ops){
+var materials=materialsOf(m),orders=m.orders||[],batches=Array.isArray(p.batches)?p.batches:[];
+return materials.map(function(mat){
+ var id=str(mat.id||mat.name||"Материал"),unit=str(mat.unit||"кг"),initial=(mat.initial_stock??mat.initial_stock_kg),events=[];
+ var deliveries=Array.isArray(mat.deliveries)?mat.deliveries:((mat.delivery_at||mat.delivery_kg)?[{at:mat.delivery_at,quantity:mat.delivery_kg}]:[]);
+ deliveries.forEach(function(d){var at=startRelative(p,d.at||d.delivery_at);if(!Number.isFinite(at)||at<0)return;events.push({start:at,end:at,kind:"delivery",caption:"Поставка",desc:"Поставка · "+str(mat.name||id)+" · "+(d.quantity??d.delivery_kg??"—")+" "+unit+" · "+dateClock(p,at)})});
+ ops.forEach(function(o){var resources=Array.isArray(o.resources)?o.resources:[];resources.filter(r=>r&&r.resource_type==="material"&&(str(r.id)===id||str(r.name)===str(mat.name))).forEach(function(r){events.push({start:num(o.start_min),end:num(o.start_min),kind:"consumption",caption:"Расход",desc:"Расход · "+str(mat.name||id)+(r.quantity!=null?" · "+r.quantity+" "+unit:"")+" · Заказ "+orderId(o)+" · "+dateClock(p,num(o.start_min))})})});
+ if(!events.some(e=>e.kind==="consumption")){batches.forEach(function(b){
+ var oid=str(b.order??b.order_id),ord=orders.find(o=>str(o.id)===oid);
+ var mapped=(ord&&str(ord.material_id)===id)||(Array.isArray(mat.order_ids)&&mat.order_ids.map(str).includes(oid));
+ if(!mapped)return;
+ var st=num(b.start_min),qty=(b.material_kg??null),v=qty!=null?qty:((b.quantity??b.area)!=null&&mat.consumption_per_unit!=null?num(b.quantity??b.area)*num(mat.consumption_per_unit):null);
+ events.push({start:st,end:st,kind:"consumption",caption:"Расход",desc:"Расход · "+str(mat.name||id)+(v!=null?" · "+Math.round(v*100)/100+" "+unit:"")+" · Заказ "+oid+" · "+dateClock(p,st)})
+ }) }
+ var s=initial!=null?"Остаток: "+initial+" "+unit:"Ед.: "+unit;
+ return row(str(mat.name||id),s,events.sort((a,b)=>a.start-b.start))
+})
+}
+function chart(mode,m,p){
+var ops=opsOf(p),rows=mode===1?employeeRows(m,p,ops):(mode===3?orderRows(m,p,ops):materialRows(m,p,ops));
+var title=mode===1?"Гант сотрудников":mode===2?"Гант материалов":"Гант заказов",scale=z[mode],max=Math.max(num(p.duration_minutes),...ops.map(x=>num(x.end_min)),1440);
+var range=Math.max(1440,Math.ceil((max+180)/240)*240),px=.62*scale,width=Math.max(790,Math.ceil(range*px));
+var outer=make("div","pp3-card");outer.dataset.pp3Gantt=String(mode);
+var head=make("div","pp3-head"),left=make("div",""),heading=make("h3","",title),stats=make("span","pp3-summary",rows.length+" строк · "+(mode===2?"поставки и расход":ops.length+" операций"));
+left.append(heading,stats);
+var zoom=make("div","pp3-zoom"),minus=make("button","","−"),value=make("span","",Math.round(scale*100)+"%"),plus=make("button","","+");
+minus.type="button";plus.type="button";minus.setAttribute("aria-label","Уменьшить масштаб");plus.setAttribute("aria-label","Увеличить масштаб");
+zoom.append(minus,value,plus);head.append(left,zoom);outer.appendChild(head);
+var scroll=make("div","pp3-scroll"),canvas=make("div","pp3-canvas");
+if(!rows.length){scroll.appendChild(make("div","pp3-empty",mode===2?"Для этого производства материалы не заданы. Добавьте материалы в разделе производства.":"Для этого раздела ещё нет данных."));outer.appendChild(scroll);minus.disabled=true;plus.disabled=true;minus.title="Нет операций для масштабирования";plus.title="Нет операций для масштабирования";window.__PP_SECONDARY_GANTTS_V3__.last={mode:mode,rows:0,ops:0,setups:0,materials:materialsOf(m).length,deliveries:0,consumptions:0,scale:z[mode]};return outer}
+var axis=make("div","pp3-axis"),axlabel=make("div","pp3-label","Ресурс / время"),track=make("div","pp3-axis-track");track.style.width=width+"px";
+for(var t=0;t<=range;t+=240){var tick=make("div","pp3-tick"),a=make("b","",dateClock(p,t)),b=make("small","",("+"+Math.round(t/60)+" ч"));tick.style.left=Math.round(t*px)+"px";tick.append(a,b);track.appendChild(tick)}
+axis.append(axlabel,track);canvas.appendChild(axis);
+var opCount=0,setupCount=0,deliveries=0,consumptions=0;
+rows.forEach(function(r,i){var line=make("div","pp3-row"),label=make("div","pp3-label"),number=make("span","pp3-num",i+1),info=make("span","pp3-label-info"),main=make("b","",r.label),sub=make("small","",r.sub);info.append(main,sub);label.append(number,info);
+var lane=make("div","pp3-lane");lane.style.width=width+"px";
+for(var t=0;t<=range;t+=240){var grid=make("div","pp3-grid"+(t%1440===0?" pp3-day":""));grid.style.left=Math.round(t*px)+"px";lane.appendChild(grid)}
+r.events.forEach(function(e){
+var st=num(e.start),en=num(e.end),material=e.kind==="delivery"||e.kind==="consumption",setup=!material&&isSetup(e.op||{});
+var bar=make("div","pp3-bar"+(setup?" pp3-setup":"")+(material?" pp3-"+e.kind:""));
+bar.style.left=Math.round(st*px)+"px";bar.style.width=(material?Math.max(9,Math.round(12*scale)):Math.max(3,Math.round(Math.max(0,en-st)*px)))+"px";
+if(material){if(e.kind==="delivery")deliveries++;else consumptions++}
+else{opCount++;if(setup)setupCount++;bar.style.background=hash(orderId(e.op)||e.op.operation_id||e.op.operation_name);
+if((en-st)*px>64)bar.textContent=setup?"Переналадка":"З"+orderId(e.op)}
+bar.title=material?e.desc:[str(e.op.operation_name||e.op.name||(setup?"Переналадка":"Операция")),orderId(e.op)?"Заказ "+orderId(e.op):"",e.op.batch?"Партия "+e.op.batch:"",dateClock(p,st)+" — "+dateClock(p,en),Math.round(en-st)+" мин"].filter(Boolean).join(" · ");
+bar.setAttribute("aria-label",bar.title);bar.tabIndex=0;bar.__ppOperation=e.op||null;bar.__ppPlan=p;bar.__ppResource={name:r.label,id:r.label};bar.__ppResourceKind=mode===1?"employee":mode===3?"order":"material";bar.__ppKind=material?e.kind:(setup?"setup":"operation");bar.__ppMaterialEvent=material?e:null;lane.appendChild(bar)
+});line.append(label,lane);canvas.appendChild(line)
+});
+scroll.appendChild(canvas);outer.appendChild(scroll);
+var footer=make("div","pp3-footer");
+if(mode===2){var legend=make("span","");legend.innerHTML='<span class="pp3-dot" style="background:#299d71"></span> Поставка　<span class="pp3-dot" style="background:#d3a044"></span> Расход';footer.append(legend,make("span","",deliveries+" поставок · "+consumptions+" событий расхода"))}
+else{var legend=make("span","");legend.innerHTML='<span class="pp3-dot"></span> Переналадка — отдельная операция';footer.append(legend,make("span","",opCount+" операций · "+setupCount+" переналадок"))}
+footer.appendChild(make("span","",Math.round(scale*100)+"%"));outer.appendChild(footer);
+function zoomTo(n){z[mode]=Math.min(2.5,Math.max(.5,Math.round(n*100)/100));var pos=scroll.scrollLeft;var next=chart(mode,m,p);outer.replaceWith(next);var nextScroll=next.querySelector(".pp3-scroll");if(nextScroll)nextScroll.scrollLeft=pos}
+minus.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();zoomTo(z[mode]-.25)});
+plus.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();zoomTo(z[mode]+.25)});
+window.__PP_SECONDARY_GANTTS_V3__.last={mode:mode,rows:rows.length,ops:opCount,setups:setupCount,materials:materialsOf(m).length,deliveries:deliveries,consumptions:consumptions,scale:z[mode]};
+return outer
+}
+function upgrade(){
+if(mounting)return;
+var mode=getActive();if(mode!==1&&mode!==2&&mode!==3)return;
+var p=getPlan(),m=model;if(!p||!m)return;
+var existing=view.querySelector("[data-pp3-gantt]");
+if(existing&&Number(existing.dataset.pp3Gantt)===mode)return;
+var old=view.querySelector(".ppt.ppTabGantt");
+if(mode!==2&&!old&&!existing)return;
+mounting=true;attempts++;lastMode=mode;
+try{
+var panel=chart(mode,m,p);
+if(mode===2&&view.querySelector(".ppcards")){if(existing)existing.replaceWith(panel);else view.insertBefore(panel,view.firstChild)}
+else{view.replaceChildren(panel)}
+lastFailure="";
+}catch(e){lastFailure=String(e&&e.stack||e);console.error("PP_SECONDARY_GANTT_FAILED",e)}
+finally{mounting=false}
+}
+var attempts=0,lastFailure="",lastMode=-1;
+function requestUpgrade(){
+ if(scheduled)return;
+ scheduled=true;
+ queueMicrotask(function(){scheduled=false;upgrade()})
+}
+var observer=new MutationObserver(function(){if(mounting)return;requestUpgrade()});
+observer.observe(view,{childList:true});
+observer.observe(tabs,{subtree:true,attributes:true,attributeFilter:["class"]});
+function delayedUpgrade(){
+ requestUpgrade();
+ setTimeout(upgrade,0);
+ setTimeout(upgrade,90);
+ setTimeout(upgrade,300);
+}
+tabs.addEventListener("click",delayedUpgrade,true);
+tabs.addEventListener("pointerup",delayedUpgrade,true);
+window.addEventListener("popstate",delayedUpgrade);
+setInterval(function(){
+ var mode=getActive(), old=!!view.querySelector(".ppt.ppTabGantt"),current=view.querySelector("[data-pp3-gantt]");
+ if((mode===1||mode===2||mode===3)&&((old&&!current)||(mode===2&&!current))){upgrade()}
+},900);
+window.__PP_SECONDARY_GANTTS_V3__={version:VER,installed:true,last:null,update:upgrade,renderMode:function(mode,plan){return chart(mode,model,plan)},diagnose:function(){return{tab:getActive(),oldEmployee:!!view.querySelector(".ppt.ppTabGantt"),newGantt:!!view.querySelector("[data-pp3-gantt]"),newGanttMode:view.querySelector("[data-pp3-gantt]")?.dataset.pp3Gantt,attempts:attempts,lastFailure:lastFailure}}};
+var prevRefresh=window.__ppTabsRefresh;
+if(typeof prevRefresh==="function")window.__ppTabsRefresh=function(){var res=prevRefresh.apply(this,arguments);delayedUpgrade();return res};
+upgrade();
+console.log("PP_SECONDARY_GANTTS_V3_READY",VER);
+})();
+
+SOURCE_END
+ grid=make("div","pp3-grid"+(t%1440===0?" pp3-day":""));grid.style.left=Math.round(t*px)+"px";lane.appendChild(grid)}
+r.events.forEach(function(e){
+var st=num(e.start),en=num(e.end),material=e.kind==="delivery"||e.kind==="consumption",setup=!material&&isSetup(e.op||{});
+var bar=make("div","pp3-bar"+(setup?" pp3-setup":"")+(material?" pp3-"+e.kind:""));
+bar.style.left=Math.round(st*px)+"px";bar.style.width=(material?Math.max(9,Math.round(12*scale)):Math.max(3,Math.round(Math.max(0,en-st)*px)))+"px";
+if(material){if(e.kind==="delivery")deliveries++;else consumptions++}
+else{opCount++;if(setup)setupCount++;bar.style.background=hash(orderId(e.op)||e.op.operation_id||e.op.operation_name);
+if((en-st)*px>64)bar.textContent=setup?"Переналадка":"З"+orderId(e.op)}
+bar.title=material?e.desc:[str(e.op.operation_name||e.op.name||(setup?"Переналадка":"Операция")),orderId(e.op)?"Заказ "+orderId(e.op):"",e.op.batch?"Партия "+e.op.batch:"",dateClock(p,st)+" — "+dateClock(p,en),Math.round(en-st)+" мин"].filter(Boolean).join(" · ");
+bar.setAttribute("aria-label",bar.title);bar.tabIndex=0;bar.__ppOperation=e.op||null;bar.__ppPlan=p;bar.__ppResource={name:r.label,id:r.label};bar.__ppResourceKind=mode===1?"employee":mode===3?"order":"material";bar.__ppKind=material?e.kind:(setup?"setup":"operation");bar.__ppMaterialEvent=material?e:null;lane.appendChild(bar)
+});line.append(label,lane);canvas.appendChild(line)
+});
+scroll.appendChild(canvas);outer.appendChild(scroll);
+var footer=make("div","pp3-footer");
+if(mode===2){var legend=make("span","");legend.innerHTML='<span class="pp3-dot" style="background:#299d71"></span> Поставка　<span class="pp3-dot" style="background:#d3a044"></span> Расход';footer.append(legend,make("span","",deliveries+" поставок · "+consumptions+" событий расхода"))}
+else{var legend=make("span","");legend.innerHTML='<span class="pp3-dot"></span> Переналадка — отдельная операция';footer.append(legend,make("span","",opCount+" операций · "+setupCount+" переналадок"))}
+footer.appendChild(make("span","",Math.round(scale*100)+"%"));outer.appendChild(footer);
+function zoomTo(n){z[mode]=Math.min(2.5,Math.max(.5,Math.round(n*100)/100));var pos=scroll.scrollLeft;var next=chart(mode,m,p);outer.replaceWith(next);var nextScroll=next.querySelector(".pp3-scroll");if(nextScroll)nextScroll.scrollLeft=pos}
+minus.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();zoomTo(z[mode]-.25)});
+plus.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();zoomTo(z[mode]+.25)});
+window.__PP_SECONDARY_GANTTS_V3__.last={mode:mode,rows:rows.length,ops:opCount,setups:setupCount,materials:materialsOf(m).length,deliveries:deliveries,consumptions:consumptions,scale:z[mode]};
+return outer
+}
+function upgrade(){
+if(mounting)return;
+var mode=getActive();if(mode!==1&&mode!==2&&mode!==3)return;
+var p=getPlan(),m=model;if(!p||!m)return;
+var existing=view.querySelector("[data-pp3-gantt]");
+if(existing&&Number(existing.dataset.pp3Gantt)===mode)return;
+var old=view.querySelector(".ppt.ppTabGantt");
+if(mode!==2&&!old&&!existing)return;
+mounting=true;attempts++;lastMode=mode;
+try{
+var panel=chart(mode,m,p);
+if(mode===2&&view.querySelector(".ppcards")){if(existing)existing.replaceWith(panel);else view.insertBefore(panel,view.firstChild)}
+else{view.replaceChildren(panel)}
+lastFailure="";
+}catch(e){lastFailure=String(e&&e.stack||e);console.error("PP_SECONDARY_GANTT_FAILED",e)}
+finally{mounting=false}
+}
+var attempts=0,lastFailure="",lastMode=-1;
+function requestUpgrade(){
+ if(scheduled)return;
+ scheduled=true;
+ queueMicrotask(function(){scheduled=false;upgrade()})
+}
+var observer=new MutationObserver(function(){if(mounting)return;requestUpgrade()});
+observer.observe(view,{childList:true});
+observer.observe(tabs,{subtree:true,attributes:true,attributeFilter:["class"]});
+function delayedUpgrade(){
+ requestUpgrade();
+ setTimeout(upgrade,0);
+ setTimeout(upgrade,90);
+ setTimeout(upgrade,300);
+}
+tabs.addEventListener("click",delayedUpgrade,true);
+tabs.addEventListener("pointerup",delayedUpgrade,true);
+window.addEventListener("popstate",delayedUpgrade);
+setInterval(function(){
+ var mode=getActive(), old=!!view.querySelector(".ppt.ppTabGantt"),current=view.querySelector("[data-pp3-gantt]");
+ if((mode===1||mode===2||mode===3)&&((old&&!current)||(mode===2&&!current))){upgrade()}
+},900);
+window.__PP_SECONDARY_GANTTS_V3__={version:VER,installed:true,last:null,update:upgrade,renderMode:function(mode,plan){return chart(mode,model,plan)},diagnose:function(){return{tab:getActive(),oldEmployee:!!view.querySelector(".ppt.ppTabGantt"),newGantt:!!view.querySelector("[data-pp3-gantt]"),newGanttMode:view.querySelector("[data-pp3-gantt]")?.dataset.pp3Gantt,attempts:attempts,lastFailure:lastFailure}}};
+var prevRefresh=window.__ppTabsRefresh;
+if(typeof prevRefresh==="function")window.__ppTabsRefresh=function(){var res=prevRefresh.apply(this,arguments);delayedUpgrade();return res};
+upgrade();
+console.log("PP_SECONDARY_GANTTS_V3_READY",VER);
+})();
+
+CONTAINER ppTabsView 'r"><h1>\'+esc(name)+\'</h1></div><div style="margin-top:16px">\'+body+\'</div>\'}\ndocument.querySelectorAll(\'.side .item\').forEach(item=>item.onclick=()=>{document.querySelectorAll(\'.side .item\').forEach(x=>x.classList.remove(\'active\'));item.classList.add(\'active\');const name=item.textContent.trim();if(name===\'Чат\'||name===\'План\'){q(\'sectionView\').style.display=\'none\';q(\'planView\').style.display=\'block\';if(name===\'Чат\')q(\'chatInput\').focus()}else renderSection(name)});\nclearPlan();\n</script><style>\n#ppTabsView{display:none;margin-top:12px}.ppt{background:#fff;border:1px solid #dfe7f1;border-radius:10px;padding:14px}.ppt h3{margin:0 0 12px}.ppt table{width:100%;border-collapse:collapse}.ppt th,.ppt td{padding:9px;border-bottom:1px solid #edf1f5;text-align:left}.ppt th{background:#f7f9fc;color:#748499}.ppbar{height:9px;background:#eef2f7;border-radius:9px;overflow:hidden}.ppbar i{display:block;height:100%;background:#1e68e7}.ppr{margin:12px 0}.ppr div:first-child{display:flex;justify-content:space-between;margin-bottom:5px}.ppcards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.ppc{background:#fff;border:1px solid #dfe7f1;border-radius:10px;padding:14px}.ppc span{display:block'
+CONTAINER ganttScroll ' class="tabs"><div class="a">Гантт оборудования</div><div>Гантт сотрудников</div><div>Материалы</div><div>Заказы</div><div>Загрузка ресурсов</div><div>Узкие места</div></div><div class="toolbar"><b id="range">—</b><span id="meta">Модель ещё не создана</span><div class="grow"></div><div class="zoom"><button id="zoomOut">−</button><span id="zoomLabel">100%</span><button id="zoomIn">+</button></div></div><div class="card gantt-card"><div class="gantt-head"><b>Занятость автоклавов</b></div><div id="ganttScroll" class="gantt-scroll"><div id="timeline" class="timeline"><div id="ganttEmpty" class="empty">Сначала опишите производство в AI-помощнике.</div><div id="ganttContent" style="display:none"><div class="days"><div class="labelhead"></div><div id="daycols" class="daycols"></div></div><div id="rows"></div></div></div></div><div class="legend"><span><i class="dot" style="background:#6fa8ff"></i>Загрузка</span><span><i class="dot" style="background:#dce9ff"></i>Процесс</span><span><i class="dot" style="background:#ffd66e"></i>Ожидание оператора</span><span><i class="dot" style="background:#47b881"></i>Выгрузка</span><span><i class="dot" style="background:#000000"></i>Переналадка</span><s'
+CONTAINER planView 'v><div id="messages" class="messages"><div class="bubble">Опишите производство обычным текстом: оборудование, смены, длительности операций, заказы, материалы и ограничения. Я соберу из этого модель.</div></div><div id="summary" class="summary"><b>Модель производства</b><div>Данные ещё не заданы.</div></div><div class="compose"><textarea id="chatInput" placeholder="Опишите производство или добавьте ограничение..."></textarea><button id="chatSend">→</button></div></div>\n<div class="main"><div id="planView"><div class="titlebar"><h1>Производственный план</h1><button id="activeProjectChip" class="project-chip" type="button">Проект не выбран</button><span class="pill">GA core: 1.1.2</span><span id="valid" class="pill">Ожидаю данные</span><button id="opt" class="btn" disabled>Запустить оптимизацию</button></div><div class="tabs"><div class="a">Гантт оборудования</div><div>Гантт сотрудников</div><div>Материалы</div><div>Заказы</div><div>Загрузка ресурсов</div><div>Узкие места</div></div><div class="toolbar"><b id="range">—</b><span id="meta">Модель ещё не создана</span><div class="grow"></div><div class="zoom"><button id="zoomOut">−</button><span id="zoomLabel">100%</span><button id="zoom'
+CONTAINER ppGanttToolV2 'h)return null;\n  const duration=Number(plan.duration_minutes);\n  const runs=Number(plan.optimization_run);\n  const trials=Number(plan.total_generations);\n  return {order_sequence:sequence,\n   duration_minutes:Number.isFinite(duration)&&duration>=0?duration:null,\n   optimization_run:Number.isInteger(runs)&&runs>=1&&runs<=1000000?runs:1,\n   total_generations:Number.isInteger(trials)&&trials>=0&&trials<=100000000?trials:0};\n }catch{return null}\n};\n})();\n</script>\n<style id="pp-gantt-tool-v2-css">\n#ppGanttToolV2{width:max-content;min-width:100%;font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#1c2b43}\n#ppGanttToolV2[hidden]{display:none!important}\n#ppGanttToolV2 .pg2-axis,#ppGanttToolV2 .pg2-row{display:flex;min-width:100%;box-sizing:border-box}\n#ppGanttToolV2 .pg2-axis{min-height:55px;position:sticky;top:0;background:#f8fbff;z-index:12;border-bottom:1px solid #dce4ee}\n#ppGanttToolV2 .pg2-row{height:54px;border-bottom:1px solid #e5ecf5}\n#ppGanttToolV2 .pg2-name{position:sticky;left:0;z-index:6;background:#fff;flex:0 0 212px;width:212px;max-width:212px;display:flex;align-items:center;gap:8px;padding:7px 10px;border-right:1px solid #dce4ee;box-sizing:border-box'
