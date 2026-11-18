@@ -1,0 +1,60 @@
+name: LiftOrbit Chromium acceptance automatic interim Gantt without mode switch
+on:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH always show intermediate GA previews without mode buttons
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  chromium:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify public website and authentication protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Verify buttons hidden and automatic candidate preview in logged in UI
+        id: browser
+        shell: bash
+        run: node ops/ovh/automatic-intermediate-preview-20261118/chromium.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Save browser acceptance without secrets
+        if: always()
+        shell: bash
+        env:
+          QA_RUN: ${{ github.run_id }}
+          QA_RESULT: ${{ steps.browser.outcome }}
+        run: |
+          set -euo pipefail
+          path=ops/ovh/test-results/ga-auto-intermediate-preview-chromium-latest.txt
+          mkdir -p "$(dirname "$path")"
+          printf 'workflow_run=%s\nchromium_acceptance=%s\n' "$QA_RUN" "$QA_RESULT" > "$path"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$path"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record automatic interim Gantt live browser acceptance'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'BROWSER_ACCEPTANCE_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
