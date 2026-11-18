@@ -11,6 +11,7 @@ function harness(){
  const stateStore={load:async()=>null,save:async()=>{}};
  const bridge=createPythonGAUpstream({
   enabled:true,origin:"http://ga-worker-qa.railway.internal:8080",
+  upstreamUrl:()=>"/unused",
   token:"test-ga-token-012345678901234567890",
   sessionKey:async()=> "QA_ACCOUNT",
   verifyLogin:async()=>true,
