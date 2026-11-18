@@ -1,0 +1,26 @@
+name: LiftOrbit ceramic GA 12900 m2 7-stage 14-machine validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ceramic-complex-qa-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm public app and Chrome
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health)" = 200
+      - name: Install Playwright
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Run realistic 6-order ceramic GA with materials and setups
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: node ops/ovh/account-plan-mismatch-20261118/ceramic-complex.mjs
