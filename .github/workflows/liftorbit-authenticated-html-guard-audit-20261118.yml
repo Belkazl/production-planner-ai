@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
+      # Read the actual authenticated UI to locate its live optimizer path.
       - name: Read only the rendered authenticated planner HTML
         shell: bash
         run: |
@@ -32,7 +33,7 @@ jobs:
             print('response_http='+str(r.status))
             print('x_pp_gantt_component='+str(r.headers.get('x-pp-gantt-component')))
             print('html_size='+str(len(html)))
-            for term in ['ppFreshFloor','ppFreshObjectiveFloorHtml','ppIncumbentDecision','ganttScroll','ppOptGuard','ppLivePanelV2','ppRealOptProgressV1','ppOptimizerStartOver']:
+            for term in ['ppFreshFloor','ppFreshObjectiveFloorHtml','ppIncumbentDecision','ganttScroll','ppOptGuard','ppLivePanelV2','ppRealOptProgressV1','ppOptimizerStartOver','__ppFreshDisplayBaseline','__ppOptimizerCommittedPlan','__ppTabPlan','ppProjectAfterPlan','renderPlan(','renderKpisWithDelta(','opt.onclick','id="opt"','id="validator"','id="duration"','id="makespan"','id="kpiDuration"','ppIncumbentCurrentPlan','ppOptimizationInFlight']:
               print('contains_'+term+'='+str(term in html))
             for term in ['const ppOriginal=ppIncumbentCurrentPlan();const cont=hasResult||!!ppOriginal;','const ppDec=cont&&ppInc?','const ppDec=ppInc?ppIncumbentDecision']:
               print('anchor_'+term[:22].replace(' ','_')+'='+str(term in html))
