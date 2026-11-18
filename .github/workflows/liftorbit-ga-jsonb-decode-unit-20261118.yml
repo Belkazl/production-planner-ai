@@ -1,4 +1,5 @@
 name: LiftOrbit GA JSONB state object decoder isolated unit verification
+# Recheck canonical pinned source after whitespace-safe anchor correction.
 on:
   push:
     branches: [main]
