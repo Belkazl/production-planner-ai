@@ -77,9 +77,11 @@ try {
   scriptContains:[...document.scripts].some(s=>s.textContent.includes("ppFreshFloor")),
   incumbentDecision:document.documentElement.outerHTML.includes("ppIncumbentDecision"),
   gaScript:document.documentElement.outerHTML.includes("ppFreshObjectiveFloor"),
-  title:document.title
+  title:document.title,
+  activeQualityFloor:window.__PP_GA_OBJECTIVE_FLOOR_V1__?.installed===true
  }));
  console.log("FLOOR_LIVE_SCRIPT_DIAGNOSTICS",JSON.stringify(frontDiag));
+ assert.equal(frontDiag.activeQualityFloor,true,"live authenticated UI must install GA quality floor");
  console.log("FLOOR_LIVE_GLOBALS",JSON.stringify(await page.evaluate(()=>({
   renderPlan:typeof window.renderPlan,
   projectAfterPlan:typeof window.ppProjectAfterPlan,
