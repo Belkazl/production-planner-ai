@@ -57,6 +57,16 @@ try{
  await page.goto(base,{waitUntil:"domcontentloaded",timeout:50000});
  await page.waitForFunction(()=>window.__PP_OPTIMIZER_DEPTH__?.installed===true&&!!document.getElementById("opt"),null,{timeout:35000});
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,null,{timeout:35000});
+ if(process.env.FREEZE_TEST_MODE==="single-progress"){
+  const isolated=await page.evaluate(()=>{
+   const a=window.__PP_TRUTHFUL_SMOOTH_GA_PERCENT_V1__;
+   const b=window.__PP_SMOOTH_VERIFIED_PROGRESS_V1__;
+   if(!a?.installed||typeof a.stop!=="function"||!b?.installed)throw Error("EXPECTED_TWO_PERCENT_ENGINES");
+   a.stop();window.__qaLegacyProgressStopped=true;
+   return {legacy:a.installed,smooth:b.installed,stopped:true};
+  });
+  console.log("LIVE_FREEZE_PROGRESS_ISOLATION",JSON.stringify(isolated));
+ }
  if(process.env.FREEZE_TEST_MODE==="skip-gantt"){
   await page.evaluate(()=>{
    const original=window.renderPlan;
@@ -94,7 +104,7 @@ try{
   try{
    pageState=await Promise.race([
     page.evaluate(()=>({percent:document.getElementById("opt")?.textContent?.slice(0,65),probe:window.__freezeProbe,
-     candidate:window.__PP_AUTO_INTERMEDIATE_PREVIEW_V1__?.switches,skipped:window.__qaSkippedGantt||0,bars:document.querySelectorAll(".pg2-bar").length})),
+     candidate:window.__PP_AUTO_INTERMEDIATE_PREVIEW_V1__?.switches,legacyStopped:window.__qaLegacyProgressStopped||false,skipped:window.__qaSkippedGantt||0,bars:document.querySelectorAll(".pg2-bar").length})),
     new Promise((_,reject)=>setTimeout(()=>reject(Error("UI_EVAL_TIMEOUT")),4000))
    ]);
   }catch(e){pageState={error:String(e)}}
