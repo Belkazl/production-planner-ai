@@ -1,0 +1,60 @@
+name: LiftOrbit real Chrome verify one Gantt across all six tabs
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-gantt-unified-v2-chrome-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  chrome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 11
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm unified Gantt has passed guarded production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/gantt-unified-v2-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/gantt-unified-v2-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/gantt-unified-v2-release-latest.txt
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install only browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Inspect native Gantt V2 Equipment Employees Orders Materials other tabs and zoom
+        id: browser
+        shell: bash
+        run: node ops/ovh/gantt-unified-v2-20261118/chrome.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Record authenticated visual Gantt acceptance outcome
+        if: always()
+        shell: bash
+        env:
+          QA_RUN: ${{ github.run_id }}
+          QA_RESULT: ${{ steps.browser.outcome }}
+        run: |
+          set -euo pipefail
+          output=ops/ovh/test-results/gantt-unified-v2-chrome-latest.txt
+          mkdir -p "$(dirname "$output")"
+          printf 'workflow_run=%s\nchrome_acceptance=%s\n' "$QA_RUN" "$QA_RESULT" > "$output"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$output"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record unified Gantt V2 Chrome acceptance'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'GANTT_V2_CHROME_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
