@@ -28,7 +28,7 @@ jobs:
           test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
       - name: Install only browser driver
         run: npm install --no-save --no-package-lock playwright-core@1.57.0
-      # Inspect the visible navigation route as well as the legacy tab DOM.
+      # Fresh accounts show Chat initially; test explicitly displays Planning before tab interactions.
       - name: Inspect native Gantt V2 Equipment Employees Orders Materials other tabs and zoom
         id: browser
         shell: bash
