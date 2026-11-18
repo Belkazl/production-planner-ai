@@ -1,0 +1,50 @@
+name: LiftOrbit diagnose recurring account_plan_mismatch safely
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-diagnose-final-ownership-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect current owner guards, commands and built-in demo without account data
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration/sources/ovh-app/current"
+          cd "$root"
+          echo "OVH_RELEASE_CURRENT_SOURCE:"
+          for f in tenant-model-runtime.js python-ga-upstream.mjs restart-optimizer-ui.js index.ts; do
+            if test -r "$f"; then printf '%s ' "$f"; sha256sum "$f" | cut -c1-64; fi
+          done
+          echo "OVH_OPS_COMMANDS:"
+          grep -nE '^  [a-z-]+\)|^  (update|smoke|logs|status|health|start|stop)\)' /usr/local/sbin/liftorbit-ops | head -n 30 || true
+          echo "OVH_CLIENT_DEMO_MARKERS:"
+          for f in restart-optimizer-ui.js baselines/2026-10-10/aps-setup-bridge/index.ts; do
+            if test -r "$f"; then echo "IN=$f"; grep -inE '12900|12.?900|Керамика|demo|ceramic' "$f" | head -n 24 | cut -c 1-170 || true; fi
+          done
+          echo "OVH_MODEL_GUARD:"
+          sed -n '49,79p' tenant-model-runtime.js | cut -c 1-190
+          echo "OVH_GA_VERIFIED_BEST_REJECTION_CONDITIONS:"
+          grep -nE 'verifiedWorkerCheckpoint|verifiedAccountBest|account_plan_mismatch|UNOWNED_|state.state=.invalid.|status.status=.completed.' python-ga-upstream.mjs | head -n 36 | cut -c 1-190
+          REMOTE
