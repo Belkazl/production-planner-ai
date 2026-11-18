@@ -1,0 +1,46 @@
+name: LiftOrbit audit account-plan ownership validator (source only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-checkplan-source-audit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect exact production ownership-check source without customer data
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration/sources/ovh-app/current"
+          cd "$root"
+          echo "ACCOUNT_PLAN_AUDIT_SOURCE_ONLY"
+          for target in python-ga-upstream.mjs ga-worker-build.ts ga-python-state-store.mjs baselines/2026-10-10/aps-setup-bridge/index.ts; do
+            if test -r "$target"; then
+              echo "SOURCE_FILE=$target"
+              sha256sum "$target" | cut -d ' ' -f1
+              grep -nE 'account_plan_mismatch|checkPlan|account_model_changed_during_run|gaPlanOwned|planOwnership|owned\(' "$target" | cut -c 1-250 | head -n 24 || true
+            fi
+          done
+          echo "OTHER_CHECKPLAN_FILES"
+          find . -maxdepth 2 -type f \( -name '*.mjs' -o -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0 | xargs -0 grep -l 'checkPlan' | head -n 16 || true
+          REMOTE
