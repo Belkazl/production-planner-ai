@@ -1,0 +1,61 @@
+name: LiftOrbit inspect main and secondary Gantt engines for unification
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-gantt-engine-audit-20261118.yml
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect only Gantt source structure in disposable account
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/liftorbit-gantt-engines.txt"
+          import http.cookiejar,urllib.request,json,uuid,secrets,re
+          base='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          payload=json.dumps({'email':'gantt-engine-audit-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(26),'company':'Disposable Gantt renderer audit'}).encode()
+          req=urllib.request.Request(base+'/api/auth/register',data=payload,method='POST',headers={'Content-Type':'application/json','Accept':'application/json','Origin':base})
+          with op.open(req,timeout=35) as r:print('register='+str(r.status))
+          with op.open(base+'/',timeout=35) as r:
+            html=r.read(12000000).decode('utf8','replace')
+            print('authenticated='+str(r.status),'length='+str(len(html)))
+          for term in ['function renderPlan(', 'function renderGantt(', 'function drawGantt(', 'function renderEqGantt(', 'function renderOrders(', 'function ppTab(', 'function renderTabs(', 'function renderTab(', 'pp3-secondary-gantts-js', 'id="ppTabsView"','id="ganttContent"', 'class="ppt ppTabGantt"', 'function renderEmployee','Equipment utilization','ppTabGantt']:
+            hits=[m.start() for m in re.finditer(re.escape(term),html)]
+            print('\nTARGET',term,'count',len(hits))
+            for i in hits[:2]:
+              before=600 if term in ('function renderPlan(', 'function renderGantt(', 'function drawGantt(', 'function renderEqGantt(') else 200
+              after=8800 if term=='function renderPlan(' else 1500
+              print('AT',i,repr(html[max(0,i-before):min(len(html),i+after)])[:10000])
+          for pattern in [r'<script[^>]*src=["\']([^"\']+)',r'<div[^>]+id=["\'](?:ganttContent|ppTabsView)["\'][^>]*>',r'#[a-zA-Z][\w-]*(?:gantt|Gantt)[\w-]*\s*\{[^}]{0,260}\}']:
+            matches=re.findall(pattern,html,re.I)
+            print('\nPATTERN',pattern,'count',len(matches))
+            for item in matches[:25]:print('CSS_OR_TAG',repr(item)[:450])
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Save Gantt code excerpts only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/gantt-engines-html-audit-20261118.txt
+          mkdir -p "$(dirname "$target")"
+          if test -s "$RUNNER_TEMP/liftorbit-gantt-engines.txt"; then cp "$RUNNER_TEMP/liftorbit-gantt-engines.txt" "$target"; else echo "audit_unavailable" > "$target"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: audit real Gantt renderers and tab containers'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
