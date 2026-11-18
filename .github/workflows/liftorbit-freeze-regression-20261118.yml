@@ -1,4 +1,5 @@
 name: LiftOrbit freeze regression browser QA
+# Wait for restored per-account optimizer state before actual GA launch.
 on:
   push:
     branches: [main]
