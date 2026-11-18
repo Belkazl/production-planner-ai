@@ -1,0 +1,14 @@
+import {readFileSync,writeFileSync} from "node:fs";
+import {resolve,dirname} from "node:path";
+import {fileURLToPath} from "node:url";
+const root=process.argv[2];
+if(!root)throw Error("UNIFIED_GANTT_V2_APP_ROOT_REQUIRED");
+const file=resolve(root,"restart-optimizer-ui.js");
+const old=readFileSync(file,"utf8");
+const required=["ppStopRestorePreviousPlanV1","ppHideGaTechnicalLabelsV1","ppAutomaticIntermediatePreviewV1","__PP_KPI_FIRST_BEST_V1__","__PP_CONTINUATION_SEED_V2__","__PP_GA_OBJECTIVE_FLOOR_V1__","quick:Object.freeze({generations:10,population:12})"];
+for(const guard of required)if(!old.includes(guard))throw Error("UNIFIED_GANTT_V2_LIVE_GUARD_MISSING_"+guard);
+if(old.includes("ppUnifiedGanttV2"))throw Error("UNIFIED_GANTT_V2_ALREADY_INSTALLED");
+const addon=readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),"runtime.js"),"utf8");
+if(!addon.includes("sourceRender.call(this,projection.plan)")||!addon.includes("#ppTabsView{display:none!important}"))throw Error("UNIFIED_GANTT_V2_UNSAFE_SCRIPT");
+writeFileSync(file,old+"\n;"+addon+"\n");
+console.log("PP_UNIFIED_GANTT_V2_ONE_NATIVE_ENGINE_FOR_EQUIPMENT_EMPLOYEES_ORDERS",old.length,addon.length);
