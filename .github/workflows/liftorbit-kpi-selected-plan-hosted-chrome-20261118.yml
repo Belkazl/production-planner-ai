@@ -1,0 +1,66 @@
+name: LiftOrbit Chrome Stop selected plan KPI baseline acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-kpi-selected-plan-hosted-chrome-20261118.yml
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH Stop chosen plan always anchors KPI improvement deltas
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  chrome:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm installed deployment and availability of host Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/kpi-selected-plan-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/kpi-selected-plan-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/kpi-selected-plan-release-latest.txt
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install lightweight Playwright driver only
+        shell: bash
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Click Stop plan chooser, Continue and verify metrics after reload
+        id: browser
+        shell: bash
+        run: node ops/ovh/kpi-selected-plan-reference-20261118/hosted-chrome.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish browser validation outcome
+        if: always()
+        env:
+          RUN_ID: ${{ github.run_id }}
+          QA: ${{ steps.browser.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/kpi-selected-plan-chrome-latest.txt
+          mkdir -p "$(dirname "$file")"
+          printf 'workflow_run=%s\nchrome_acceptance=%s\n' "$RUN_ID" "$QA" > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record Stop selected KPI Chrome acceptance'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'ACCEPTANCE_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
