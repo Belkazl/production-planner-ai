@@ -1,0 +1,43 @@
+name: LiftOrbit inspect GA metadata markup selectors in source
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-metadata-source-scan-20261118.yml
+permissions:
+  contents: write
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - uses: actions/checkout@v4
+      - name: Extract source-only UI selector matches
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/ga-metadata-source-selectors-latest.txt
+          mkdir -p "$(dirname "$file")"
+          for pattern in 'GA core' 'GA: ' 'total_generations' 'id="meta"' 'id="valid"' 'meta.textContent' 'gaVersion' 'ppOptimizerDepthDetail'; do
+            printf '\n--- %s ---\n' "$pattern" >> "$file"
+            grep -RIn -F --include='*.html' --include='*.mjs' --include='*.js' "$pattern" pinned | head -n 18 | cut -c 1-480 >> "$file" || true
+          done
+      - name: Publish matching UI selectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ops/ovh/test-results/ga-metadata-source-selectors-latest.txt
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA metadata selector source scan'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+            done
+          fi
