@@ -1,0 +1,5 @@
+USER_GROUPS=liftorbit-ci
+DOCKER_PATH=/usr/bin/docker
+CURRENT_SOURCE=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2
+SUDO_DOCKER_READONLY=no
+DOCKER_READONLY=no
