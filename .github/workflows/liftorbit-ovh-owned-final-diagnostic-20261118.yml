@@ -1,0 +1,327 @@
+name: LiftOrbit guarded OVH GA owned final diagnostic
+# Render 1% progress increments only after server has CONFIRMED them.
+# Do not fake percent/time, issue extra polling, modify candidate previews,
+# alter Quick 10x12 generations/candidates, or touch Stop, Continue and Gantt.
+# No GA worker restarts on unrelated source changes; this is frontend-only.
+# Use guarded one-file diff with automatic OVH rollback on failure.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-owned-final-diagnostic-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'diagnose(liftorbit): trace 900 op final ownership mismatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout currently deployed verified GA setup source
+        uses: actions/checkout@v4
+        with:
+          ref: 401d530aaf61eebb1f8f1e896ef5fcf4cc449df1
+          path: deployed
+          persist-credentials: false
+      - name: Checkout newly tested canonical final operations bridge
+        uses: actions/checkout@v4
+        with:
+          ref: 2d1896612c2f33c7ac08bc370c0f87b30d0cbd43
+          path: repaired
+          persist-credentials: false
+      - name: Checkout already released GA JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
+          path: compact
+          persist-credentials: false
+      - name: Checkout guarded account checkpoint recovery patch and tests
+        uses: actions/checkout@v4
+        with:
+          path: fix
+          persist-credentials: false
+      - name: Verify exact one-file GA checkpoint recovery and regression suite
+        id: preflight
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp repaired/ops/ovh/ga-complete-setup-final-20261117/python-ga-upstream.mjs old/app/python-ga-upstream.mjs
+          cp repaired/ops/ovh/ga-complete-setup-final-20261117/python-ga-upstream.mjs new/app/python-ga-upstream.mjs
+          # The current production Docker build already uses the updated
+          # continuation contract installed with the previous GA release.
+          # Pinned 2026-10 tests predate that fix and are intentionally obsolete.
+          cp deployed/tests/continuation-compat-contract.cjs old/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/continuation-compat-contract.cjs new/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/python-ga-upstream.test.mjs old/app/tests/python-ga-upstream.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          for side in old new; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+            node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
+          done
+          for side in old new; do
+            node repaired/ops/ovh/ga-final-progress-reconcile-20261117/patch-progress.mjs "$side/app"
+            node repaired/ops/ovh/ga-final-progress-reconcile-20261117/test-progress.cjs "$side/app"
+          done
+          for side in old new; do
+            node repaired/ops/ovh/ga-fresh-no-regression-20261118/patch.mjs "$side/app"
+            node repaired/ops/ovh/ga-fresh-no-regression-20261118/test.cjs "$side/app"
+          done
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          scp -q "${opts[@]}" "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" old/app/restart-optimizer-ui.js
+          cp old/app/restart-optimizer-ui.js new/app/restart-optimizer-ui.js
+          scp -q "${opts[@]}" "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/tenant-model-runtime.js" old/app/tenant-model-runtime.js
+          cp old/app/tenant-model-runtime.js new/app/tenant-model-runtime.js
+          scp -q "${opts[@]}" "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs" old/app/python-ga-upstream.mjs
+          cp old/app/python-ga-upstream.mjs new/app/python-ga-upstream.mjs
+          node fix/ops/ovh/account-plan-mismatch-20261118/trace-final.mjs new/app
+          node --check new/app/python-ga-upstream.mjs
+          cp repaired/ops/ovh/continuation-seed-ui-20261118/server.test.mjs new/app/tests/continue-seed-guard.test.mjs
+          node --test new/app/tests/continue-seed-guard.test.mjs
+          rm new/app/tests/continue-seed-guard.test.mjs
+          node --check new/app/restart-optimizer-ui.js
+          node --check new/app/tenant-model-runtime.js
+          node --check old/app/python-ga-upstream.mjs
+          node --check new/app/python-ga-upstream.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          cp repaired/ops/ovh/ga-complete-setup-final-20261117/ga-account-owned-recovery.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
+          node --test new/app/tests/python-ga-upstream.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          rm -f new/app/tests/ga-account-owned-recovery.test.mjs
+          diff -qr old/app new/app > "$RUNNER_TEMP/ga-checkpoint-reverify-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/ga-checkpoint-reverify-diff")" -eq 1
+          grep -Fqx 'Files old/app/python-ga-upstream.mjs and new/app/python-ga-upstream.mjs differ' "$RUNNER_TEMP/ga-checkpoint-reverify-diff"
+          grep -q 'verifiedWorkerCheckpoint' new/app/python-ga-upstream.mjs
+          grep -q 'setupOperationsDropped' new/app/python-ga-upstream.mjs
+          grep -q 'fullGenericSchedule' new/app/python-ga-upstream.mjs
+          grep -q 'ppFreshObjectiveFloorHtml' new/app/baselines/2026-10-10/aps-setup-bridge/index.ts
+          grep -q 'PP_GA_OBJECTIVE_FLOOR_V1__' new/app/restart-optimizer-ui.js
+          grep -Fq 'quick:Object.freeze({generations:10,population:12})' new/app/restart-optimizer-ui.js
+          grep -Fq '__PP_CONTINUATION_SEED_V2__' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppAutomaticIntermediatePreviewV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppFixedFirstBestKpiDelta' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppSelectedPlanKpiReferenceV2' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppStopRestorePreviousPlanV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppHideGaTechnicalLabelsV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppHideGaTechnicalLabelsV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppUnifiedGanttV2' new/app/restart-optimizer-ui.js
+          grep -Fq 'sourceRender.call(this,projection.plan)' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppSmoothVerifiedProgressV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'mode:"confirmed-only"' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppResolveDuplicateGaProgress20261118' new/app/restart-optimizer-ui.js
+          grep -Fq 'key==="__ppid"?undefined:value' new/app/tenant-model-runtime.js
+          grep -Fq 'const qaOwnTrace=' new/app/python-ga-upstream.mjs
+          grep -q 'PP_GA_FINAL_SETUP_LOSS_REPLACED_BY_VERIFIED_BEST' new/app/python-ga-upstream.mjs
+          sha256sum old/app/python-ga-upstream.mjs | cut -d' ' -f1 > old.worker-source.sha
+          sha256sum new/app/python-ga-upstream.mjs | cut -d' ' -f1 > new.worker-source.sha
+          echo 'OWNED_FINAL_DIAG_EXACT_ONE_SOURCE_CHANGED'
+          docker build --progress=plain -t liftorbit-owned-ga-reverify:preflight new/app > "$RUNNER_TEMP/ga-progress-final-docker-build.log" 2>&1 || {
+            echo 'OWNED_FINAL_DIAG_DOCKER_BUILD_FAILED'
+            echo 'OWNED_FINAL_DIAG_DOCKER_FAILURE_TAIL_BEGIN'
+            tail -n 35 "$RUNNER_TEMP/ga-progress-final-docker-build.log" | cut -c 1-300
+            echo 'OWNED_FINAL_DIAG_DOCKER_FAILURE_TAIL_END'
+            exit 22
+          }
+          echo 'OWNED_FINAL_DIAG_DOCKER_BUILD_PASSED'
+      - name: Apply guarded OVH app update with automatic rollback
+        id: rollout
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldSha=$(cat old.worker-source.sha)
+          newSha=$(cat new.worker-source.sha)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/app/python-ga-upstream.mjs "$target:$root/sources/ovh-app/python-ga-upstream.mjs.owned-final-diagnostic.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/python-ga-upstream.mjs"
+          next="$root/sources/ovh-app/python-ga-upstream.mjs.owned-final-diagnostic.next"
+          backup="$root/patch-backups/owned-final-diagnostic-20261118"
+          expectedOld="$1"; expectedNew="$2"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -f "$app" && test -f "$next"
+          test "$(sha "$app")" = "$expectedOld" || { echo 'OWNED_FINAL_DIAG_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$expectedNew" || { echo 'OWNED_FINAL_DIAG_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'OWNED_FINAL_DIAG_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$app" "$backup/python-ga-upstream.mjs"
+          test "$(sha "$backup/python-ga-upstream.mjs")" = "$expectedOld"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/python-ga-upstream.mjs" "$app" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'OWNED_FINAL_DIAG_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$next" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'OWNED_FINAL_DIAG_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$app")" = "$expectedNew"
+          trap - ERR
+          echo 'OWNED_FINAL_DIAG_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'OWNED_FINAL_DIAG_PUBLIC_API_HEALTHY'
+
+      - name: Install browser test dependencies
+        run: |
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Diagnose actual six-order ceramic final mismatch without user credentials
+        id: ceramic_qa
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          set +e
+          node fix/ops/ovh/account-plan-mismatch-20261118/ceramic-complex.mjs > "$RUNNER_TEMP/ga-trace-output.log" 2>&1
+          result=$?
+          set -e
+          grep -E "LIVE_CERAMIC_COMPLEX_SAMPLE|QA_MODEL_DIFF_AFTER_RUN|LIVE_FREEZE_FAILED" "$RUNNER_TEMP/ga-trace-output.log" | tail -n 12
+          test "$result" -ne 0
+          grep -Fq "SIX_ORDER_ACCOUNT_PLAN_MISMATCH_REPRODUCED" "$RUNNER_TEMP/ga-trace-output.log"
+          if grep -Fq '"source":"python_ga_bridge"' "$RUNNER_TEMP/ga-trace-output.log"; then
+            echo 'OWNER_TRACE_BRIDGE_REJECTED_FINAL'
+          else
+            echo 'OWNER_TRACE_OUTER_GUARD_OR_UNINSTRUMENTED_PATH'
+          fi
+      - name: Check normal small and large worker workloads unaffected
+        id: smoke_qa
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          node fix/ops/ovh/account-plan-mismatch-20261118/real-six.mjs
+          node fix/ops/ovh/browser-freeze-20261118/live-run.mjs
+      - name: Roll back release if any authenticated GA browser test fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/rollback_key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/rollback_known"
+          chmod 600 "$RUNNER_TEMP/rollback_key" "$RUNNER_TEMP/rollback_known"
+          opts=(-i "$RUNNER_TEMP/rollback_key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/rollback_known" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/python-ga-upstream.mjs"
+          backup="$root/patch-backups/owned-final-diagnostic-20261118"
+          test -f "$backup/python-ga-upstream.mjs"
+          cp -p "$backup/python-ga-upstream.mjs" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo 'GA_OWNED_FINAL_DIAG_BROWSER_TEST_ROLLBACK_OK'
+          REMOTE
+      - name: Checkout repository to record deployment outcome
+        if: always()
+        uses: actions/checkout@v4
+      - name: Publish safe GA final arrays deployment status
+        if: always()
+        shell: bash
+        env:
+          GA_RUN: ${{ github.run_id }}
+          PRE: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          CERAMIC_QA: ${{ steps.ceramic_qa.outcome }}
+          SMOKE_QA: ${{ steps.smoke_qa.outcome }}
+        run: |
+          set -euo pipefail
+          dest=ops/ovh/test-results/owned-final-diagnostic-release-latest.txt
+          mkdir -p "$(dirname "$dest")"
+          printf 'workflow_run=%s\npreflight=%s\nrollout=%s\npublic_health=%s\nceramic_qa=%s\nsmoke_qa=%s\n' "$GA_RUN" "$PRE" "$ROLLOUT" "$HEALTH" "$CERAMIC_QA" "$SMOKE_QA" > "$dest"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dest"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA owned final diagnostic release'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'RELEASE_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
