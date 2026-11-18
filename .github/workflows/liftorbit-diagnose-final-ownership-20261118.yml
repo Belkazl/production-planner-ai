@@ -57,6 +57,8 @@ jobs:
           sed -n '180,233p' python-ga-upstream.mjs | cut -c 1-220
           echo "OVH_MODEL_GUARD:"
           sed -n '49,79p' tenant-model-runtime.js | cut -c 1-190
+          echo "OVH_GA_STATE_STORE_CODE:"
+          if test -r ga-python-state-store.mjs; then sed -n "1,74p" ga-python-state-store.mjs | cut -c 1-230; fi
           echo "OVH_GA_VERIFIED_BEST_REJECTION_CONDITIONS:"
           grep -nE 'verifiedWorkerCheckpoint|verifiedAccountBest|account_plan_mismatch|UNOWNED_|state.state=.invalid.|status.status=.completed.' python-ga-upstream.mjs | head -n 36 | cut -c 1-190
           REMOTE
