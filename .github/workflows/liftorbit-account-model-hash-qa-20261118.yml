@@ -1,0 +1,31 @@
+name: LiftOrbit post-release real GA ownership regression
+on:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH Gantt-only model ownership hash fix
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify live production and browser prerequisites
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 https://app.liftorbit.app/__bridge_health)" = 200
+      - name: Install Playwright core driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Check six-order Gantt metadata no longer invalidates GA result
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: node ops/ovh/account-plan-mismatch-20261118/real-six.mjs
+      - name: Check large twelve-order GA and account ownership still succeeds
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: node ops/ovh/browser-freeze-20261118/live-run.mjs
