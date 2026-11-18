@@ -1,0 +1,67 @@
+name: LiftOrbit live browser KPI first-best delta acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-kpi-first-best-live-chromium-20261118.yml
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH fixed first-best KPI improvement baseline
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  chromium:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify protected deployment completed
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/kpi-first-best-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/kpi-first-best-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/kpi-first-best-release-latest.txt
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install isolated browser
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Check fresh deltas hidden and first-best fixed across continuing search
+        id: browser
+        shell: bash
+        run: node ops/ovh/kpi-delta-first-best-20261118/chromium.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish safe browser outcome
+        if: always()
+        shell: bash
+        env:
+          RUN: ${{ github.run_id }}
+          BROWSER: ${{ steps.browser.outcome }}
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/kpi-first-best-chromium-latest.txt
+          mkdir -p "$(dirname "$file")"
+          printf 'workflow_run=%s\nchromium_acceptance=%s\n' "$RUN" "$BROWSER" > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record first-best KPI Chromium acceptance'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'KPI_BROWSER_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
