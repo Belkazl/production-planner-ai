@@ -1,0 +1,12 @@
+GA_CANDIDATE_PROBE_START 202 started True phase queued
+GA_CANDIDATE_PERCENT 0 1 phase running done 1 total 100
+GA_CANDIDATE_API_FIELDS ['aps_setup_bridge', 'best_preview', 'candidate_preview', 'done', 'error', 'objective', 'ok', 'percent', 'phase', 'result', 'resume_state', 'running', 'success', 'total']
+GA_CANDIDATE_PERCENT 1 30 phase running done 30 total 100
+GA_CANDIDATE_PERCENT 2 65 phase running done 65 total 100
+GA_CANDIDATE_PERCENT 3 100 phase completed done 100 total 100
+GA_CANDIDATE_TERMINAL completed success True
+GA_CANDIDATE_SERIES [1, 30, 65, 100]
+GA_CANDIDATE_POSITIVE_JUMPS [29, 35, 35]
+GA_CANDIDATE_SUBGENERATOR_CHANGES 2
+GA_CANDIDATE_RUNTIME_SECONDS 8.1
+GA_CANDIDATE_PROBE_COMPLETED completed
