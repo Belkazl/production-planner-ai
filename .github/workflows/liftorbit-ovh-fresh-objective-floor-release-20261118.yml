@@ -83,7 +83,7 @@ jobs:
             node repaired/ops/ovh/ga-final-progress-reconcile-20261117/test-progress.cjs "$side/app"
           done
           node repaired/ops/ovh/ga-fresh-no-regression-20261118/patch.mjs new/app
-          node --test repaired/ops/ovh/ga-fresh-no-regression-20261118/test.cjs new/app
+          node repaired/ops/ovh/ga-fresh-no-regression-20261118/test.cjs new/app
           node --check old/app/python-ga-upstream.mjs
           node --check new/app/python-ga-upstream.mjs
           cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
