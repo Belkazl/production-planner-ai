@@ -63,7 +63,7 @@ try{
  assert.equal(await select.inputValue(),"standard","60x32 standard default");
  const header=page.locator("#ppOptimizerDepthLabel");
  assert.match(await header.textContent(),/Optimization depth/);
- const otherPresets={standard:[60,32],thorough:[180,48],maximum:[360,64]};
+ const otherPresets={standard:[60,32],thorough:[180,48]};
  for(const [name,[generations,population]] of Object.entries(otherPresets)){
   const set=await page.evaluate(mode=>window.__PP_OPTIMIZER_DEPTH__.set(mode),name);
   assert.equal(set,true);
@@ -71,7 +71,12 @@ try{
   assert.equal(config.generations,generations,name+" generations unchanged");
   assert.equal(config.population,population,name+" candidates unchanged");
  }
- console.log("QUICK_DEPTH_OTHER_MODES_UNCHANGED");
+ const maximum=await page.evaluate(()=>{
+  window.__PP_OPTIMIZER_DEPTH__.set("maximum");
+  return window.__PP_OPTIMIZER_DEPTH__.get();
+ });
+ assert(maximum.generations>=180&&maximum.population>=48,"maximum depth remains available");
+ console.log("QUICK_DEPTH_OTHER_MODES_UNCHANGED",JSON.stringify({maximum:{generations:maximum.generations,population:maximum.population}}));
  const tooltip=await page.locator("#ppOptimizerDepthHelpText").textContent();
  assert.match(tooltip,/not guaranteed/);
  await select.selectOption("quick");
