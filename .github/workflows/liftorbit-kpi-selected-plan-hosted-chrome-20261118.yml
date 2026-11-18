@@ -34,6 +34,7 @@ jobs:
       - name: Install lightweight Playwright driver only
         shell: bash
         run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      # Run with the current disposable model owner fixture and extra click diagnostics.
       - name: Click Stop plan chooser, Continue and verify metrics after reload
         id: browser
         shell: bash
