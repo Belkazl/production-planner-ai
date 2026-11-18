@@ -1,0 +1,66 @@
+name: LiftOrbit audit intermediate preview controls in authenticated production HTML
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-intermediate-controls-audit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Safely extract static preview control structure from fresh test account
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/preview-audit.txt"
+          import json,uuid,secrets,urllib.request,http.cookiejar,re
+          base='https://app.liftorbit.app'
+          jar=http.cookiejar.CookieJar()
+          http=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          payload=json.dumps({'email':'preview-audit-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(25),'company':'Disposable preview control audit'}).encode()
+          req=urllib.request.Request(base+'/api/auth/register',data=payload,method='POST',headers={'Content-Type':'application/json','Accept':'application/json','Origin':base})
+          with http.open(req,timeout=40) as response: print('registration_http='+str(response.status))
+          with http.open(base+'/',timeout=40) as response:
+            html=response.read(12000000).decode('utf-8','replace')
+            print('authenticated_html_http='+str(response.status))
+          print('html_size='+str(len(html)))
+          for term in ['Best found','Candidate plan','ppLivePanelV2','data-mode="candidate"','data-mode="best"','dataset.mode','ppOptimizerCandidateStatus','best_preview','candidate_preview','setInterval','setTimeout(next,1400)']:
+            hits=[m.start() for m in re.finditer(re.escape(term),html,re.I)]
+            print('match_'+re.sub('[^a-zA-Z0-9]','_',term)+'='+str(len(hits)))
+            for pos in hits[:4]:
+              excerpt=html[max(0,pos-500):pos+700].replace('\\n',' ')
+              print('snippet_'+re.sub('[^a-zA-Z0-9]','_',term)+'='+repr(excerpt)[:1300])
+          ix=html.find('<script id="ppLivePanelV2">')
+          if ix>=0:
+            end=html.find('</script>',ix)
+            script=html[ix:end]
+            print('live_script_len='+str(len(script)))
+            for term in ['let timer=', 'function paint(', 'function show(', 'function poll(', 'function start(', 'function stop(', 'querySelectorAll', 'dataset.mode', 'addEventListener(', 'best_preview', 'candidate_preview']:
+              found=script.find(term)
+              if found>=0:print('live_'+re.sub('[^a-zA-Z0-9]','_',term)+'='+repr(script[max(0,found-270):found+1100])[:1500])
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Save sanitized layout audit
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/intermediate-controls-layout-audit-20261118.txt
+          mkdir -p "$(dirname "$target")"
+          if test -f "$RUNNER_TEMP/preview-audit.txt"; then cp "$RUNNER_TEMP/preview-audit.txt" "$target"; else echo diagnostic_failed > "$target"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record static intermediate control layout'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+            done
+          fi
