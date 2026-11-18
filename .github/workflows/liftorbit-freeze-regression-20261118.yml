@@ -24,5 +24,5 @@ jobs:
         run: node ops/ovh/browser-freeze-20261118/profile.mjs
       - name: Verify real isolated optimizer run keeps browser responsive
         env:
-          FREEZE_TEST_MODE: single-progress
+          FREEZE_TEST_MODE: deployed
         run: node ops/ovh/browser-freeze-20261118/live-run.mjs
