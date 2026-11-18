@@ -22,9 +22,11 @@ jobs:
           target=ops/ovh/test-results/quick-depth-release-runs-latest.txt
           mkdir -p "$(dirname "$target")"
           gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-quick-depth-v2-release-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target"
+          target2=ops/ovh/test-results/quick-depth-browser-runs-latest.txt
+          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-quick-depth-v2-live-chromium-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target2"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$target"
+          git add "$target" "$target2"
           if ! git diff --cached --quiet; then
             git commit -m 'ci: record quick optimization release runner states'
             git push origin HEAD:main
