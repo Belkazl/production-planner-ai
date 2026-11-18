@@ -1,0 +1,63 @@
+name: LiftOrbit inspect actual percent widgets and polling
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-candidate-progress-ui-audit-20261118.yml
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only progress UI script of disposable authenticated account
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/progress-ui-audit.txt"
+          import urllib.request,http.cookiejar,json,secrets,uuid,re
+          host='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          d=json.dumps(dict(email='percent-ui-'+uuid.uuid4().hex+'@liftorbit.invalid',password=secrets.token_urlsafe(26),company='Temporary progress UI audit')).encode()
+          r=urllib.request.Request(host+'/api/auth/register',data=d,method='POST',headers={'content-type':'application/json','origin':host})
+          with op.open(r,timeout=40) as o: print('register',o.status)
+          with op.open(host+'/',timeout=40) as o:
+            html=o.read(12000000).decode('utf8','replace')
+            print('home',o.status,'length',len(html))
+          for term in ['ppLivePanelV2','ppRealOptProgressV1','paintProgress(d)','d.percent','d.progress','function updateProgress','opt-progress','pp-opt-progress-line','setInterval(poll','setTimeout(next,1400)','pp-opt-running','plan-progress','ppOptimizerDepthSelect']:
+            inds=[m.start() for m in re.finditer(re.escape(term),html)]
+            print('TERM',term,'count',len(inds))
+            for i in inds[:3]:
+              print('SNIPPET',i,repr(html[max(0,i-500):min(len(html),i+1550)])[:2050])
+          for m in re.finditer(r'<script(?:\s+[^>]*)?>(.*?)</script>',html,re.S|re.I):
+            src=m.group(1)
+            if 'paintProgress' not in src and 'ppRealOptProgressV1' not in src and 'ppLivePanelV2' not in src:continue
+            print('SCRIPT_BEGIN',m.start(),'len',len(src))
+            print('SCRIPT_START',repr(src[:4500]))
+            print('SCRIPT_END',repr(src[-1900:]))
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Save only non-sensitive HTML implementation excerpt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/ga-candidate-progress-ui-audit-20261118.txt
+          mkdir -p "$(dirname "$target")"
+          if test -s "$RUNNER_TEMP/progress-ui-audit.txt"; then
+            sed -n '1,175p' "$RUNNER_TEMP/progress-ui-audit.txt" > "$target"
+          else echo 'audit_unavailable' > "$target";fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: audit active percent renderer and polling'
+            for i in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
