@@ -49,8 +49,15 @@ try{
   localStorage.setItem("prodplan.projects.v2",projects);
   window.__PP_KPI_FIRST_BEST_V1__.sync();
  },{id,projects});
- const initial=await page.evaluate(plan=>{
+ const initial=await page.evaluate(({plan,model})=>{
   window.ppProjectAfterPlan(plan);
+  // ppProjectAfterPlan saves the app-wide demo model as well; restore our
+  // disposable fixture model so Stop choice ownership validation is realistic.
+  const rows=JSON.parse(localStorage.getItem("prodplan.projects.v2"));
+  const active=localStorage.getItem("prodplan.project.active.v2");
+  const project=rows.find(x=>String(x.id)===String(active));
+  project.model=model;
+  localStorage.setItem("prodplan.projects.v2",JSON.stringify(rows));
   window.renderKpisWithDelta(plan);
   const button=document.getElementById("opt");
   button.textContent="Continue optimization";
@@ -60,7 +67,7 @@ try{
   button.click();
   const snapshot=window.__PP_KPI_FIRST_BEST_V1__.snapshot;
   return {snapshot,hidden:window.__PP_KPI_FIRST_BEST_V1__.compareVisible===false};
- },makePlan(4338,412568,18706));
+ },{plan:makePlan(4338,412568,18706),model});
  assert.equal(initial.snapshot.metrics.duration,4338);
  assert.equal(initial.snapshot.compare,true);
  const reproduced=await page.evaluate(plan=>{
