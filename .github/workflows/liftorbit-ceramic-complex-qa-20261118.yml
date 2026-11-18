@@ -1,4 +1,5 @@
 name: LiftOrbit ceramic GA 12900 m2 7-stage 14-machine validation
+# Capture sanitized worker-owned checkpoint and final mismatch reasons.
 on:
   push:
     branches: [main]
