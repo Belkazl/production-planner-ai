@@ -33,6 +33,21 @@ jobs:
               before=600 if term in ('function renderPlan(', 'function renderGantt(', 'function drawGantt(', 'function renderEqGantt(') else 200
               after=8800 if term=='function renderPlan(' else 1500
               print('AT',i,repr(html[max(0,i-before):min(len(html),i+after)])[:10000])
+          for term in ['ppGanttToolV2','PP_GANTT_TOOL_V2','__PP_GANTT','ppGanttOperationDetails','function buildGanttSkeleton','function renderGenericPlan','function renderGenericGantt','function ppGantt', 'ppGanttTool', 'function renderEquipment', '#ppTabsView']:
+            hits=[m.start() for m in re.finditer(re.escape(term),html,re.I)]
+            print('\\nCORE',term,'hits',len(hits))
+            for i in hits[:5]:print('CTX',i,repr(html[max(0,i-500):min(len(html),i+3200)])[:3800])
+          for m in re.finditer(r'<script([^>]*)>([\\s\\S]*?)</script>',html,re.I):
+            content=m.group(2)
+            if 'ppGanttToolV2' not in content:continue
+            print('\\nMAIN_GANTT_SCRIPT',m.start(),'bytes',len(content),'attrs',repr(m.group(1)))
+            print('MAIN_SCRIPT_START',repr(content[:8500]))
+            for match in list(re.finditer(r'(?:function\\s+[A-Za-z_$][\\w$]*\\s*\\(|(?:const|let|var)\\s+[A-Za-z_$][\\w$]*\\s*=\\s*(?:function|\\(|[a-zA-Z_]+\\s*=>))',content))[:90]:
+              i=match.start();print('MAIN_FUNCTION',i,repr(content[i:i+300]))
+            for key in ['function render(', 'function draw(', 'function build(', 'function paint(', 'function setPlan(', 'function rows(', 'renderPlan(', 'renderGantt(', 'function refresh(', 'querySelector(', 'insertAdjacent', 'appendChild(', 'ppGanttToolV2','__PP_GANTT']:
+              hits=[x.start() for x in re.finditer(re.escape(key),content)]
+              print('MAIN_REF',key,len(hits))
+              for i in hits[:5]:print('MAIN_CONTEXT',i,repr(content[max(0,i-450):i+1200])[:1700])
           for pattern in [r'<script[^>]*src=["\']([^"\']+)',r'<div[^>]+id=["\'](?:ganttContent|ppTabsView)["\'][^>]*>',r'#[a-zA-Z][\w-]*(?:gantt|Gantt)[\w-]*\s*\{[^}]{0,260}\}']:
             matches=re.findall(pattern,html,re.I)
             print('\nPATTERN',pattern,'count',len(matches))
