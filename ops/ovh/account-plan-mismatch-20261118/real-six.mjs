@@ -125,7 +125,7 @@ try{
   lastProgress=progressState;
   console.log("LIVE_SIX_ORDER_SAMPLE",i,JSON.stringify({pageState,progressState,elapsed:Date.now()-epochs,requests:requests.length}));
   if(pageState?.error==="Error: UI_EVAL_TIMEOUT")throw Error("RENDERER_UI_BLOCKED");
-  if(progressState?.phase==="completed"||progressState?.phase==="failed"||progressState?.phase==="timed_out"||progressState?.error==="account_plan_mismatch")break;
+  if(progressState?.phase==="completed"||progressState?.phase==="failed"||progressState?.phase==="timed_out"||progressState?.phase==="stale"||progressState?.error==="account_plan_mismatch")break;
  }
  const afterModel=await page.evaluate(async()=>{const r=await fetch("/api/model",{cache:"no-store",credentials:"same-origin"});return (await r.json()).model});
  function different(a,b,p="",out=[]){
