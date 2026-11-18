@@ -1,4 +1,5 @@
 name: LiftOrbit GA ownership validator with real ceramic-like setups diagnostic
+# Regression after Gantt-only model metadata hash canonicalization.
 on:
   push:
     branches: [main]
