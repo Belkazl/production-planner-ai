@@ -1,0 +1,60 @@
+name: LiftOrbit Chrome UI acceptance no redundant GA technical labels
+on:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH hide redundant GA technical labels
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  chrome:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify protected GA label cleanup was deployed
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/ga-labels-cleanup-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/ga-labels-cleanup-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/ga-labels-cleanup-release-latest.txt
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install lightweight browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify metadata hidden while main planning controls remain visible
+        id: acceptance
+        run: node ops/ovh/ga-technical-labels-cleanup-20261118/chrome.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Record browser acceptance
+        if: always()
+        env:
+          RUN: ${{ github.run_id }}
+          QA: ${{ steps.acceptance.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/ga-labels-cleanup-chrome-latest.txt
+          mkdir -p "$(dirname "$file")"
+          printf 'workflow_run=%s\nchrome_acceptance=%s\n' "$RUN" "$QA" > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA labels cleanup browser acceptance'
+            for i in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'GA_LABELS_CLEANUP_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
