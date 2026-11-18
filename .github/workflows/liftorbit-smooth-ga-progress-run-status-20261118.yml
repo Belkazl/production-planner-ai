@@ -1,0 +1,35 @@
+name: LiftOrbit audit smooth GA progress guarded release status
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-smooth-ga-progress-run-status-20261118.yml
+permissions:
+  contents: write
+  actions: read
+jobs:
+  status:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record exact guarded progress rollout status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/smooth-ga-progress-runs-latest.txt
+          mkdir -p "$(dirname "$file")"
+          gh api 'repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-smooth-verified-ga-progress-20261118.yml/runs?per_page=9' --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) sha=\(.head_sha[0:10])"' > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record smooth GA progress release state'
+            for a in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
