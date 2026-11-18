@@ -1,0 +1,420 @@
+AUDIT_TARGET=OVH_ACTIVE_GA
+SCANNING=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+SCANNING=/home/liftorbit-ci/liftorbit-migration/sources
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_real_recovered_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_process_isolation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_full_runtime.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/full_runtime_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/compile_legacy_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/constraints.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/manager.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/legacy_test_server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/recovered_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/fixture.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/continuation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/__init__.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_real_recovered_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_process_isolation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_full_runtime.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/full_runtime_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/compile_legacy_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/constraints.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/manager.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_test_server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/recovered_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/fixture.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/continuation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/__init__.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_real_recovered_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_process_isolation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_full_runtime.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/full_runtime_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/compile_legacy_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/constraints.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/manager.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/legacy_test_server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/recovered_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/fixture.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/continuation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/ga_workers/__init__.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/tests/test_real_recovered_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/tests/test_process_isolation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/tests/test_legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/tests/test_full_runtime.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/full_runtime_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/compile_legacy_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/constraints.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/manager.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/legacy_test_server.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/recovered_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/fixture.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/continuation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga_python_workers/ga_workers/__init__.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga_python_workers/tests/test_real_recovered_ga.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga_python_workers/tests/test_process_isolation.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga_python_workers/tests/test_legacy_adapter.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga_python_workers/tests/test_full_runtime.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga_python_workers/ga_workers/full_runtime_adapter.py
+SCANNING=/home/liftorbit-ci/liftorbit-migration
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/91c2883c35569ee928c9fc4bcb9f35e145a57627/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/58ebf2870e0fb4580e42dbc418b90c1eaf916fd1/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/1dd6f9bbfe6c209cc6b6c7962333f90974a764c9/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/2813ebd05d1d159e32d7854eaf8e2a0d434368bc/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/9df9b865460bc31cf8137fe853e83b37aa0bf072/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/00cb4020dcaf0fe6af0b18ce2ac1f37fbf0ecef2/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/34a6fc4bd11d254cda8464a81cdf63ad0947dec3/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/97b7fd133c9f227464026c062ecdcc43fa35a4e5/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/96270c5b357981d9728a5621540aa83f1916c93c/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/85116c5b91024e77b49f72d4a57dcc79f0ff2b21/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/tests/auth-gateway-smoke.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/tests/inspect-live-ga-html.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/tests/optimizer-start-over-ui-anchors.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/tests/auth-proxy-origin.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/tests/diagnose-ceramic-resources.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/6c6d099d6878e04fa93533110571ba9350fc7f91/ga-worker-build.ts
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/8f1767fc46c9db906ba7ee9e31e3d062efbc0750/tests/auth-live-qa.py
+/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/releases/8f1767fc46c9db906ba7ee9e31e3d062efbc0750/tests/auth-gateway-smoke.py
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-live-qa.py bytes 2765
+MATCHES 2
+LINE 15  ("GET","/api/model"),("GET","/api/plan-progress"),
+LINE 26 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-gateway-smoke.py bytes 3228
+MATCHES 1
+LINE 16 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop","/api/secret","/favicon.ico"]:
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/inspect-live-ga-html.py bytes 637
+MATCHES 1
+LINE 4 patterns=[r"/api/plan(?:-progress)?",r"generations",r"gen_count",r"ga_.*(?:iterations|generations)",r"population",r"max(?:imum)?_?(?:gens|generations)",r"batch_size",r"iterations",r"opt.onclick",r"\boptimize\(",r"async function.*(?:plan|opt
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/optimizer-start-over-ui-anchors.py bytes 1521
+MATCHES 1
+LINE 10  "function ppIncumbentDecision(a,b){","id=\"ppLivePanelV2\"","id=\"ppRealOptProgressV1\"","const opt=","function renderPlan"] 
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/tests/auth-proxy-origin.py bytes 1254
+MATCHES 2
+LINE 12 qa=os.environ.get("PP_ORIGIN_TEST_ALLOWED","https://pp-progress-fix-qa-20261010-production.up.railway.app")
+LINE 17 s,b=post("https://aps-setup-bridge-candidate-v2-production.up.railway.app")
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_real_recovered_ga.py bytes 3726
+MATCHES 2
+LINE 39     output=run({'model':make_model('REAL',8),'options':{'generations':30,'population':20,'seed':42}},lambda _:None)
+LINE 61         snap=manager.submit(name, {'model':make_model(name,8),'options':{'generations':25,'population':15,'seed':i}})
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/tests/test_full_runtime.py bytes 10278
+MATCHES 14
+LINE 27   model=sample('QA',material=True,setup=True);out=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 37   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 41   result=run({'model':model,'options':{'generations':12,'population':12,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 53   first=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 56   second=run({'model':model,'options':{'generations':12,'population':12,'seed':12,'continue':True,'resume_state':state}},lambda _:None)
+LINE 69   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 74    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 78    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 83    first=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':5}})
+LINE 87    second=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':9,'continue':True,'resume_state':incumbent}})
+LINE 106    j=manager.submit('cancel-account',{'model':heavy,'options':{'generations':15000,'population':250,'seed':123}})
+LINE 128     item=manager.submit(account,{'model':sample(account,material=(i%3==0),setup=(i%2==0)),'options':{'generations':18,'population':12,'seed':100+i}})
+LINE 150       'options':{'generations':12,'population':12,'seed':101}})
+LINE 156      self.assertTrue(snapshot['progress']==100)
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/full_runtime_adapter.py bytes 8658
+MATCHES 8
+LINE 113 def run(payload,progress):
+LINE 129     gens=max(1,min(15000,int(opts.get('generations',120))))
+LINE 130     population=max(2,min(1000,int(opts.get('population',80))))
+LINE 150         try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
+LINE 152     progress({'percent':1,'phase':'starting','running':True})
+LINE 159             snap=ga.get('_pp_progress_snapshot',lambda: {})()
+LINE 168                 progress(preview)
+LINE 184     progress({'percent':100,'phase':'complete','running':False,'best_preview':result})
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/constraints.py bytes 10073
+MATCHES 6
+LINE 4 proven feasible schedule, move only forward in time, and reject any candidate
+LINE 162     """Shift a feasible candidate forward; never infer or modify a lock's resources.
+LINE 165     operations. Other GA order candidates may still satisfy the same pins.
+LINE 215     def constrained(candidate_model, order_ids):
+LINE 216         sim = original(candidate_model,order_ids)
+LINE 217         return apply_pins(sim,clean,candidate_model,ga)
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/manager.py bytes 13495
+MATCHES 9
+LINE 1 """Per-account, bounded OS-process supervisor with cooperative progress and hard cancellation.
+LINE 49         def progress(snapshot):
+LINE 52                     conn.send({"type": "progress", "data": snapshot})
+LINE 56         result = callback(payload, progress)
+LINE 79     progress: int = 0
+LINE 187         result = {"job_id": job.job_id, "status": job.state, "progress": job.progress,
+LINE 264                         if msg.get("type") == "progress":
+LINE 266                             job.progress = min(99, max(job.progress, int(data.get("percent", 0))))
+LINE 296                         job.progress = 100
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/legacy_adapter.py bytes 4916
+MATCHES 4
+LINE 57 def run(payload, progress):
+LINE 88                     status=request(base,"/api/plan-progress",timeout=1)
+LINE 90                         for k in ("candidate_preview","best_preview"):
+LINE 92                         progress(status)
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/legacy_test_server.py bytes 1331
+MATCHES 1
+LINE 11   if self.path=="/api/plan-progress":return self.reply({"ok":True,"running":False})
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/recovered_adapter.py bytes 5537
+MATCHES 6
+LINE 90 def run(payload, progress):
+LINE 112     gens = max(1, min(int(opts.get('generations', 120)), 15000))
+LINE 113     population = max(2, min(int(opts.get('population', 80)), 1000))
+LINE 117     progress({'percent': 1, 'running': True, 'phase': 'initializing'})
+LINE 118     result = engine['optimize'](gens, population, seed, False)
+LINE 123     progress({'percent': 100, 'running': False, 'phase': 'complete', 'best_preview': result})
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/fixture.py bytes 1018
+MATCHES 2
+LINE 6 def run(payload, progress):
+LINE 20             progress({"percent": pct, "best_preview": {"operations": [{"order": x} for x in order_ids], "tenant_tag": tenant_tag}})
+WORKER_SOURCE sources/ovh-app/releases/49fadb1bb06417ca9faa51f2842012e0a966ef1b/ga_python_workers/ga_workers/continuation.py bytes 3625
+MATCHES 2
+LINE 4 A new OS worker reconstructs its own GA population from this incumbent order;
+LINE 73             'total_trials':int(result.get('total_generations') or 0),
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-live-qa.py bytes 2765
+MATCHES 2
+LINE 15  ("GET","/api/model"),("GET","/api/plan-progress"),
+LINE 26 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-gateway-smoke.py bytes 3228
+MATCHES 1
+LINE 16 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop","/api/secret","/favicon.ico"]:
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/inspect-live-ga-html.py bytes 637
+MATCHES 1
+LINE 4 patterns=[r"/api/plan(?:-progress)?",r"generations",r"gen_count",r"ga_.*(?:iterations|generations)",r"population",r"max(?:imum)?_?(?:gens|generations)",r"batch_size",r"iterations",r"opt.onclick",r"\boptimize\(",r"async function.*(?:plan|opt
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/optimizer-start-over-ui-anchors.py bytes 1521
+MATCHES 1
+LINE 10  "function ppIncumbentDecision(a,b){","id=\"ppLivePanelV2\"","id=\"ppRealOptProgressV1\"","const opt=","function renderPlan"] 
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/tests/auth-proxy-origin.py bytes 1254
+MATCHES 2
+LINE 12 qa=os.environ.get("PP_ORIGIN_TEST_ALLOWED","https://pp-progress-fix-qa-20261010-production.up.railway.app")
+LINE 17 s,b=post("https://aps-setup-bridge-candidate-v2-production.up.railway.app")
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_real_recovered_ga.py bytes 3726
+MATCHES 2
+LINE 39     output=run({'model':make_model('REAL',8),'options':{'generations':30,'population':20,'seed':42}},lambda _:None)
+LINE 61         snap=manager.submit(name, {'model':make_model(name,8),'options':{'generations':25,'population':15,'seed':i}})
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/tests/test_full_runtime.py bytes 10278
+MATCHES 14
+LINE 27   model=sample('QA',material=True,setup=True);out=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 37   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 41   result=run({'model':model,'options':{'generations':12,'population':12,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 53   first=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 56   second=run({'model':model,'options':{'generations':12,'population':12,'seed':12,'continue':True,'resume_state':state}},lambda _:None)
+LINE 69   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 74    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 78    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 83    first=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':5}})
+LINE 87    second=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':9,'continue':True,'resume_state':incumbent}})
+LINE 106    j=manager.submit('cancel-account',{'model':heavy,'options':{'generations':15000,'population':250,'seed':123}})
+LINE 128     item=manager.submit(account,{'model':sample(account,material=(i%3==0),setup=(i%2==0)),'options':{'generations':18,'population':12,'seed':100+i}})
+LINE 150       'options':{'generations':12,'population':12,'seed':101}})
+LINE 156      self.assertTrue(snapshot['progress']==100)
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/full_runtime_adapter.py bytes 8658
+MATCHES 8
+LINE 113 def run(payload,progress):
+LINE 129     gens=max(1,min(15000,int(opts.get('generations',120))))
+LINE 130     population=max(2,min(1000,int(opts.get('population',80))))
+LINE 150         try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)
+LINE 152     progress({'percent':1,'phase':'starting','running':True})
+LINE 159             snap=ga.get('_pp_progress_snapshot',lambda: {})()
+LINE 168                 progress(preview)
+LINE 184     progress({'percent':100,'phase':'complete','running':False,'best_preview':result})
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/constraints.py bytes 10073
+MATCHES 6
+LINE 4 proven feasible schedule, move only forward in time, and reject any candidate
+LINE 162     """Shift a feasible candidate forward; never infer or modify a lock's resources.
+LINE 165     operations. Other GA order candidates may still satisfy the same pins.
+LINE 215     def constrained(candidate_model, order_ids):
+LINE 216         sim = original(candidate_model,order_ids)
+LINE 217         return apply_pins(sim,clean,candidate_model,ga)
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/manager.py bytes 13495
+MATCHES 9
+LINE 1 """Per-account, bounded OS-process supervisor with cooperative progress and hard cancellation.
+LINE 49         def progress(snapshot):
+LINE 52                     conn.send({"type": "progress", "data": snapshot})
+LINE 56         result = callback(payload, progress)
+LINE 79     progress: int = 0
+LINE 187         result = {"job_id": job.job_id, "status": job.state, "progress": job.progress,
+LINE 264                         if msg.get("type") == "progress":
+LINE 266                             job.progress = min(99, max(job.progress, int(data.get("percent", 0))))
+LINE 296                         job.progress = 100
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_adapter.py bytes 4916
+MATCHES 4
+LINE 57 def run(payload, progress):
+LINE 88                     status=request(base,"/api/plan-progress",timeout=1)
+LINE 90                         for k in ("candidate_preview","best_preview"):
+LINE 92                         progress(status)
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/legacy_test_server.py bytes 1331
+MATCHES 1
+LINE 11   if self.path=="/api/plan-progress":return self.reply({"ok":True,"running":False})
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/recovered_adapter.py bytes 5537
+MATCHES 6
+LINE 90 def run(payload, progress):
+LINE 112     gens = max(1, min(int(opts.get('generations', 120)), 15000))
+LINE 113     population = max(2, min(int(opts.get('population', 80)), 1000))
+LINE 117     progress({'percent': 1, 'running': True, 'phase': 'initializing'})
+LINE 118     result = engine['optimize'](gens, population, seed, False)
+LINE 123     progress({'percent': 100, 'running': False, 'phase': 'complete', 'best_preview': result})
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/fixture.py bytes 1018
+MATCHES 2
+LINE 6 def run(payload, progress):
+LINE 20             progress({"percent": pct, "best_preview": {"operations": [{"order": x} for x in order_ids], "tenant_tag": tenant_tag}})
+WORKER_SOURCE sources/ovh-app/releases/002f06b4bb9556e3dfefa54321e9d3b69c1a3d61/ga_python_workers/ga_workers/continuation.py bytes 3625
+MATCHES 2
+LINE 4 A new OS worker reconstructs its own GA population from this incumbent order;
+LINE 73             'total_trials':int(result.get('total_generations') or 0),
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-live-qa.py bytes 2765
+MATCHES 2
+LINE 15  ("GET","/api/model"),("GET","/api/plan-progress"),
+LINE 26 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop"]:
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-gateway-smoke.py bytes 3228
+MATCHES 1
+LINE 16 for path in ["/api/db-storage","/api/model","/api/plan-progress","/api/optimizer-stop","/api/secret","/favicon.ico"]:
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/inspect-live-ga-html.py bytes 637
+MATCHES 1
+LINE 4 patterns=[r"/api/plan(?:-progress)?",r"generations",r"gen_count",r"ga_.*(?:iterations|generations)",r"population",r"max(?:imum)?_?(?:gens|generations)",r"batch_size",r"iterations",r"opt.onclick",r"\boptimize\(",r"async function.*(?:plan|opt
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/optimizer-start-over-ui-anchors.py bytes 1521
+MATCHES 1
+LINE 10  "function ppIncumbentDecision(a,b){","id=\"ppLivePanelV2\"","id=\"ppRealOptProgressV1\"","const opt=","function renderPlan"] 
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/tests/auth-proxy-origin.py bytes 1254
+MATCHES 2
+LINE 12 qa=os.environ.get("PP_ORIGIN_TEST_ALLOWED","https://pp-progress-fix-qa-20261010-production.up.railway.app")
+LINE 17 s,b=post("https://aps-setup-bridge-candidate-v2-production.up.railway.app")
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_real_recovered_ga.py bytes 3726
+MATCHES 2
+LINE 39     output=run({'model':make_model('REAL',8),'options':{'generations':30,'population':20,'seed':42}},lambda _:None)
+LINE 61         snap=manager.submit(name, {'model':make_model(name,8),'options':{'generations':25,'population':15,'seed':i}})
+WORKER_SOURCE sources/ovh-app/releases/a4d655323a4f3ad4ffe173f507e585bfff10b8d2/ga_python_workers/tests/test_full_runtime.py bytes 10278
+MATCHES 14
+LINE 27   model=sample('QA',material=True,setup=True);out=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 37   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 41   result=run({'model':model,'options':{'generations':12,'population':12,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 53   first=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 56   second=run({'model':model,'options':{'generations':12,'population':12,'seed':12,'continue':True,'resume_state':state}},lambda _:None)
+LINE 69   base=run({'model':model,'options':{'generations':12,'population':12,'seed':4}},lambda _:None)
+LINE 74    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 78    run({'model':model,'options':{'generations':8,'population':10,'seed':4,'locked_operations':[lock]}},lambda _:None)
+LINE 83    first=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':5}})
+LINE 87    second=manager.submit('one-account',{'model':model,'options':{'generations':12,'population':12,'seed':9,'continue':True,'resume_state':incumbent}})
+LINE 106    j=manager.submit('cancel-account',{'model':heavy,'options':{'generations':15000,'population':250,'seed':123}})
