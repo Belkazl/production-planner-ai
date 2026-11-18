@@ -1,0 +1,66 @@
+name: LiftOrbit Chrome verify STOP silently restores prior result
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-stop-restore-previous-chrome-20261118.yml
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH Stop silently restores previous accepted plan
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  chrome:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify guarded deployment and production boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/stop-restore-previous-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/stop-restore-previous-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/stop-restore-previous-release-latest.txt
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install lightweight browser driver
+        shell: bash
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify STOP auto-keep previous and KPI in authenticated Chrome
+        id: verify
+        shell: bash
+        run: node ops/ovh/stop-restore-previous-20261118/chrome.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish safe Chrome STOP acceptance result
+        if: always()
+        shell: bash
+        env:
+          QA_RUN: ${{ github.run_id }}
+          QA_RESULT: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/stop-restore-previous-chrome-latest.txt
+          mkdir -p "$(dirname "$target")"
+          printf 'workflow_run=%s\nchrome_acceptance=%s\n' "$QA_RUN" "$QA_RESULT" > "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record STOP previous-plan Chrome verification'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'STOP_CHROME_REPORT_NOT_PUBLISHED'
+            exit 0
+          fi
