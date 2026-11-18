@@ -97,6 +97,9 @@ try{
   if(typeof busy!=="undefined")busy=false;
   document.getElementById("opt").disabled=false;
  });
+ const beforeModel=await page.evaluate(async()=>{const r=await fetch("/api/model",{cache:"no-store",credentials:"same-origin"});return (await r.json()).model});
+ const statusBefore=await page.evaluate(async()=>{const r=await fetch("/api/plan-progress",{cache:"no-store"});const p=await r.json();return{phase:p.phase,percent:p.percent,error:p.error}});
+ console.log("QA_MODEL_AT_START",JSON.stringify({keys:Object.keys(beforeModel||{}).sort(),orders:beforeModel?.orders?.length,equipment:beforeModel?.equipment?.length,phase:statusBefore.phase}));
  console.log("LIVE_FREEZE_CLICK_BEGIN",JSON.stringify(await page.evaluate(()=>({stop:window.__PP_STOP_DEBUG__?.(),depth:window.__PP_OPTIMIZER_DEPTH__.get(),disabled:document.getElementById("opt").disabled}))));
  await page.locator("#opt").click({timeout:10000,noWaitAfter:true});
  await page.waitForTimeout(200);
@@ -124,6 +127,22 @@ try{
   if(pageState?.error==="Error: UI_EVAL_TIMEOUT")throw Error("RENDERER_UI_BLOCKED");
   if(progressState?.phase==="completed"||progressState?.phase==="failed"||progressState?.phase==="timed_out"||progressState?.error==="account_plan_mismatch")break;
  }
+ const afterModel=await page.evaluate(async()=>{const r=await fetch("/api/model",{cache:"no-store",credentials:"same-origin"});return (await r.json()).model});
+ function different(a,b,p="",out=[]){
+  if(out.length>=45)return out;
+  if(JSON.stringify(a)===JSON.stringify(b))return out;
+  if(a===null||b===null||typeof a!=="object"||typeof b!=="object"){
+   out.push(p||"<root>");return out;
+  }
+  const keys=new Set([...Object.keys(a),...Object.keys(b)]);
+  for(const k of keys){
+   if(out.length>=45)break;
+   different(a?.[k],b?.[k],p?(Array.isArray(a)||Array.isArray(b)?p+"["+k+"]":p+"."+k):k,out);
+  }
+  return out;
+ }
+ const paths=different(beforeModel,afterModel);
+ console.log("QA_MODEL_DIFF_AFTER_RUN",JSON.stringify({same:!paths.length,changes:paths,orders:afterModel?.orders?.length,equipment:afterModel?.equipment?.length,phase:lastProgress?.phase,error:lastProgress?.error}));
  if(lastProgress?.error==="account_plan_mismatch")throw Error("SIX_ORDER_ACCOUNT_PLAN_MISMATCH_REPRODUCED");
  if(lastProgress?.phase!=="completed")throw Error("SIX_ORDER_NO_SUCCESS_"+JSON.stringify(lastProgress));
  if(errors.length)throw Error("BROWSER_ERRORS_"+JSON.stringify(errors.slice(0,4)));
