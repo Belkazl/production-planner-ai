@@ -48,7 +48,7 @@ test("worse 9080 minute plan cannot replace accepted 4355 minute plan",async()=>
  const result=await response.json();
  assert.equal(result.duration_minutes,4355);
  assert.equal(result.optimization_previous_best_preserved,true);
- assert.match(s.warned.join(" "),"PP_GA_WORSE_OBJECTIVE_REJECTED");
+ assert.match(s.warned.join(" "),/PP_GA_WORSE_OBJECTIVE_REJECTED/);
 });
 test("best progress completion cannot regress and keeps response shape",async()=>{
  const s=sandbox({ok:true,success:true,phase:"completed",running:false,
