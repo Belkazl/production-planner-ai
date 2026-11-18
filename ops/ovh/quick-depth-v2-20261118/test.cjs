@@ -11,11 +11,12 @@ assert.equal(prior.split(oldQuick).length,2,"exactly one prior Quick preset");
 assert.equal(s.split(newQuick).length,2,"exactly one new Quick preset");
 assert.equal(s.replace(newQuick,oldQuick),prior,"no other changes anywhere in current deployed UI");
 for(const mode of ["standard","thorough","maximum"]){
- const expr=new RegExp(mode+":Object\\.freeze\\(\\{generations:(\\d+),population:(\\d+)\\}\\)");
- const before=prior.match(expr),after=s.match(expr);
- assert(before&&after,"missing "+mode);
- assert.deepEqual(after.slice(1,3),before.slice(1,3),"other preset unchanged: "+mode);
- console.log("PP_QUICK_MODE_UNCHANGED",mode,after[1],after[2]);
+ const before=prior.split("\n").filter(row=>row.includes(mode+":Object.freeze({"));
+ const after=s.split("\n").filter(row=>row.includes(mode+":Object.freeze({"));
+ assert.equal(before.length,1,"unique old "+mode);
+ assert.equal(after.length,1,"unique new "+mode);
+ assert.equal(after[0],before[0],"unchanged "+mode);
+ console.log("PP_QUICK_MODE_UNCHANGED",mode,after[0].trim());
 }
 for(const marker of ["__PP_OPTIMIZER_DEPTH__","__PP_GA_OBJECTIVE_FLOOR_V1__","PP_GA_WORSE_OBJECTIVE_REJECTED","ppOptimizerDepthSelect","pp:optimizer-reconnect-pending","pp:optimizer-depth-changed","generations:config.generations,population:config.population"]){
  assert(s.includes(marker),"preserved "+marker);
