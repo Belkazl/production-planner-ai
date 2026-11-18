@@ -1,0 +1,64 @@
+name: LiftOrbit inspect safe GA worker diagnostic access
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ops-permitted-reader-20261118.yml
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only maintenance command names
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh_opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          ssh "${ssh_opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE' > "$RUNNER_TEMP/diagnostics.txt"
+          set -euo pipefail
+          echo "MAINTENANCE_SCRIPT_PERMITTED_COMMANDS"
+          if test -r /usr/local/sbin/liftorbit-ops; then
+            grep -nE '(usage|Usage|case |status\)|smoke\)|update\)|exec\)|logs\)|docker exec)' /usr/local/sbin/liftorbit-ops | cut -c 1-200 | head -n 70 || true
+          fi
+          echo "COMPILED_SOURCE_DIRECT_ACCESS"
+          for dir in /tmp/production_planner.py "$HOME/liftorbit-migration/sources/ovh-app/current/ga_python_workers/ga_workers/full_runtime_adapter.py"; do
+            test -r "$dir" && echo "readable $dir" || echo "not_readable $dir"
+          done
+          echo "CURRENT_UI_BUILD"
+          sha256sum "$HOME/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" | cut -c 1-90 || true
+          REMOTE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Record safe worker access summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/progress-worker-reader-20261118.txt
+          mkdir -p "$(dirname "$file")"
+          if test -s "$RUNNER_TEMP/diagnostics.txt"; then cp "$RUNNER_TEMP/diagnostics.txt" "$file"; else echo unavailable > "$file"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: inspect allowed worker read-only diagnostics'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
