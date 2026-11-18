@@ -22,6 +22,6 @@ const replacement=`    const state=(await req("/internal/ga-state?account_id="+e
     return {...state,best_preview:parsed(state.best_preview),
       result:parsed(state.result),resume_state:parsed(state.resume_state)};`;
 if(s.split(anchor).length!==2)throw Error("GA_JSONB_STATE_READ_ANCHOR_CHANGED");
-if(!s.includes("qa_state_account_required")||!s.includes("validJob"))throw Error("GA_JSONB_AUTH_GUARD_MISSING");
+if(!s.includes("qa_state_account_required")||!s.includes("qa_state_job_required"))throw Error("GA_JSONB_AUTH_GUARD_MISSING");
 writeFileSync(path,s.replace(anchor,replacement));
 console.log("GA_JSONB_STATE_OBJECT_DECODING_PATCHED");
