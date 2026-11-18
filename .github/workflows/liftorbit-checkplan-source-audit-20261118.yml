@@ -49,6 +49,14 @@ jobs:
           if test -r tenant-model-runtime.js; then sed -n "1,188p" tenant-model-runtime.js | cut -c 1-220; fi
           echo "PYTHON_GA_UPSTREAM_BUILD_FIRST_80_LINES"
           if test -r python-ga-upstream-build.ts; then sed -n "1,80p" python-ga-upstream-build.ts | cut -c 1-220; fi
+          echo "HASH_USED_IN_COMPILED_ENTRYPOINT"
+          for f in index.ts baselines/2026-10-10/aps-setup-bridge/index.ts tenant-model-runtime.js; do
+            if test -r "$f"; then echo "FILE=$f"; grep -nF "ppAccountModelHash" "$f" | head -n 5 | cut -c 1-220 || true; fi
+          done
+          echo "MODEL_RUNTIME_SOURCE_REFERENCES"
+          for f in Dockerfile tenant-model-build.ts build-bridge.ts; do
+            if test -r "$f"; then echo "FILE=$f"; grep -nE "tenant-model-runtime|tenant-model-build|index.ts|Bun" "$f" | head -n 20 | cut -c 1-210 || true; fi
+          done
           echo "OTHER_CHECKPLAN_FILES"
           find . -maxdepth 2 -type f \( -name '*.mjs' -o -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0 | xargs -0 grep -l 'checkPlan' | head -n 16 || true
           REMOTE
