@@ -118,6 +118,7 @@ try{
  assert.equal(employees.secondaryVisible,false);
  assert.equal(employees.mainRows,5);
  assert.match(employees.firstRow,/QA employee 0/);
+ assert.match(employees.axis,/Employees|Сотрудники/i,"employee axis must not say Equipment");
  assert.equal(employees.ops,915);
  // Zoom must never revert the employee view to a duplicated equipment timeline.
  console.log("UNIFIED_GANTT_ZOOM_UI",JSON.stringify(await page.evaluate(()=>
@@ -134,6 +135,7 @@ try{
  const employeesZoom=await capture(1);
  console.log("UNIFIED_GANTT_EMPLOYEES_ZOOM",JSON.stringify(employeesZoom));
  assert.equal(employeesZoom.mainRows,5);
+ assert.match(employeesZoom.axis,/Employees|Сотрудники/i,"zoom keeps employee axis label");
  assert.equal(employeesZoom.demoModelEquipment,14,"live model never becomes fake employees");
  assert(employeesZoom.zoom>1);
  await page.evaluate(p=>{
@@ -150,6 +152,7 @@ try{
  assert.equal(orders.secondaryVisible,false);
  assert.equal(orders.mainRows,12);
  assert.match(orders.firstRow,/QA2601/);
+ assert.match(orders.axis,/Orders|Заказы/i,"order axis must not say Equipment");
  assert.equal(orders.ops,915);
  // Other tabs should not also show the equipment chart.
  for(const n of [2,4,5]){
