@@ -47,6 +47,7 @@ let lastReal=null,lastMode=-1,lastProjectId="",lastProjection=null,painting=fals
 const positions=new Map(),originalHeading=card.querySelector(".gantt-head b")?.textContent||"Equipment utilization";
 const heading=card.querySelector(".gantt-head b");
 function getPlan(){
+ if(window.__ppOptimizationInFlight===true&&lastReal)return lastReal;
  if(window.__ppTabPlan&&typeof window.__ppTabPlan==="object")return window.__ppTabPlan;
  if(window.__ppGenericPlan&&typeof window.__ppGenericPlan==="object")return window.__ppGenericPlan;
  if(window.__ppOptimizerCommittedPlan&&typeof window.__ppOptimizerCommittedPlan==="object")return window.__ppOptimizerCommittedPlan;
@@ -73,7 +74,7 @@ function project(plan,mode){
   const processNames=orderNames();
   for(const [i,o] of (Array.isArray(m.orders)?m.orders:[]).entries()){
    const sourceId=toString(o.id),id="pp-order-v2-"+i;
-   const prefix=/^ru/i.test(language())?"Заказ ":"Order ";
+   const prefix=/заказ/i.test(toString(tabs.children[3]?.textContent))?"Заказ ":"Order ";
    const row={id,name:prefix+sourceId,
     kind:processNames.get(toString(o.technical_process_id))||
       toString(o.name||o.description||""),__ppActual:o};
@@ -133,6 +134,7 @@ function renderActive(p,mode=getMode()){
    refreshOperationDetails(mode,p);
    if(!projection.ops.length){
     stage.hidden=true;
+    document.getElementById("timeline")?.style.setProperty("display","none","important");
     const empty=document.getElementById("ppUnifiedGanttEmpty");
     if(empty)empty.textContent=mode===1?
       "No employee operations in this plan.":"No order operations in this plan.";
@@ -214,9 +216,10 @@ window.addEventListener("click",event=>{
  if(!target||![1,3].includes(getMode())||!lastProjection)return;
  const m=getModel();if(!m)return;
  const had=Object.prototype.hasOwnProperty.call(m,"equipment"),prior=m.equipment;
- m.equipment=lastProjection.resources;
+ const temporary=lastProjection.resources;
+ m.equipment=temporary;
  setTimeout(()=>{
-  if(m.equipment===lastProjection?.resources){
+  if(m.equipment===temporary){
    if(had)m.equipment=prior;else delete m.equipment;
   }
   refreshOperationDetails(getMode(),lastReal);
