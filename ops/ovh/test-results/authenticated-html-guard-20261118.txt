@@ -1,0 +1,15 @@
+registration_http=200
+response_http=200
+x_pp_gantt_component=None
+html_size=279739
+contains_ppFreshFloor=False
+contains_ppFreshObjectiveFloorHtml=False
+contains_ppIncumbentDecision=False
+contains_ganttScroll=True
+contains_ppOptGuard=False
+contains_ppLivePanelV2=False
+contains_ppRealOptProgressV1=False
+contains_ppOptimizerStartOver=True
+anchor_const_ppOriginal=ppInc=False
+anchor_const_ppDec=cont&&ppIn=False
+anchor_const_ppDec=ppInc?ppIn=False
