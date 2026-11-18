@@ -1,0 +1,25 @@
+name: LiftOrbit account-mismatch real ceramic discovery
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-complex-ceramic-diagnostic-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 11
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: |
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Identify built-in ceramic demo controls
+        run: node ops/ovh/account-plan-mismatch-20261118/demo-probe.mjs
+      - name: Inspect final worker variant composition of 6-order GA
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: node ops/ovh/account-plan-mismatch-20261118/real-six.mjs
