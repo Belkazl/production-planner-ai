@@ -35,6 +35,7 @@ jobs:
         shell: bash
         run: npm install --no-save --no-package-lock playwright-core@1.57.0
       # Run with the current disposable model owner fixture and extra click diagnostics.
+      # Verify KPI continuation in browser without sending a real GA POST.
       - name: Click Stop plan chooser, Continue and verify metrics after reload
         id: browser
         shell: bash
