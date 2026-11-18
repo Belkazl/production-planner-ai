@@ -1,0 +1,92 @@
+name: LiftOrbit read-only Python GA per-candidate progress audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-candidate-progress-source-audit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Locate active optimizer progress source on OVH without modifying production
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = '51.255.163.121'
+          test "$OVH_USER" = 'liftorbit-ci'
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20 "$OVH_USER@$OVH_HOST" bash -s > "$RUNNER_TEMP/progress-audit.txt" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          test -d "$root"
+          echo 'AUDIT_TARGET=OVH_ACTIVE_GA'
+          for path in "$root/sources/ovh-app/current" "$root/sources" "$root"; do
+            echo "SCANNING=$path"
+            find "$path" -maxdepth 6 -type f \( -name '*.py' -o -name 'ga-worker-build.ts' -o -name '*ga*worker*.js' \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n 100 || true
+          done
+          python3 - "$root" <<'PY'
+          import pathlib,sys,re
+          root=pathlib.Path(sys.argv[1])
+          files=[]
+          for folder in ['sources','runtime','workers']:
+            base=root/folder
+            if base.exists():
+              for p in base.rglob('*.py'):
+                if len(p.parts)>18 or any(x in p.parts for x in ['site-packages','node_modules','.git','.venv']):
+                  continue
+                try: size=p.stat().st_size
+                except OSError:continue
+                if size>1000000:continue
+                files.append(p)
+          seen=set()
+          for p in files[:250]:
+            if str(p) in seen:continue
+            seen.add(str(p))
+            try:s=p.read_text()
+            except (OSError,UnicodeError):continue
+            if not re.search(r'progress|generation|candidate|population|evaluat',s,re.I):continue
+            print('WORKER_SOURCE',str(p.relative_to(root)),'bytes',len(s))
+            lines=s.splitlines()
+            matches=[(i,line) for i,line in enumerate(lines,1) if re.search(r'progress|generation|candidate|population|evaluat|def (run|status|optimize)',line,re.I)]
+            print('MATCHES',len(matches))
+            for i,line in matches[:45]:print('LINE',i,line[:240])
+          print('WORKER_SOURCE_SCAN_DONE',len(files))
+          PY
+          REMOTE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish source structure and progress location only
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/ga-candidate-progress-audit-20261118.txt
+          mkdir -p "$(dirname "$file")"
+          if test -s "$RUNNER_TEMP/progress-audit.txt"; then
+            sed -n '1,420p' "$RUNNER_TEMP/progress-audit.txt" > "$file"
+          else echo 'audit_unavailable' > "$file"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA worker per-candidate progress source audit'
+            for i in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
