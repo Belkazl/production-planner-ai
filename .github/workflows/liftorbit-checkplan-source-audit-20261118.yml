@@ -57,6 +57,12 @@ jobs:
           for f in Dockerfile tenant-model-build.ts build-bridge.ts; do
             if test -r "$f"; then echo "FILE=$f"; grep -nE "tenant-model-runtime|tenant-model-build|index.ts|Bun" "$f" | head -n 20 | cut -c 1-210 || true; fi
           done
+          echo "MODEL_BUILD_SCRIPT"
+          if test -r tenant-model-build.ts; then sed -n "1,44p" tenant-model-build.ts | cut -c 1-200; fi
+          echo "ACTIVE_DOCKERFILE"
+          if test -r Dockerfile; then sed -n "1,25p" Dockerfile | cut -c 1-220; fi
+          echo "OPS_UPDATE_SOURCE_MARKERS"
+          if test -r /usr/local/sbin/liftorbit-ops; then grep -nE "tenant-model|build-bridge|index.ts|sources/ovh-app|docker compose|update\)" /usr/local/sbin/liftorbit-ops | cut -c 1-200 | head -n 30 || true; fi
           echo "OTHER_CHECKPLAN_FILES"
           find . -maxdepth 2 -type f \( -name '*.mjs' -o -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0 | xargs -0 grep -l 'checkPlan' | head -n 16 || true
           REMOTE
