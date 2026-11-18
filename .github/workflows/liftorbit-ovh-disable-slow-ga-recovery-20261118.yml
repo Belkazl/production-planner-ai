@@ -1,0 +1,69 @@
+name: LiftOrbit OVH remove blocking GA completed-plan worker retry
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-disable-slow-ga-recovery-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-ovh-emergency-source-rollback
+  cancel-in-progress: false
+jobs:
+  rollback:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'hotfix(liftorbit): remove blocking completed GA worker retry')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Restore verified pre-recovery GA bridge only (not project data)
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/python-ga-upstream.mjs"
+          backup="$root/patch-backups/completed-plan-recovery-20261118/python-ga-upstream.mjs"
+          test -r "$live" && test -r "$backup"
+          grep -Fq 'const qaOwnTrace=' "$backup"
+          if grep -Fq 'persisted_completed_plan_reverified' "$live"; then
+            cp -p "$backup" "$live"
+            echo 'BLOCKING_WORKER_RETRY_SOURCE_REMOVED'
+          else
+            test "$(sha256sum "$live" | cut -d' ' -f1)" = "$(sha256sum "$backup" | cut -d' ' -f1)"
+            echo 'BLOCKING_WORKER_RETRY_ALREADY_ABSENT'
+          fi
+          check=no
+          for attempt in 1 2 3; do
+            if sudo -n /usr/local/sbin/liftorbit-ops update > "$root/patch-backups/completed-plan-recovery-20261118/disable-retry-private.log" 2>&1; then check=yes; break; fi
+            sleep 4
+          done
+          test "$check" = yes
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          test "$(sha256sum "$live" | cut -d' ' -f1)" = "$(sha256sum "$backup" | cut -d' ' -f1)"
+          echo 'BLOCKING_WORKER_RETRY_ROLLED_BACK_HEALTHY'
+          REMOTE
+      - name: Check public app and guest session isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for n in 1 2 3 4 5; do
+            h=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' https://app.liftorbit.app/__bridge_health || true)
+            g=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$h" = 200 && "$g" = 401 ]]; then echo 'OVH_HOTFIX_PUBLIC_HEALTHY'; exit 0; fi
+            sleep 5
+          done
+          echo 'OVH_HOTFIX_PUBLIC_HEALTH_FAILED'; exit 1
