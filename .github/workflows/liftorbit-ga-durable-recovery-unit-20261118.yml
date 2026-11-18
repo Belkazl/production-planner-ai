@@ -1,0 +1,33 @@
+name: LiftOrbit GA stored completed strict recovery unit verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-durable-recovery-unit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prove prepatch failure and postpatch five recovery cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ga-rescue/tests
+          cp ops/ovh/ga-complete-setup-final-20261117/python-ga-upstream.mjs /tmp/ga-rescue/python-ga-upstream.mjs
+          node ops/ovh/account-plan-mismatch-20261118/trace-final.mjs /tmp/ga-rescue
+          cp ops/ovh/account-plan-mismatch-20261118/stored-completed.test.mjs /tmp/ga-rescue/tests/stored-completed.test.mjs
+          if node --test /tmp/ga-rescue/tests/stored-completed.test.mjs > /tmp/ga-prior.log 2>&1; then
+            echo 'PREPATCH_ERRONEOUSLY_PASSED'; exit 2
+          fi
+          grep -Fq 'state summary with no operations' /tmp/ga-prior.log
+          node ops/ovh/account-plan-mismatch-20261118/patch-stored-completed.mjs /tmp/ga-rescue
+          node --check /tmp/ga-rescue/python-ga-upstream.mjs
+          node --test /tmp/ga-rescue/tests/stored-completed.test.mjs
