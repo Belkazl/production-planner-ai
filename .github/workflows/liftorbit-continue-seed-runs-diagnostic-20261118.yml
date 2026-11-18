@@ -1,0 +1,33 @@
+name: LiftOrbit inspect Continue seed browser acceptance status
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-continue-seed-runs-diagnostic-20261118.yml
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect last 8 release runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/continue-seed-browser-runs-latest.txt
+          mkdir -p "$(dirname "$target")"
+          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-continue-seed-live-chromium-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target"
+          target2=ops/ovh/test-results/continue-seed-release-runs-latest.txt
+          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-continuation-seed-repair-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target2"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target" "$target2"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record Continue seed browser and deployment workflow states'
+            git push origin HEAD:main
+          fi
