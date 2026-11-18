@@ -1,0 +1,56 @@
+name: LiftOrbit audit STOP native script placement
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-stop-restore-source-audit-20261118.yml
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect only STOP script placement with disposable auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/liftorbit-stop-placement.txt"
+          import http.cookiejar,urllib.request,uuid,secrets,json,re
+          base='https://app.liftorbit.app'
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          payload=json.dumps({'email':'stop-inspect-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(27),'company':'Disposable STOP audit'}).encode()
+          req=urllib.request.Request(base+'/api/auth/register',data=payload,method='POST',headers={'Content-Type':'application/json','Accept':'application/json','Origin':base})
+          with opener.open(req,timeout=35) as r: print('register='+str(r.status))
+          with opener.open(base+'/',timeout=35) as r:
+            html=r.read(12000000).decode('utf-8','replace')
+            print('html='+str(r.status))
+          for pattern in ['__ppStopOptimizerInstalled','ppStopModal','stop-ui.js','restart-optimizer-ui.js','ppSelectedPlanKpiReferenceV2','__PP_STOP_DEBUG__']:
+            hits=list(re.finditer(re.escape(pattern),html))
+            print('anchor_'+re.sub('[^a-zA-Z0-9]','_',pattern)+'='+str(len(hits)))
+            if hits: print('anchor_context_'+re.sub('[^a-zA-Z0-9]','_',pattern)+'='+repr(html[max(0,hits[0].start()-220):hits[0].start()+260])[:530])
+          srcs=re.findall(r'<script[^>]*\bsrc=[\"\']([^\"\']+)',html,re.I)
+          print('script_sources='+json.dumps(srcs[:30]))
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish safe non-account script evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/stop-script-location-20261118.txt
+          mkdir -p "$(dirname "$file")"
+          cp "$RUNNER_TEMP/liftorbit-stop-placement.txt" "$file" || echo 'audit_unavailable' > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: inspect STOP script placement'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+            done
+          fi
