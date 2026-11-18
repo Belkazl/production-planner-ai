@@ -1,0 +1,58 @@
+name: LiftOrbit authenticated HTML optimization guard diagnostics
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-authenticated-html-guard-audit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only the rendered authenticated planner HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/qa-auth-html.txt"
+          import json,uuid,secrets,urllib.request,urllib.error,http.cookiejar
+          base='https://app.liftorbit.app'
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          email='guard-html-'+uuid.uuid4().hex+'@liftorbit.invalid'
+          payload=json.dumps({'email':email,'password':secrets.token_urlsafe(30),'company':'Disposable HTML guard audit'}).encode()
+          req=urllib.request.Request(base+'/api/auth/register',data=payload,method='POST',headers={'Content-Type':'application/json','Accept':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin'})
+          with opener.open(req,timeout=30) as r:
+            print('registration_http='+str(r.status))
+          with opener.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:
+            html=r.read(16000000).decode('utf-8','replace')
+            print('response_http='+str(r.status))
+            print('x_pp_gantt_component='+str(r.headers.get('x-pp-gantt-component')))
+            print('html_size='+str(len(html)))
+            for term in ['ppFreshFloor','ppFreshObjectiveFloorHtml','ppIncumbentDecision','ganttScroll','ppOptGuard','ppLivePanelV2','ppRealOptProgressV1','ppOptimizerStartOver']:
+              print('contains_'+term+'='+str(term in html))
+            for term in ['const ppOriginal=ppIncumbentCurrentPlan();const cont=hasResult||!!ppOriginal;','const ppDec=cont&&ppInc?','const ppDec=ppInc?ppIncumbentDecision']:
+              print('anchor_'+term[:22].replace(' ','_')+'='+str(term in html))
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Store non-sensitive marker report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest=ops/ovh/test-results/authenticated-html-guard-20261118.txt
+          mkdir -p "$(dirname "$dest")"
+          if [[ -f "$RUNNER_TEMP/qa-auth-html.txt" ]]; then
+            cat "$RUNNER_TEMP/qa-auth-html.txt" > "$dest"
+          else echo 'probe_failed' > "$dest"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dest"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record authenticated planner HTML guard markers'
+            git push origin HEAD:main
+          fi
