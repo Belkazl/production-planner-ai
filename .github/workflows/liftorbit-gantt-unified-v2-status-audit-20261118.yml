@@ -22,7 +22,7 @@ jobs:
           mkdir -p "$(dirname "$file")"
           gh api 'repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-gantt-unified-v2-release-20261118.yml/runs?per_page=7' --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) sha=\(.head_sha[0:10])"' > "$file"
           chrome=ops/ovh/test-results/gantt-unified-v2-chrome-runs-latest.txt
-          # Second diagnostic run checks app navigation visibility before clicking.
+          # Third run opens Planning so all three visible Gantt tabs are interactable.
           gh api 'repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-gantt-unified-v2-chrome-20261118.yml/runs?per_page=7' --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) sha=\(.head_sha[0:10])"' > "$chrome"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
