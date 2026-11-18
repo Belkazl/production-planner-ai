@@ -1,2 +1,2 @@
-workflow_run=44277792292
-chrome_acceptance=failure
+workflow_run=44278000370
+chrome_acceptance=success
