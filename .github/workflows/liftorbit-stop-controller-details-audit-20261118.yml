@@ -1,0 +1,55 @@
+name: LiftOrbit inspect actual inline STOP controller state transitions
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-stop-controller-details-audit-20261118.yml
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect STOP controller code only in disposable authenticated session
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/stop-controller-structure.txt"
+          import http.cookiejar,urllib.request,uuid,secrets,json,re
+          base='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          payload=json.dumps({'email':'stop-code-inspect-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(27),'company':'Disposable STOP code audit'}).encode()
+          req=urllib.request.Request(base+'/api/auth/register',data=payload,method='POST',headers={'Content-Type':'application/json','Accept':'application/json','Origin':base})
+          with op.open(req,timeout=35) as r:print('register='+str(r.status))
+          with op.open(base+'/',timeout=35) as r:html=r.read(12000000).decode('utf-8','replace')
+          match=re.search(r'<script id="ppStopOptimizationV1">([\s\S]*?)</script>',html)
+          assert match,'STOP controller missing'
+          s=match.group(1)
+          print('length='+str(len(s)))
+          for t in ['function restore(','function choose(','function showModal(','btn.onclick=','stop.onclick=','function ppRecoverRunningGaFromAccount(','function ppReconnectOptimizationOnDemand(','function ppUiStopRestore','window.__PP_STOP_DEBUG__','prevPlan=','stoppedPlanAvailable','modalShown','items.length','/api/optimizer-stop','window.dispatchEvent(new Event("pp:optimizer-stopped"))']:
+            inds=[x.start() for x in re.finditer(re.escape(t),s)]
+            print('KEY='+t+' occurrences='+str(len(inds)))
+            for i in inds[:4]:
+              print('AT='+str(i)+' '+repr(s[max(0,i-190):i+2000])[:2350])
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Record only STOP control code excerpts
+        if: always()
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/stop-controller-structure-20261118.txt
+          mkdir -p "$(dirname "$file")"
+          cp "$RUNNER_TEMP/stop-controller-structure.txt" "$file" || echo audit_failed > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: inspect actual Stop controller transitions'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+            done
+          fi
