@@ -120,7 +120,7 @@ try{
   try{
    const r=await ctx.request.get(base+"/api/plan-progress",{timeout:8000});
    const p=await r.json();progressState={code:r.status(),phase:p.phase,percent:p.percent,running:p.running,done:p.done,total:p.total,error:p.error,
-    candidateOps:p.candidate_preview?.operations?.length,candidateDuration:p.candidate_preview?.duration_minutes,bestDuration:p.best_preview?.duration_minutes,bestOps:p.best_preview?.operations?.length,bestValid:p.best_preview?.valid,bestPartial:p.best_preview?.partial,finalOps:p.result?.operations?.length};
+    variantsCount:p.result?.variants?.length||0,candidateOps:p.candidate_preview?.operations?.length,candidateDuration:p.candidate_preview?.duration_minutes,bestDuration:p.best_preview?.duration_minutes,bestOps:p.best_preview?.operations?.length,bestValid:p.best_preview?.valid,bestPartial:p.best_preview?.partial,finalOps:p.result?.operations?.length};
   }catch(e){progressState={error:String(e).slice(0,70)}}
   lastProgress=progressState;
   console.log("LIVE_SIX_ORDER_SAMPLE",i,JSON.stringify({pageState,progressState,elapsed:Date.now()-epochs,requests:requests.length}));
