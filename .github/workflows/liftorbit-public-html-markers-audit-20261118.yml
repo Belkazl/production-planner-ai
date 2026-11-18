@@ -1,0 +1,49 @@
+name: LiftOrbit public HTML objective guard marker audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-public-html-markers-audit-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect public response only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 30 -D "$RUNNER_TEMP/headers.txt" -o "$RUNNER_TEMP/app.html" 'https://app.liftorbit.app/'
+          node - "$RUNNER_TEMP/app.html" "$RUNNER_TEMP/headers.txt" > "$RUNNER_TEMP/html-marker-report.txt" <<'NODE'
+          const fs=require('node:fs');
+          const html=fs.readFileSync(process.argv[2],'utf8');
+          const headers=fs.readFileSync(process.argv[3],'utf8');
+          for(const term of ['ppFreshFloor','ppFreshObjectiveFloorHtml','ppIncumbentDecision','ganttScroll','ppOptimizerStartOver','ppOptGuard','ppRealOptProgressV1','ppLivePanelV2'])
+            console.log('html_'+term+'='+html.includes(term));
+          console.log('html_bytes='+Buffer.byteLength(html));
+          console.log('script_count='+(html.match(/<script\b/g)||[]).length);
+          for(const line of headers.split('\n'))if(/^HTTP\/|^x-pp-|^content-type:/i.test(line))console.log('header_'+line.trim().replaceAll(' ','_'));
+          NODE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Store public marker result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/public-html-markers-20261118.txt
+          mkdir -p "$(dirname "$target")"
+          if [[ -s "$RUNNER_TEMP/html-marker-report.txt" ]]; then
+            cp "$RUNNER_TEMP/html-marker-report.txt" "$target"
+          else echo 'diagnostic_unavailable' > "$target"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record public HTML objective guard markers'
+            git push origin HEAD:main
+          fi
