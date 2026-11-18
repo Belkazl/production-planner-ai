@@ -45,7 +45,7 @@ jobs:
       - name: Checkout newly tested canonical final operations bridge
         uses: actions/checkout@v4
         with:
-          ref: ce3aa63bcd133f4e3dbb1e087556312edd42eb49
+          ref: c8fa14441a67e575c5266b28cf47e8d2cc91a8a8
           path: repaired
           persist-credentials: false
       - name: Checkout already released GA JSON compactor
@@ -102,7 +102,7 @@ jobs:
           scp -q "${opts[@]}" "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" old/app/restart-optimizer-ui.js
           cp old/app/restart-optimizer-ui.js new/app/restart-optimizer-ui.js
           node repaired/ops/ovh/quick-depth-v2-20261118/patch.mjs new/app
-          node repaired/ops/ovh/quick-depth-v2-20261118/test.cjs new/app
+          node repaired/ops/ovh/quick-depth-v2-20261118/test.cjs new/app old/app
           node --check new/app/restart-optimizer-ui.js
           node --check old/app/python-ga-upstream.mjs
           node --check new/app/python-ga-upstream.mjs
