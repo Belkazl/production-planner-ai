@@ -78,6 +78,8 @@ try{
   window.__PP_SECONDARY_GANTTS_V3__?.installed===true,
  null,{timeout:40000});
  await page.evaluate(({model:fixture,plan})=>{
+  document.getElementById("planView").style.display="block";
+  document.getElementById("sectionView").style.display="none";
   model=fixture;
   modelReady=true;
   window.__ppTabPlan=plan;
