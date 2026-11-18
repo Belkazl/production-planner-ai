@@ -1,0 +1,65 @@
+name: LiftOrbit inspect Gantt V2 implementation and tab lifecycle
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-gantt-core-inspection-20261118.yml
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch only public front-end implementation using disposable auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/gantt-v2-impl.txt"
+          import urllib.request,http.cookiejar,json,uuid,secrets
+          url='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          args=json.dumps(dict(email='gantt-v2-'+uuid.uuid4().hex+'@liftorbit.invalid',password=secrets.token_urlsafe(26),company='Disposable Gantt V2 structure')).encode()
+          req=urllib.request.Request(url+'/api/auth/register',data=args,method='POST',headers={'content-type':'application/json','origin':url})
+          with op.open(req,timeout=45) as r:print('register_status',r.status)
+          with op.open(url+'/',timeout=45) as r:
+            html=r.read(12000000).decode('utf8','replace')
+            print('html_status',r.status,'bytes',len(html))
+          ids=['pp-gantt-tool-v2-script','pp3-secondary-gantts-js']
+          for tag in ids:
+            begin='<script id="'+tag+'">'
+            i=html.find(begin)
+            e=html.find('</script>',i) if i>=0 else -1
+            print('SCRIPT',tag,'start',i,'end',e,'length',e-i)
+            if i<0 or e<=i:continue
+            script=html[i+len(begin):e]
+            print('SOURCE_START')
+            print(script[:20000])
+            print('SOURCE_END')
+            print(script[-5000:])
+          for tag in ['ppTabsView','ganttScroll','planView','ppGanttToolV2']:
+            pos=html.find(tag)
+            print('CONTAINER',tag,repr(html[max(0,pos-500):pos+700]) if pos>=0 else 'MISSING')
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Record Gantt code without user files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=ops/ovh/test-results/gantt-v2-source-audit-20261118.txt
+          mkdir -p "$(dirname "$output")"
+          if test -s "$RUNNER_TEMP/gantt-v2-impl.txt"; then cp "$RUNNER_TEMP/gantt-v2-impl.txt" "$output"; else echo 'audit_failed' > "$output"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$output"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record Gantt V2 shared renderer source'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
