@@ -1,4 +1,5 @@
 name: LiftOrbit account-mismatch real ceramic discovery
+# Reinspect current client-side ceramic project sources.
 on:
   push:
     branches: [main]
