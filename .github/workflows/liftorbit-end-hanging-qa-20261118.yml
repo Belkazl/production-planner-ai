@@ -1,0 +1,17 @@
+name: LiftOrbit serialize GA rescue removal safely
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-end-hanging-qa-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: true
+jobs:
+  safety:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "GA_WORKER_SOURCE_RECOVERY_DEPLOYMENTS_WILL_BE_SERIALIZED"
