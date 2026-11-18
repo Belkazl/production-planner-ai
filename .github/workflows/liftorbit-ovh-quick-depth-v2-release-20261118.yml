@@ -45,7 +45,7 @@ jobs:
       - name: Checkout newly tested canonical final operations bridge
         uses: actions/checkout@v4
         with:
-          ref: c8fa14441a67e575c5266b28cf47e8d2cc91a8a8
+          ref: 971c581a15398e613fc3cacfc53514abd6c8d2b0
           path: repaired
           persist-credentials: false
       - name: Checkout already released GA JSON compactor
