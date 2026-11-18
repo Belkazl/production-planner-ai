@@ -1,3 +1,8 @@
-workflow_run=44137554015
-probe_result=failure
-first_error_hint=DIAG_TEST_MODEL_STORAGE_FAILED
+workflow_run=44345048639
+probe_result=success
+OWN900_START 202 ok True error None
+OWN900_SETUP_PROGRESS 0 http 200 phase running percent 5 error None best_ops 1097 setup_ops 89 bad_order 0 bad_equipment_id 0 bad_employee_id 0 bad_resource_id 0
+OWN900_SETUP_PROGRESS 5 http 200 phase completed percent 100 error None best_ops 1097 setup_ops 89 bad_order 0 bad_equipment_id 0 bad_employee_id 0 bad_resource_id 0
+OWN900_WITH_SETUPS_COMPLETED 1097 setup_ops 89
+OWN900_LIVE_SETUPS_OWNERSHIP_DIAGNOSTIC_PASS
+first_error_hint=
