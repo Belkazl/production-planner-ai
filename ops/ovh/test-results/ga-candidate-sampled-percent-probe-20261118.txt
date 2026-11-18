@@ -1,0 +1,14 @@
+GA_CANDIDATE_PROBE_START 202 started True phase queued
+GA_CANDIDATE_PERCENT 0 0 phase running done 0 total 100
+GA_CANDIDATE_API_FIELDS ['best_preview', 'candidate_preview', 'done', 'error', 'ok', 'percent', 'phase', 'result', 'resume_state', 'running', 'success', 'total']
+GA_CANDIDATE_PERCENT 2 1 phase running done 1 total 100
+GA_CANDIDATE_PERCENT 3 10 phase running done 10 total 100
+GA_CANDIDATE_PERCENT 4 25 phase running done 25 total 100
+GA_CANDIDATE_PERCENT 5 35 phase running done 35 total 100
+GA_CANDIDATE_EARLY_SAMPLING_STOP 35
+GA_CANDIDATE_SERIES [0, 1, 10, 25, 35]
+GA_CANDIDATE_POSITIVE_JUMPS [1, 9, 15, 10]
+GA_CANDIDATE_SUBGENERATOR_CHANGES 3
+GA_CANDIDATE_RUNTIME_SECONDS 8.1
+GA_CANDIDATE_PROBE_COMPLETED None
+GA_CANDIDATE_CANCEL_INCOMPLETE 200 True
