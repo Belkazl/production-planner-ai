@@ -1,20 +1,24 @@
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
-const root=process.argv[2];if(!root)throw Error("QUICK_TEST_ROOT_REQUIRED");
+const root=process.argv[2],previous=process.argv[3];
+if(!root||!previous)throw Error("QUICK_TEST_REQUIRES_BOTH_OLD_AND_NEW_ROOT");
 const s=fs.readFileSync(path.join(root,"restart-optimizer-ui.js"),"utf8");
-for(const [mode,generations,population] of [
- ["quick",10,12],["standard",60,32],["thorough",180,48],["maximum",360,64]
-]){
- const regex=new RegExp(mode+":Object\\.freeze\\(\\{generations:(\\d+),population:(\\d+)\\}\\)");
- const matches=[...s.matchAll(new RegExp(regex.source,"g"))];
- assert.equal(matches.length,1,"unique "+mode);
- assert.equal(Number(matches[0][1]),generations,mode+" generations");
- assert.equal(Number(matches[0][2]),population,mode+" candidates");
+const prior=fs.readFileSync(path.join(previous,"restart-optimizer-ui.js"),"utf8");
+const oldQuick="  quick:Object.freeze({generations:30,population:24}),";
+const newQuick="  quick:Object.freeze({generations:10,population:12}),";
+assert.equal(prior.split(oldQuick).length,2,"exactly one prior Quick preset");
+assert.equal(s.split(newQuick).length,2,"exactly one new Quick preset");
+assert.equal(s.replace(newQuick,oldQuick),prior,"no other changes anywhere in current deployed UI");
+for(const mode of ["standard","thorough","maximum"]){
+ const expr=new RegExp(mode+":Object\\.freeze\\(\\{generations:(\\d+),population:(\\d+)\\}\\)");
+ const before=prior.match(expr),after=s.match(expr);
+ assert(before&&after,"missing "+mode);
+ assert.deepEqual(after.slice(1,3),before.slice(1,3),"other preset unchanged: "+mode);
+ console.log("PP_QUICK_MODE_UNCHANGED",mode,after[1],after[2]);
 }
-assert.equal(s.includes("generations:30,population:24"),false);
-for(const marker of ["PP_OPTIMIZER_DEPTH_LAST_RUN__","__PP_GA_OBJECTIVE_FLOOR_V1__","PP_GA_WORSE_OBJECTIVE_REJECTED","ppOptimizerDepthSelect","pp:optimizer-reconnect-pending","pp:optimizer-depth-changed"]){
+for(const marker of ["__PP_OPTIMIZER_DEPTH__","__PP_GA_OBJECTIVE_FLOOR_V1__","PP_GA_WORSE_OBJECTIVE_REJECTED","ppOptimizerDepthSelect","pp:optimizer-reconnect-pending","pp:optimizer-depth-changed","generations:config.generations,population:config.population"]){
  assert(s.includes(marker),"preserved "+marker);
 }
-assert(s.includes("generations:config.generations,population:config.population"),"depth mode must reach GA POST");
-console.log("QUICK_DEPTH_V2_PRESET_AND_BOUNDARY_TEST_PASS",JSON.stringify({quick:{generations:10,population:12,evaluations:120},otherModesUnchanged:true,qualityGuardPreserved:true}));
+assert(!s.includes(oldQuick));
+console.log("QUICK_DEPTH_V2_PRESET_AND_BOUNDARY_TEST_PASS",JSON.stringify({quick:{generations:10,population:12,evaluations:120},otherModesUntouched:true,qualityGuardUntouched:true,oldEvaluations:720}));
