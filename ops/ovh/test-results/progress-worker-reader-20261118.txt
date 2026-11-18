@@ -1,0 +1,10 @@
+MAINTENANCE_SCRIPT_PERMITTED_COMMANDS
+28:case "$action" in
+29:  status)
+33:  smoke)
+46:  update)
+COMPILED_SOURCE_DIRECT_ACCESS
+not_readable /tmp/production_planner.py
+readable /home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/ga_python_workers/ga_workers/full_runtime_adapter.py
+CURRENT_UI_BUILD
+e159e517f76d8f66b85c2c82643d7aa1c25ac4bdd32627f99ad1f7111f179a43  /home/liftorbit-ci/lifto
