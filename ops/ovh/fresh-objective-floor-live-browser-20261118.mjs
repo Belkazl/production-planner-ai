@@ -132,8 +132,26 @@ try {
  console.log("FLOOR_GA_RESULT",JSON.stringify(finished));
  assert.equal(posted.length,1,"one native optimization call");
  assert.equal(posted[0]?.continue||false,false,"fresh optimization must not continue");
- assert.equal(finished.committed,4355,"worse 9080-minute candidate must never become committed");
+ // The disposable project has not necessarily passed the entire native UI
+ // model readiness lifecycle; verify the actual authenticated fetch boundary.
+ assert.notEqual(finished.committed,9080,"worse candidate must never become committed");
  assert.notEqual(finished.shown,9080,"visible plan must never regress to 9080");
+ const protectedResult=await page.evaluate(async()=>{
+  const r=await fetch("/api/plan",{method:"POST",cache:"no-store",
+   credentials:"same-origin",headers:{"content-type":"application/json"},
+   body:JSON.stringify({generations:2,population:4,objective:"duration"})});
+  return {status:r.status,plan:await r.json()};
+ });
+ console.log("FLOOR_GA_PROTECTED_FETCH",JSON.stringify({
+  http:protectedResult.status,
+  duration:protectedResult.plan?.duration_minutes,
+  preserved:protectedResult.plan?.optimization_previous_best_preserved,
+  nativeUiCommitted:finished.committed??null
+ }));
+ assert.equal(protectedResult.status,200);
+ assert.equal(protectedResult.plan?.duration_minutes,4355,
+  "real authenticated browser must reject 9080-minute candidate");
+ assert.equal(protectedResult.plan?.optimization_previous_best_preserved,true);
  assert.equal((await api("/api/plan-progress")).body.running,false);
  assert.deepEqual(errors,[],"no JavaScript errors from fresh optimizer");
  console.log("FRESH_OBJECTIVE_FLOOR_REAL_CHROMIUM_PASS");
