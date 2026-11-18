@@ -120,7 +120,7 @@ try{
  return{rows:rows.length,setup:rows.filter(x=>x.is_setup).length,
  noOrder:rows.filter(x=>x.order==null).length,badOrder:rows.filter(x=>x.order!=null&&!sets.ord.has(String(x.order))).length,
  badEq:bad("equipment_ids","eq"),badEmp:bad("employee_ids","emp"),badMat:bad("material_ids","mat"),resourceBad,
- native:plan.operations?.length,generic:plan.generic_operations?.length,
+ native:plan.operations?.length,generic:plan.generic_operations?.length,nestedBest:!!plan.best_preview,nestedCandidate:!!plan.candidate_preview,nestedVariants:plan.variants?.length||0,
  seed:plan.resume_state?.order_sequence?.length||0,seqBad:(plan.order_sequence||[]).filter(id=>!sets.ord.has(String(id))).length,batchBadOrder:(plan.batches||[]).filter(b=>b?.order!=null&&!sets.ord.has(String(b.order))).length,batchBadEq:(plan.batches||[]).reduce((n,b)=>n+(b?.equipment_ids||[]).filter(id=>!sets.eq.has(String(id))).length,0),valid:plan.valid,partial:plan.partial};
  };
  const epochs=Date.now();
