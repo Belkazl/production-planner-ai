@@ -16,3 +16,8 @@ jobs:
       - name: Check current site
         run: |
           curl --fail --silent --show-error --max-time 20 https://app.liftorbit.app/__bridge_health >/dev/null
+          command -v google-chrome
+      - name: Install browser test driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Reproduce large-plan optimization freeze
+        run: node ops/ovh/browser-freeze-20261118/profile.mjs
