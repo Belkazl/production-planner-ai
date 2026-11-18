@@ -1,0 +1,253 @@
+name: LiftOrbit guarded OVH smooth confirmed GA percent increments
+# Animate confirmed server percentages as 10,11,12...20 without predicting.
+# Start/Continue/Stop/reload must respect underlying worker status and API.
+# Preserve Quick 10x12, GA algorithms, Gantt, KPI, localization and saved plans.
+# Patch only current OVH browser helper; preflight and auto rollback on failure.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-ga-smooth-progress-release-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'release(liftorbit): animate confirmed optimization percentages one by one')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable production app
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Checkout previous verified OVH patch
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout currently deployed verified GA setup source
+        uses: actions/checkout@v4
+        with:
+          ref: 401d530aaf61eebb1f8f1e896ef5fcf4cc449df1
+          path: deployed
+          persist-credentials: false
+      - name: Checkout newly tested canonical final operations bridge
+        uses: actions/checkout@v4
+        with:
+          ref: eaacc1fc9331d621347ad0d8c7f535700840743d
+          path: repaired
+          persist-credentials: false
+      - name: Checkout already released GA JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
+          path: compact
+          persist-credentials: false
+      - name: Verify exact one-file change and pinned source
+        id: preflight
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p old/app new/app app
+          cp -a pinned/. old/app/
+          cp -a pinned/. new/app/
+          cp repaired/ops/ovh/ga-complete-setup-final-20261117/python-ga-upstream.mjs old/app/python-ga-upstream.mjs
+          cp repaired/ops/ovh/ga-complete-setup-final-20261117/python-ga-upstream.mjs new/app/python-ga-upstream.mjs
+          # The current production Docker build already uses the updated
+          # continuation contract installed with the previous GA release.
+          # Pinned 2026-10 tests predate that fix and are intentionally obsolete.
+          cp deployed/tests/continuation-compat-contract.cjs old/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/continuation-compat-contract.cjs new/app/tests/continuation-compat-contract.cjs
+          cp deployed/tests/python-ga-upstream.test.mjs old/app/tests/python-ga-upstream.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          for side in old new; do
+            for script in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-async-ga.mjs; do
+              node "prior/ops/ovh/$script" "$side/app"
+            done
+            node compact/ops/ovh/compact-ga-progress.mjs "$side/app"
+          done
+          for side in old new; do
+            node repaired/ops/ovh/ga-final-progress-reconcile-20261117/patch-progress.mjs "$side/app"
+            node repaired/ops/ovh/ga-final-progress-reconcile-20261117/test-progress.cjs "$side/app"
+          done
+          for side in old new; do
+            node repaired/ops/ovh/ga-fresh-no-regression-20261118/patch.mjs "$side/app"
+            node repaired/ops/ovh/ga-fresh-no-regression-20261118/test.cjs "$side/app"
+          done
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          scp -q "${opts[@]}" "$OVH_USER@$OVH_HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" old/app/restart-optimizer-ui.js
+          cp old/app/restart-optimizer-ui.js new/app/restart-optimizer-ui.js
+          node repaired/ops/ovh/ga-candidate-progress-20261118/patch.mjs new/app
+          node repaired/ops/ovh/ga-candidate-progress-20261118/test.cjs new/app old/app
+          cp repaired/ops/ovh/continuation-seed-ui-20261118/server.test.mjs new/app/tests/continue-seed-guard.test.mjs
+          node --test new/app/tests/continue-seed-guard.test.mjs
+          rm new/app/tests/continue-seed-guard.test.mjs
+          node --check new/app/restart-optimizer-ui.js
+          node --check old/app/python-ga-upstream.mjs
+          node --check new/app/python-ga-upstream.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          cp repaired/ops/ovh/ga-complete-setup-final-20261117/ga-account-owned-recovery.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
+          node --test new/app/tests/python-ga-upstream.test.mjs new/app/tests/ga-account-owned-recovery.test.mjs
+          cp deployed/tests/python-ga-upstream.test.mjs new/app/tests/python-ga-upstream.test.mjs
+          rm -f new/app/tests/ga-account-owned-recovery.test.mjs
+          diff -qr old/app new/app > "$RUNNER_TEMP/ga-smooth-progress-patch-diff" || test "$?" -eq 1
+          test "$(wc -l < "$RUNNER_TEMP/ga-smooth-progress-patch-diff")" -eq 1
+          grep -Fqx 'Files old/app/restart-optimizer-ui.js and new/app/restart-optimizer-ui.js differ' "$RUNNER_TEMP/ga-smooth-progress-patch-diff"
+          grep -q 'verifiedWorkerCheckpoint' new/app/python-ga-upstream.mjs
+          grep -q 'setupOperationsDropped' new/app/python-ga-upstream.mjs
+          grep -q 'fullGenericSchedule' new/app/python-ga-upstream.mjs
+          grep -q 'ppFreshObjectiveFloorHtml' new/app/baselines/2026-10-10/aps-setup-bridge/index.ts
+          grep -q 'PP_GA_OBJECTIVE_FLOOR_V1__' new/app/restart-optimizer-ui.js
+          grep -Fq 'quick:Object.freeze({generations:10,population:12})' new/app/restart-optimizer-ui.js
+          grep -Fq '__PP_CONTINUATION_SEED_V2__' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppAutomaticIntermediatePreviewV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppFixedFirstBestKpiDelta' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppSelectedPlanKpiReferenceV2' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppStopRestorePreviousPlanV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppHideGaTechnicalLabelsV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppHideGaTechnicalLabelsV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppUnifiedGanttV2' new/app/restart-optimizer-ui.js
+          grep -Fq 'sourceRender.call(this,projection.plan)' new/app/restart-optimizer-ui.js
+          grep -Fq 'Native V2 recreates the axis each draw' new/app/restart-optimizer-ui.js
+          grep -Fq 'const ru=/^ru/i.test(language());' new/app/restart-optimizer-ui.js
+          grep -Fq 'ppTruthfulSmoothGaPercentV1' new/app/restart-optimizer-ui.js
+          grep -Fq 'const intervalMs=85' new/app/restart-optimizer-ui.js
+          grep -q 'PP_GA_FINAL_SETUP_LOSS_REPLACED_BY_VERIFIED_BEST' new/app/python-ga-upstream.mjs
+          sha256sum old/app/restart-optimizer-ui.js | cut -d' ' -f1 > old.progress-source.sha
+          sha256sum new/app/restart-optimizer-ui.js | cut -d' ' -f1 > new.progress-source.sha
+          echo 'GA_SMOOTH_PROGRESS_EXACT_ONE_SOURCE_CHANGED'
+          docker build --progress=plain -t liftorbit-ga-smooth-progress:preflight new/app > "$RUNNER_TEMP/ga-progress-final-docker-build.log" 2>&1 || {
+            echo 'GA_SMOOTH_PROGRESS_DOCKER_BUILD_FAILED'
+            echo 'GA_SMOOTH_PROGRESS_DOCKER_FAILURE_TAIL_BEGIN'
+            tail -n 35 "$RUNNER_TEMP/ga-progress-final-docker-build.log" | cut -c 1-300
+            echo 'GA_SMOOTH_PROGRESS_DOCKER_FAILURE_TAIL_END'
+            exit 22
+          }
+          echo 'GA_SMOOTH_PROGRESS_DOCKER_BUILD_PASSED'
+      - name: Apply guarded OVH app update with automatic rollback
+        id: rollout
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          test -n "$OVH_SSH_PRIVATE_KEY"
+          test -n "$OVH_SSH_KNOWN_HOSTS"
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          target="$OVH_USER@$OVH_HOST"
+          oldSha=$(cat old.progress-source.sha)
+          newSha=$(cat new.progress-source.sha)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/app/restart-optimizer-ui.js "$target:$root/sources/ovh-app/restart-optimizer-ui.js.ga-smooth-progress.next"
+          ssh "${opts[@]}" "$target" bash -s -- "$oldSha" "$newSha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          app="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          next="$root/sources/ovh-app/restart-optimizer-ui.js.ga-smooth-progress.next"
+          backup="$root/patch-backups/ga-smooth-progress-20261118"
+          expectedOld="$1"; expectedNew="$2"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -f "$app" && test -f "$next"
+          test "$(sha "$app")" = "$expectedOld" || { echo 'GA_SMOOTH_PROGRESS_SOURCE_DRIFT_ABORT'; exit 5; }
+          test "$(sha "$next")" = "$expectedNew" || { echo 'GA_SMOOTH_PROGRESS_UPLOAD_HASH_MISMATCH'; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null || { echo 'GA_SMOOTH_PROGRESS_PREDEPLOY_SMOKE_FAILED'; exit 6; }
+          mkdir -p "$backup"
+          cp -p "$app" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$expectedOld"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$app" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo 'GA_SMOOTH_PROGRESS_AUTOMATIC_ROLLBACK_ATTEMPTED'
+          }
+          trap rollback ERR
+          mv "$next" "$app"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes || { echo 'GA_SMOOTH_PROGRESS_POSTDEPLOY_HEALTH_FAILED'; false; }
+          test "$(sha "$app")" = "$expectedNew"
+          trap - ERR
+          echo 'GA_SMOOTH_PROGRESS_OVH_DEPLOYED_HEALTHY'
+          REMOTE
+      - name: Public HTTPS, guest boundary and no redirect
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          healthy=no
+          for attempt in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/__bridge_health || true)
+            direct=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 --resolve app.liftorbit.app:443:51.255.163.121 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$direct" = 200 && "$auth" = 401 ]]; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo 'GA_SMOOTH_PROGRESS_PUBLIC_API_HEALTHY'
+
+      - name: Checkout repository to record deployment outcome
+        if: always()
+        uses: actions/checkout@v4
+      - name: Publish safe GA final arrays deployment status
+        if: always()
+        shell: bash
+        env:
+          GA_RUN: ${{ github.run_id }}
+          PRE: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+        run: |
+          set -euo pipefail
+          dest=ops/ovh/test-results/ga-smooth-progress-release-latest.txt
+          mkdir -p "$(dirname "$dest")"
+          printf 'workflow_run=%s\npreflight=%s\nrollout=%s\npublic_health=%s\n' "$GA_RUN" "$PRE" "$ROLLOUT" "$HEALTH" > "$dest"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dest"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA smooth progress rollout outcome'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'RELEASE_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
