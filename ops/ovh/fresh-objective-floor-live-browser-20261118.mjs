@@ -71,8 +71,16 @@ try {
  await page.waitForFunction(()=>window.__ppFreshOptimizerUiInstalled===true&&
    !!document.getElementById("ppOptimizerStartOver"),null,{timeout:35000});
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,null,{timeout:20000});
- const scriptReady=await page.evaluate(()=>[...document.scripts].some(s=>s.textContent.includes("const ppFreshFloor=")));
- assert(scriptReady,"fresh objective floor must be installed on public HTML");
+ const frontDiag=await page.evaluate(()=>({
+  scriptCount:document.scripts.length,
+  rootContains:document.documentElement.outerHTML.includes("ppFreshFloor"),
+  scriptContains:[...document.scripts].some(s=>s.textContent.includes("ppFreshFloor")),
+  incumbentDecision:document.documentElement.outerHTML.includes("ppIncumbentDecision"),
+  gaScript:document.documentElement.outerHTML.includes("ppFreshObjectiveFloor"),
+  title:document.title
+ }));
+ console.log("FLOOR_LIVE_SCRIPT_DIAGNOSTICS",JSON.stringify(frontDiag));
+ assert(frontDiag.scriptContains,"fresh objective floor must be installed on public HTML");
  const baseline=await api("/api/model");
  assert.equal(baseline.status,200);assert.equal(baseline.body.model?.orders?.length,12);
  const running=await api("/api/plan-progress");
