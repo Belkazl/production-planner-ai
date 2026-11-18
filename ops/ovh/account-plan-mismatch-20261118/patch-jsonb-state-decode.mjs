@@ -3,7 +3,7 @@ import {resolve} from "node:path";
 const root=process.argv[2];if(!root)throw Error("JSONB_GA_STATE_APP_ROOT_REQUIRED");
 const path=resolve(root,"ga-python-state-store.mjs");
 let s=readFileSync(path,"utf8");
-const anchor='    return (await req("/internal/ga-state?account_id="+encodeURIComponent(accountId))).state;';
+const anchor='   return (await req("/internal/ga-state?account_id="+encodeURIComponent(accountId))).state;';
 const replacement=`    const state=(await req("/internal/ga-state?account_id="+encodeURIComponent(accountId))).state;
     if(!state||typeof state!=="object"||Array.isArray(state))return null;
     // Depending on the auth gateway JSONB driver version, large plan
