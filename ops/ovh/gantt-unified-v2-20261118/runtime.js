@@ -12,8 +12,16 @@ if(!planView||!tabs||!card||!scroll||!stage||
 }
 const sourceRender=renderPlan;
 const sourceClear=typeof clearPlan==="function"?clearPlan:null;
-const language=()=>String(document.querySelector("#languageSelect")?.value||
-  document.querySelector("select[aria-label=Language]")?.value||"").toLowerCase();
+const language=()=>{
+ const selectors=[...document.querySelectorAll("select")];
+ const current=document.querySelector("#languageSelect,#ppLangSelect,select[aria-label='Language']")||
+  selectors.find(s=>{
+   const values=[...s.options].map(o=>String(o.value).toLowerCase());
+   return values.some(v=>v==="en"||v.startsWith("en-"))&&
+    values.some(v=>v==="ru"||v.startsWith("ru-"));
+  });
+ return String(current?.value||document.documentElement.lang||"en").toLowerCase();
+};
 const toString=v=>String(v==null?"":v).trim();
 const finite=(v,d=0)=>{const n=Number(v);return Number.isFinite(n)?n:d};
 const getMode=()=>[...tabs.children].findIndex(el=>el.classList.contains("a"));
@@ -74,7 +82,7 @@ function project(plan,mode){
   const processNames=orderNames();
   for(const [i,o] of (Array.isArray(m.orders)?m.orders:[]).entries()){
    const sourceId=toString(o.id),id="pp-order-v2-"+i;
-   const prefix=/заказ/i.test(toString(tabs.children[3]?.textContent))?"Заказ ":"Order ";
+   const prefix=/^ru/i.test(language())?"Заказ ":"Order ";
    const row={id,name:prefix+sourceId,
     kind:processNames.get(toString(o.technical_process_id))||
       toString(o.name||o.description||""),__ppActual:o};
@@ -111,11 +119,14 @@ function refreshOperationDetails(mode,plan){
 }
 function setMode(mode){
  planView.dataset.ppUnifiedGantt=String(mode);
+ const ru=/^ru/i.test(language());
  if(heading)heading.textContent=mode===0?originalHeading:
-  toString(tabs.children[mode]?.textContent)||(mode===1?"Employee Gantt":"Orders");
+  mode===1?(ru?"Гант сотрудников":"Employee Gantt"):
+  mode===3?(ru?"Гант заказов":"Order Gantt"):
+  toString(tabs.children[mode]?.textContent);
  const axis=stage.querySelector(".pg2-axis>.pg2-name");
- if(axis&&mode===1)axis.textContent=toString(tabs.children[1]?.textContent)||"Employees";
- if(axis&&mode===3)axis.textContent=toString(tabs.children[3]?.textContent)||"Orders";
+ if(axis&&mode===1)axis.textContent=ru?"Сотрудники":"Employees";
+ if(axis&&mode===3)axis.textContent=ru?"Заказы":"Orders";
 }
 function renderActive(p,mode=getMode()){
  if(painting||!p||!getModel())return;
