@@ -14,7 +14,7 @@ permissions:
   contents: write
 concurrency:
   group: liftorbit-production-etalon-repair
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   release:
     if: >-
@@ -54,12 +54,12 @@ jobs:
           ref: 0158a0514b7bca113fee92b2389747d081a8a1f6
           path: compact
           persist-credentials: false
-      - name: Checkout guarded account checkpoint recovery patch and tests
+      - name: Checkout guarded account model JSONB decoder patch and tests
         uses: actions/checkout@v4
         with:
           path: fix
           persist-credentials: false
-      - name: Verify exact one-file GA checkpoint recovery and regression suite
+      - name: Verify exact one-file GA JSONB decoding and regression suite
         id: preflight
         shell: bash
         env:
@@ -244,7 +244,7 @@ jobs:
         run: |
           command -v google-chrome
           npm install --no-save --no-package-lock playwright-core@1.57.0
-      - name: Real ceramic production-like GA regression three consecutive runs
+      - name: Real ceramic production-like GA regression two bounded runs
         id: ceramic_qa
         shell: bash
         env:
