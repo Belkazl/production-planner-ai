@@ -19,11 +19,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          target=ops/ovh/test-results/continue-seed-browser-runs-latest.txt
+          target=ops/ovh/test-results/continue-seed-hotfix-browser-runs-latest.txt
           mkdir -p "$(dirname "$target")"
-          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-continue-seed-live-chromium-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target"
-          target2=ops/ovh/test-results/continue-seed-release-runs-latest.txt
-          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-continuation-seed-repair-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target2"
+          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-continue-seed-hotfix-chromium-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target"
+          target2=ops/ovh/test-results/continue-seed-hotfix-release-runs-latest.txt
+          gh api "repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-continue-seed-hotfix-20261118.yml/runs?per_page=8" --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) event=\(.event) head_sha=\(.head_sha[0:9])"' > "$target2"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add "$target" "$target2"
