@@ -8,10 +8,10 @@ const from="  quick:Object.freeze({generations:30,population:24}),";
 const to="  quick:Object.freeze({generations:10,population:12}),";
 if(source.split(from).length!==2)throw Error("QUICK_DEPTH_SOURCE_DRIFT");
 for(const mode of ["standard","thorough","maximum"]){
- const r=new RegExp(mode+":Object\\\\.freeze\\\\(\\\\{generations:(\\\\d+),population:(\\\\d+)\\\\}\\\\)");
- const match=source.match(r);
- if(!match)throw Error("QUICK_DEPTH_DEPLOYED_PRESET_MISSING_"+mode);
- console.log("PP_QUICK_DEPTH_UNCHANGED_MODE",mode,match[1],match[2]);
+ const row=source.split("\n").find(line=>line.includes(mode+":Object.freeze({"));
+ if(!row||!/generations:\d+,population:\d+/.test(row))
+  throw Error("QUICK_DEPTH_DEPLOYED_PRESET_MISSING_"+mode);
+ console.log("PP_QUICK_DEPTH_UNCHANGED_MODE",row.trim());
 }
 for(const expected of ["window.__PP_OPTIMIZER_DEPTH__=","window.__PP_GA_OBJECTIVE_FLOOR_V1__"]){
  if(!source.includes(expected))throw Error("QUICK_DEPTH_REQUIRED_GUARD_MISSING_"+expected);
