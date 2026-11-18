@@ -57,11 +57,21 @@ try{
  await page.goto(base,{waitUntil:"domcontentloaded",timeout:50000});
  await page.waitForFunction(()=>window.__PP_OPTIMIZER_DEPTH__?.installed===true&&!!document.getElementById("opt"),null,{timeout:35000});
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,null,{timeout:35000});
+ if(process.env.FREEZE_TEST_MODE==="skip-gantt"){
+  await page.evaluate(()=>{
+   const original=window.renderPlan;
+   window.__qaSkippedGantt=0;
+   window.renderPlan=function(p){
+    if(window.__ppOptimizationInFlight===true){window.__qaSkippedGantt++;return;}
+    return original.apply(this,arguments);
+   };
+  });
+ }
  const gate=await page.evaluate(()=>({
   optDisabled:document.getElementById("opt")?.disabled,
   optText:document.getElementById("opt")?.textContent,
   modelOrderCount:model?.orders?.length,
-  depth:window.__PP_OPTIMIZER_DEPTH__?.get(),
+  depth:window.__PP_OPTIMIZER_DEPTH__?.get(),mode:window.__qaSkippedGantt===0?"skip-gantt":"normal",
   stop:window.__PP_STOP_DEBUG__?.(),
   current:window.__freezeProbe
  }));
@@ -84,14 +94,14 @@ try{
   try{
    pageState=await Promise.race([
     page.evaluate(()=>({percent:document.getElementById("opt")?.textContent?.slice(0,65),probe:window.__freezeProbe,
-     candidate:window.__PP_AUTO_INTERMEDIATE_PREVIEW_V1__?.switches,bars:document.querySelectorAll(".pg2-bar").length})),
+     candidate:window.__PP_AUTO_INTERMEDIATE_PREVIEW_V1__?.switches,skipped:window.__qaSkippedGantt||0,bars:document.querySelectorAll(".pg2-bar").length})),
     new Promise((_,reject)=>setTimeout(()=>reject(Error("UI_EVAL_TIMEOUT")),4000))
    ]);
   }catch(e){pageState={error:String(e)}}
   try{
    const r=await ctx.request.get(base+"/api/plan-progress",{timeout:8000});
    const p=await r.json();progressState={code:r.status(),phase:p.phase,percent:p.percent,running:p.running,done:p.done,total:p.total,
-    candidateOps:p.candidate_preview?.operations?.length};
+    candidateOps:p.candidate_preview?.operations?.length,candidateDuration:p.candidate_preview?.duration_minutes,bestDuration:p.best_preview?.duration_minutes};
   }catch(e){progressState={error:String(e).slice(0,70)}}
   console.log("LIVE_FREEZE_SAMPLE",i,JSON.stringify({pageState,progressState,elapsed:Date.now()-epochs,requests:requests.length}));
   if(pageState?.error==="Error: UI_EVAL_TIMEOUT")throw Error("RENDERER_UI_BLOCKED");
@@ -104,7 +114,7 @@ try{
  process.exitCode=1;
 } finally{
  try{if(started){
-  const r=await ctx.request.post(base+"/api/optimizer-stop",{timeout:12000});
+  const r=await ctx.request.post(base+"/api/optimizer-stop",{timeout:12000,headers:{origin:base,"sec-fetch-site":"same-origin"}});
   console.log("LIVE_FREEZE_CLEANUP_STOP_STATUS",r.status());
  }}catch(e){console.log("LIVE_FREEZE_CLEANUP_UNAVAILABLE",String(e).slice(0,150))}
  await browser.close();
