@@ -1,0 +1,35 @@
+name: LiftOrbit GA labels cleanup release status audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-labels-cleanup-status-audit-20261118.yml
+permissions:
+  actions: read
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record exact UI-only GA labels release status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/ga-labels-cleanup-runs-latest.txt
+          mkdir -p "$(dirname "$target")"
+          gh api 'repos/Belkazl/production-planner-ai/actions/workflows/liftorbit-ovh-ga-labels-cleanup-release-20261118.yml/runs?per_page=7' --jq '.workflow_runs[] | "run_id=\(.id) status=\(.status) conclusion=\(.conclusion) sha=\(.head_sha[0:10])"' > "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA labels cleanup release status'
+            for n in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
