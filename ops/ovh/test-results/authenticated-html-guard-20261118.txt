@@ -1,7 +1,7 @@
 registration_http=200
 response_http=200
 x_pp_gantt_component=None
-html_size=279739
+html_size=285062
 contains_ppFreshFloor=False
 contains_ppFreshObjectiveFloorHtml=False
 contains_ppIncumbentDecision=False
@@ -24,6 +24,8 @@ contains_id="makespan"=False
 contains_id="kpiDuration"=False
 contains_ppIncumbentCurrentPlan=False
 contains_ppOptimizationInFlight=True
+contains___PP_GA_OBJECTIVE_FLOOR_V1__=True
+contains_PP_GA_WORSE_OBJECTIVE_REJECTED=True
 anchor_const_ppOriginal=ppInc=False
 anchor_const_ppDec=cont&&ppIn=False
 anchor_const_ppDec=ppInc?ppIn=False
