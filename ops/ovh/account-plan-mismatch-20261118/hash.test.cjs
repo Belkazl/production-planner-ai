@@ -11,6 +11,11 @@ const newHash='// Gantt mutates equipment with __ppid while rendering. It is UI 
 'const ppAccountModelHash=m=>require("node:crypto").createHash("sha256").update(JSON.stringify(m,(key,value)=>key==="__ppid"?undefined:value)).digest("hex");';
 assert.equal(before.split(oldHash).length,2,"single legacy hash anchor");
 assert.equal(after,before.replace(oldHash,newHash),"entire account isolation source preserved except canonical hash");
+const oldIndex=path.join(oldRoot,"index.ts"),newIndex=path.join(newRoot,"index.ts");
+if(fs.existsSync(oldIndex)&&fs.existsSync(newIndex)){
+ const compiledOld=fs.readFileSync(oldIndex,"utf8"),compiledNew=fs.readFileSync(newIndex,"utf8");
+ assert.equal(compiledNew,compiledOld.includes(oldHash)?compiledOld.replace(oldHash,newHash):compiledOld,"generated Bun entrypoint matches canonical hash patch");
+}
 const line=after.match(/^const ppAccountModelHash=.*$/m)?.[0];
 assert(line&&line.includes('key==="__ppid"?undefined:value'));
 const hash=Function("require",line+"\nreturn ppAccountModelHash")(require);
