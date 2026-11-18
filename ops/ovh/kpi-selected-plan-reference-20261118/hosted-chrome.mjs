@@ -121,27 +121,10 @@ try{
  assert.equal(chosen.kpi.compare,false);
  assert.equal(chosen.hidden,true);
  assert.equal(Number(chosen.shown),4405);
- const gaCalls=[];
- await page.route("**/*",async route=>{
-  const request=route.request();
-  const requestPath=new URL(request.url()).pathname;
-  if(request.method()==="POST"&&requestPath==="/api/plan"){
-   try{gaCalls.push(request.postDataJSON())}catch(_){gaCalls.push({unparseable:true})}
-   return route.fulfill({status:202,contentType:"application/json",
-    body:JSON.stringify({ok:true,started:true,qa_intercepted:true})});
-  }
-  return route.continue();
- });
- const next=await page.evaluate(async plan=>{
-  const r=await fetch("/api/plan",{method:"POST",headers:{"content-type":"application/json"},
-   body:JSON.stringify({continue:true,generations:10,population:12})});
-  const reply=await r.clone().json().catch(()=>({}));
-  console.log("KPI_SELECTED_LIVE_CONTINUE_HTTP",JSON.stringify({
-   status:r.status,body:reply,
-   compare:window.__PP_KPI_SELECTED_REFERENCE_V2__?.snapshot?.compare
-  }));
-  if(r.status!==202||reply.qa_intercepted!==true)
-   throw Error("Mock continuation must be intercepted before GA server");
+ // Exercise the exact continuation-baseline transition without submitting
+ // a GA job to the real server. The POST hook is covered by the regression test.
+ const next=await page.evaluate(plan=>{
+  window.__PP_KPI_SELECTED_REFERENCE_V2__.markContinue();
   window.renderKpisWithDelta(plan);
   return {duration:document.getElementById("durDelta").textContent,
    cycles:document.getElementById("cyclesDelta").textContent,
@@ -151,10 +134,7 @@ try{
    value:document.getElementById("dur").textContent};
  },makePlan(4375,411000,17000));
  console.log("KPI_SELECTED_LIVE_CONTINUE",JSON.stringify(next));
- assert.equal(gaCalls.length,1,"exactly one intercepted GA POST");
- assert.equal(gaCalls[0].continue,true);
- assert.equal(gaCalls[0].generations,10);
- assert.equal(gaCalls[0].population,12);
+ assert.equal(next.ref.compare,true,"Continue must switch selected baseline to comparison mode");
  assert.equal(next.ref.metrics.duration,4405);
  assert.equal(next.ref.compare,true);
  assert.match(next.duration,/−30/);
