@@ -94,7 +94,22 @@ try{
  assert.equal(equipment.mainRows,14);
  assert.equal(equipment.nativeEngine,"PP_GANTT_TOOL_V2");
  assert.equal(equipment.hasStop,true);
- await tabs.nth(1).click();
+ console.log("UNIFIED_GANTT_TAB_VISIBILITY",JSON.stringify(await page.evaluate(()=>{
+  const host=document.getElementById("planView");
+  const tabs=host?.querySelector(".tabs");
+  const elements=[...document.querySelectorAll("div,button,a,span")].filter(el=>
+   el.children.length===0&&/^(Employee Gantt|Employees|Planning|Гантт сотрудников|Планирование)$/i.test((el.textContent||"").trim()))
+   .slice(0,30).map(el=>({
+    text:el.textContent.trim(),tag:el.tagName,className:String(el.className).slice(0,100),
+    visible:el.getBoundingClientRect().width>0&&el.getBoundingClientRect().height>0,
+    display:getComputedStyle(el).display,ancestors:[el.parentElement?.id,el.parentElement?.className].map(String)
+   }));
+  return {planViewDisplay:getComputedStyle(host).display,
+   tabsDisplay:getComputedStyle(tabs).display,
+   planViewRect:host.getBoundingClientRect().toJSON(),
+   tabsRect:tabs.getBoundingClientRect().toJSON(),elements};
+ })));
+ await tabs.nth(1).click({timeout:6500});
  let employees=await capture(1);
  console.log("UNIFIED_GANTT_EMPLOYEES",JSON.stringify(employees));
  assert.equal(employees.chartVisible,true);
