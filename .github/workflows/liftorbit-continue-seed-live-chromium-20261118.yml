@@ -1,0 +1,67 @@
+name: LiftOrbit Chromium Continue after reload uses owned order sequence
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-continue-seed-live-chromium-20261118.yml
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH restore Continue optimization from saved account plan
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  chromium:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify guarded OVH deployment and auth boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/ga-continue-seed-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/ga-continue-seed-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/ga-continue-seed-release-latest.txt
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install headless Chromium on the isolated runner
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Exercise actual Continue button in disposable account after reload
+        id: acceptance
+        shell: bash
+        run: node ops/ovh/continuation-seed-ui-20261118/chromium.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Save safe browser test outcome
+        if: always()
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          BROWSER_STATUS: ${{ steps.acceptance.outcome }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/ga-continue-seed-chromium-latest.txt
+          mkdir -p "$(dirname "$target")"
+          printf 'workflow_run=%s\nchromium_acceptance=%s\n' "$RUN_ID" "$BROWSER_STATUS" > "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record production Continue seed Chromium acceptance'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'CHROMIUM_TEST_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
