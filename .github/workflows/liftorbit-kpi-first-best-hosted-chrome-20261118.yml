@@ -1,0 +1,55 @@
+name: LiftOrbit quick hosted Chrome KPI first-best acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-kpi-first-best-hosted-chrome-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  chrome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify guarded OVH release and installed host Chrome
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/kpi-first-best-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/kpi-first-best-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/kpi-first-best-release-latest.txt
+          command -v google-chrome
+      - name: Install lightweight browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify first run hidden, fixed Continue baseline and Start again reset
+        id: verify
+        run: node ops/ovh/kpi-delta-first-best-20261118/chromium-core.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish hosted Chrome acceptance
+        if: always()
+        env:
+          RUN: ${{ github.run_id }}
+          RESULT: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          file=ops/ovh/test-results/kpi-first-best-hosted-chrome-latest.txt
+          mkdir -p "$(dirname "$file")"
+          printf 'workflow_run=%s\nchrome_acceptance=%s\n' "$RUN" "$RESULT" > "$file"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$file"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record hosted Chrome fixed first-best KPI acceptance'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'BROWSER_REPORT_NOT_PUBLISHED'
+            exit 0
+          fi
