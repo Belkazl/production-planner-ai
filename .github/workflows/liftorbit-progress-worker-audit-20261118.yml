@@ -1,0 +1,84 @@
+name: LiftOrbit audit real GA worker evaluation progress and live UI
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-progress-worker-audit-20261118.yml
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Identify GA worker progress implementation without reading user data
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh_opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          ssh "${ssh_opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE' > "$RUNNER_TEMP/progress-worker-audit.txt"
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration"
+          echo "ROOT=$PWD"
+          echo "GA_SOURCE_FILE_PATHS:"
+          find sources -maxdepth 7 -type f \( -name '*.py' -o -name '*ga*.mjs' \) ! -path '*node_modules*' 2>/dev/null | sort | head -n 90 || true
+          echo "GA_PROCESSES:"
+          sudo -n /usr/local/sbin/liftorbit-ops status 2>&1 | head -n 24 || true
+          echo "WORKER_SOURCE_MARKERS:"
+          for filename in $(find sources -maxdepth 7 -type f -name '*.py' 2>/dev/null | head -n 50); do
+            case "$filename" in *venv*|*site-packages*|*dist*) continue ;; esac
+            hits=$(grep -nE '(def .*optimi|def .*progress|def .*generation|for .*generation|for .*candidate|report_progress|population|progress_callback|\bprogress\b)' "$filename" | head -n 28 || true)
+            if test -n "$hits"; then
+              echo "FILE=$filename"
+              printf '%s\n' "$hits" | cut -c 1-230
+            fi
+          done
+          echo "LIVE_FRONTEND_PROGRESS_MARKERS:"
+          node - <<'NODE'
+          const fs=require("node:fs"),f="sources/ovh-app/current/restart-optimizer-ui.js";
+          if(!fs.existsSync(f)){console.log("frontend_file_unavailable");process.exit(0)}
+          const s=fs.readFileSync(f,"utf8");
+          for(const term of ["pp-opt-progress-line","pp-opt-running","paintProgress(","/api/plan-progress","ppLivePanelV2","__PP_OPTIMIZER_DEPTH__"]){
+            let from=0,count=0;
+            while(count++<4){
+              const at=s.indexOf(term,from);if(at<0)break;
+              console.log("MARKER",term,"AT",at,JSON.stringify(s.slice(Math.max(0,at-320),at+550)));
+              from=at+term.length;
+            }
+          }
+          NODE
+          REMOTE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish source-only progress audit summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/progress-worker-audit-20261118.txt
+          mkdir -p "$(dirname "$target")"
+          if test -s "$RUNNER_TEMP/progress-worker-audit.txt"; then cp "$RUNNER_TEMP/progress-worker-audit.txt" "$target"; else echo audit_unavailable > "$target"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: inspect real GA worker and UI progress markers'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'PROGRESS_AUDIT_REPORT_PUSH_FAILED'
+          fi
