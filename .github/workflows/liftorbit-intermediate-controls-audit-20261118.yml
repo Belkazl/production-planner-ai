@@ -35,6 +35,11 @@ jobs:
             for pos in hits[:4]:
               excerpt=html[max(0,pos-500):pos+700].replace('\\n',' ')
               print('snippet_'+re.sub('[^a-zA-Z0-9]','_',term)+'='+repr(excerpt)[:1300])
+          for term in ['function updateButtons(){','function pick(){','function display(){','function mount(){','function wrap(){','window.__ppLiveMode','ppLivePreview','function paintProgress(d){']:
+            matches=[m.start() for m in re.finditer(re.escape(term),html)]
+            print('focus_'+re.sub('[^a-zA-Z0-9]','_',term)+'_matches='+str(len(matches)))
+            for pos in matches[-2:]:
+              print('focus_snippet_'+re.sub('[^a-zA-Z0-9]','_',term)+'='+repr(html[max(0,pos-350):pos+3200])[:3650])
           ix=html.find('<script id="ppLivePanelV2">')
           if ix>=0:
             end=html.find('</script>',ix)
