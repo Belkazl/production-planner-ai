@@ -110,6 +110,16 @@ try{
  await page.waitForTimeout(200);
  started=requests.length>0;
  console.log("LIVE_FREEZE_AFTER_CLICK",JSON.stringify({requests:requests.length,errors:errors.slice(-2)}));
+ const safeAudit=plan=>{if(!plan)return null;
+ const rows=plan.generic_operations?.length?plan.generic_operations:(plan.operations||[]);
+ const sets={ord:new Set(model.orders.map(v=>String(v.id))),eq:new Set(model.equipment.map(v=>String(v.id))),emp:new Set(model.employees.map(v=>String(v.id))),mat:new Set(model.materials.map(v=>String(v.id)))};
+ const bad=(key,k)=>rows.reduce((n,x)=>n+(x[key]||[]).filter(id=>!sets[k].has(String(id))).length,0);
+ return{rows:rows.length,setup:rows.filter(x=>x.is_setup).length,
+ noOrder:rows.filter(x=>x.order==null).length,badOrder:rows.filter(x=>x.order!=null&&!sets.ord.has(String(x.order))).length,
+ badEq:bad("equipment_ids","eq"),badEmp:bad("employee_ids","emp"),badMat:bad("material_ids","mat"),
+ native:plan.operations?.length,generic:plan.generic_operations?.length,
+ seed:plan.resume_state?.order_sequence?.length||0,valid:plan.valid,partial:plan.partial};
+ };
  const epochs=Date.now();
  let lastProgress=null;
  for(let i=0;i<85;i++){
