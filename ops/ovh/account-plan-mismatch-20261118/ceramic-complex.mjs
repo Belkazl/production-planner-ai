@@ -163,6 +163,20 @@ try{
  console.log("QA_MODEL_DIFF_AFTER_RUN",JSON.stringify({same:!paths.length,changes:paths,orders:afterModel?.orders?.length,equipment:afterModel?.equipment?.length,phase:lastProgress?.phase,error:lastProgress?.error}));
  if(lastProgress?.error==="account_plan_mismatch")throw Error("SIX_ORDER_ACCOUNT_PLAN_MISMATCH_REPRODUCED");
  if(lastProgress?.phase!=="completed")throw Error("CERAMIC_COMPLEX_NO_SUCCESS_"+JSON.stringify(lastProgress));
+ const finalAudit=lastProgress.finalAudit;
+ if(!finalAudit||finalAudit.rows<800||finalAudit.setup<25||finalAudit.badOrder||
+    finalAudit.badEq||finalAudit.badEmp||finalAudit.badMat||finalAudit.resourceBad)
+  throw Error("CERAMIC_COMPLEX_FINAL_NOT_OWNED_OR_INCOMPLETE_"+JSON.stringify(finalAudit));
+ const persisted=await ctx.request.get(base+"/api/plan-progress",{timeout:30000});
+ const snapshot=await persisted.json();
+ if(persisted.status()!==200||snapshot.phase!=="completed"||
+    !Array.isArray(snapshot.result?.operations)||snapshot.result.operations.length<800)
+   throw Error("CERAMIC_COMPLEX_DURABLE_RESULT_MISSING_"+persisted.status()+"_"+snapshot.error);
+ console.log("CERAMIC_DURABLE_PLAN_VERIFIED",JSON.stringify({rows:snapshot.result.operations.length,
+   setups:snapshot.result.operations.filter(x=>x.is_setup).length,
+   recovered:snapshot.result.optimization_account_check_recovered===true,
+   duration:snapshot.result.duration_minutes}));
+
  if(errors.length)throw Error("BROWSER_ERRORS_"+JSON.stringify(errors.slice(0,4)));
  console.log("LIVE_CERAMIC_COMPLEX_GA_FINISHED");
 } catch(e){
