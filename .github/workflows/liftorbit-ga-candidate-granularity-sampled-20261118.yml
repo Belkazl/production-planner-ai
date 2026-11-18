@@ -1,0 +1,121 @@
+name: LiftOrbit sample Python GA percent values before generation boundary
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-candidate-granularity-sampled-20261118.yml
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Poll disposable real Python GA job safely
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/ga-candidate-percent-probe.txt" 2>&1
+          import json,urllib.request,urllib.error,uuid,secrets,time
+          host='https://app.liftorbit.app'
+          cookie=''
+          def api(path,method='GET',payload=None):
+            global cookie
+            headers={'Origin':host,'Accept':'application/json','Sec-Fetch-Site':'same-origin'}
+            data=None
+            if cookie:headers['Cookie']=cookie
+            if payload is not None:
+              headers['Content-Type']='application/json'
+              data=json.dumps(payload,separators=(',',':')).encode()
+            req=urllib.request.Request(host+path,data=data,method=method,headers=headers)
+            try:
+              with urllib.request.urlopen(req,timeout=50) as r:
+                code=r.status;body=r.read(24000000);h=r.headers
+            except urllib.error.HTTPError as ex:
+              code=ex.code;body=ex.read(2000000);h=ex.headers
+            if path=='/api/auth/register' and code==200:cookie=(h.get('Set-Cookie') or '').split(';')[0]
+            try:answer=json.loads(body)
+            except:answer={}
+            return code,answer
+          req=lambda kind,key:{'resource_type':kind,'resource_ref':key,'resource_refs':[key],'match_mode':'specific','quantity':1}
+          equipment=[{'id':'EQ'+str(i),'name':'Station '+str(i),'kind':'workstation','capacity':600,'capacity_unit':'m2'} for i in range(14)]
+          staff=[{'id':'EMP'+str(i),'name':'Employee '+str(i),'shift':'day'} for i in range(5)]
+          ops=[{'id':'OP'+str(i),'name':'Step '+str(i),'sequence':i+1,'duration_min':10,
+           'resource_requirements':[req('equipment','EQ'+str(i)),req('employee','EMP'+str(i%5))]} for i in range(7)]
+          model={'scheduler_mode':'resource','start':'2026-11-18T08:00:00',
+           'equipment':equipment,'employees':staff,
+           'shifts':{'day':[['08:00','12:00'],['13:00','17:00']]},
+           'orders':[{'id':'ORD'+str(i),'quantity':3600,'unit':'m2',
+             'technical_process_id':'PROC','parameters':{'color':str(i%4)}} for i in range(12)],
+           'technical_processes':[{'id':'PROC','name':'Demo process','operations':ops}],
+           'materials':[],'setup_rules':[]}
+          c,_=api('/api/auth/register','POST',{'email':'percent-real-'+uuid.uuid4().hex+'@liftorbit.invalid',
+            'password':secrets.token_urlsafe(25),'company':'Disposable percent shape audit'})
+          assert c==200 and cookie,'GA_PERCENT_AUTH_FAILED'
+          project='pct-'+uuid.uuid4().hex
+          c,_=api('/api/db-storage','POST',{'storage':{
+            'prodplan.projects.v2':json.dumps([{'id':project,'name':'Disposable percent','model':model}]),
+            'prodplan.project.active.v2':project}})
+          assert c==200,'GA_PERCENT_MODEL_FAILED'
+          c,m=api('/api/model')
+          assert c==200 and len(m.get('model',{}).get('orders',[]))==12
+          c,body=api('/api/plan','POST',{'generations':10,'population':12,
+           'objective':'duration','seed':1729,'__pp_async_start':True})
+          print('GA_CANDIDATE_PROBE_START',c,'started',body.get('started'),'phase',body.get('phase'),flush=True)
+          assert c==202 and body.get('started'),'GA_PERCENT_START_FAILED'
+          observed=[]
+          began=time.monotonic()
+          terminal=None
+          try:
+            for tick in range(350):
+              time.sleep(.2)
+              c,status=api('/api/plan-progress')
+              if c!=200:
+                print('GA_CANDIDATE_PROBE_ERROR_HTTP',c,'code',status.get('error'),flush=True)
+                break
+              pct=int(float(status.get('percent') or 0))
+              if not observed or pct!=observed[-1]:
+                observed.append(pct)
+                print('GA_CANDIDATE_PERCENT',tick,pct,'phase',status.get('phase'),
+                 'done',status.get('done'),'total',status.get('total'),flush=True)
+                if len(observed)==1:
+                  print('GA_CANDIDATE_API_FIELDS',sorted(status.keys()),flush=True)
+              phase=status.get('phase')
+              if pct>=35:
+                print('GA_CANDIDATE_EARLY_SAMPLING_STOP',pct,flush=True)
+                break
+              if phase not in ('queued','running','starting','optimizing'):
+                terminal=phase;print('GA_CANDIDATE_TERMINAL',phase,'success',status.get('success'),flush=True)
+                break
+            print('GA_CANDIDATE_SERIES',json.dumps(observed),flush=True)
+            jumps=[b-a for a,b in zip(observed,observed[1:]) if b>a]
+            print('GA_CANDIDATE_POSITIVE_JUMPS',json.dumps(jumps),flush=True)
+            print('GA_CANDIDATE_SUBGENERATOR_CHANGES',sum(1 for x in observed if x%10!=0),flush=True)
+            print('GA_CANDIDATE_RUNTIME_SECONDS',round(time.monotonic()-began,1),flush=True)
+            print('GA_CANDIDATE_PROBE_COMPLETED',terminal,flush=True)
+          finally:
+            if terminal!='completed':
+              c,d=api('/api/optimizer-stop','POST',{})
+              print('GA_CANDIDATE_CANCEL_INCOMPLETE',c,d.get('ok'),flush=True)
+          PY
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish only condensed per-run percentages
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest=ops/ovh/test-results/ga-candidate-sampled-percent-probe-20261118.txt
+          mkdir -p "$(dirname "$dest")"
+          if test -s "$RUNNER_TEMP/ga-candidate-percent-probe.txt";then
+            sed -n '1,165p' "$RUNNER_TEMP/ga-candidate-percent-probe.txt" | cut -c 1-240 > "$dest"
+          else echo 'probe_unavailable' > "$dest";fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dest"
+          if ! git diff --cached --quiet;then
+            git commit -m 'ci: record high-resolution GA percent sampling'
+            for i in 1 2 3;do git pull --rebase origin main;if git push origin HEAD:main;then exit 0;fi;sleep 2;done
+          fi
