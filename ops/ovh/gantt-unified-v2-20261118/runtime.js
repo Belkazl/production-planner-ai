@@ -145,6 +145,8 @@ function renderActive(p,mode=getMode()){
   }else {
    lastProjection=null;
   }
+  // Native V2 recreates the axis each draw; relabel it after rendering.
+  setMode(mode);
   const empty=document.getElementById("ppUnifiedGanttEmpty");
   if(empty)empty.hidden=(mode===0||!!lastProjection?.ops.length);
   if(mode!==previousMode)scroll.scrollLeft=positions.get(mode)||0;
@@ -223,6 +225,7 @@ window.addEventListener("click",event=>{
    if(had)m.equipment=prior;else delete m.equipment;
   }
   refreshOperationDetails(getMode(),lastReal);
+  setMode(getMode());
  },0);
 },true);
 window.__PP_UNIFIED_GANTT_V2__={
