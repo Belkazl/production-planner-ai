@@ -56,6 +56,7 @@ try{
  });
  await page.goto(base,{waitUntil:"domcontentloaded",timeout:50000});
  await page.waitForFunction(()=>window.__PP_OPTIMIZER_DEPTH__?.installed===true&&!!document.getElementById("opt"),null,{timeout:35000});
+ await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,null,{timeout:35000});
  const gate=await page.evaluate(()=>({
   optDisabled:document.getElementById("opt")?.disabled,
   optText:document.getElementById("opt")?.textContent,
@@ -66,12 +67,12 @@ try{
  }));
  console.log("LIVE_FREEZE_GATE",JSON.stringify(gate));
  await page.evaluate(()=>{
-  window.__PP_OPTIMIZER_DEPTH__.set("quick");
+  if(!window.__PP_OPTIMIZER_DEPTH__.set("quick"))throw Error("QUICK_MODE_BLOCKED");
   if(typeof modelReady!=="undefined")modelReady=true;
   if(typeof busy!=="undefined")busy=false;
   document.getElementById("opt").disabled=false;
  });
- console.log("LIVE_FREEZE_CLICK_BEGIN");
+ console.log("LIVE_FREEZE_CLICK_BEGIN",JSON.stringify(await page.evaluate(()=>({stop:window.__PP_STOP_DEBUG__?.(),depth:window.__PP_OPTIMIZER_DEPTH__.get(),disabled:document.getElementById("opt").disabled}))));
  await page.locator("#opt").click({timeout:10000,noWaitAfter:true});
  await page.waitForTimeout(200);
  started=requests.length>0;
