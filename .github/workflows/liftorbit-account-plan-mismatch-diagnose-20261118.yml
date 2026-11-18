@@ -1,0 +1,24 @@
+name: LiftOrbit isolated account-plan mismatch diagnosis
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-account-plan-mismatch-diagnose-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify LiftOrbit API ready
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health)" = 200
+      - name: Setup Playwright core
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Inspect isolated account demo and stale GA status
+        run: node ops/ovh/account-plan-mismatch-20261118/probe.mjs
