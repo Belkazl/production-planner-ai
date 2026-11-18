@@ -1,0 +1,26 @@
+name: LiftOrbit real six-order account ownership regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-six-order-owner-regression-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check site and Chrome
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health)" = 200
+      - name: Install Playwright
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Run actual six-order 12900 m2 genetic optimization
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: node ops/ovh/account-plan-mismatch-20261118/real-six.mjs
