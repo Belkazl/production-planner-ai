@@ -87,7 +87,7 @@ function createEnvironment(){
 }
 const env=createEnvironment();
 assert.equal(env.api.mode,"confirmed-only");
-assert.deepEqual(env.api.state,{active:false,displayed:0,confirmed:0});
+assert.deepEqual(JSON.parse(JSON.stringify(env.api.state)),{active:false,displayed:0,confirmed:0});
 assert.deepEqual(env.all(),[550]);
 let snap=env.next(10);
 assert.equal(snap.displayed,10,"first actual progress is displayed instantly");
@@ -122,7 +122,7 @@ snap=env.next(100);
 assert.equal(snap.confirmed,99,"100% must be controlled by true terminal event");
 env.end();
 assert.equal(env.api.state.active,false);
-assert.deepEqual(env.api.state,{active:false,displayed:0,confirmed:0});
+assert.deepEqual(JSON.parse(JSON.stringify(env.api.state)),{active:false,displayed:0,confirmed:0});
 assert.equal(env.current().text.nodeValue,"Continue optimization");
 env.changeButton("Optimization 45%");
 env.next(45);
