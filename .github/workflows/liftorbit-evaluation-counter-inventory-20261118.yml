@@ -1,0 +1,96 @@
+name: LiftOrbit inspect candidate-level GA progress hook availability
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-evaluation-counter-inventory-20261118.yml
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only GA sources and execution hook metadata
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          OVH_SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          OVH_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$OVH_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$OVH_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known_hosts"
+          ssh_opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20)
+          ssh "${ssh_opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE' > "$RUNNER_TEMP/hook-inventory.txt"
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration"
+          echo "CURRENT_GA_WORKER_SOURCE_FILES"
+          for path in sources/ovh-app/current/ga_python_workers/ga_workers/full_runtime_adapter.py sources/ovh-app/current/ga_python_workers/ga_workers/manager.py sources/ovh-app/current/ga_python_workers/ga_workers/compile_legacy_ga.py; do
+            if test -f "$path"; then sha256sum "$path" | cut -c 1-105; else echo "missing $path"; fi
+          done
+          echo "CODE_TOOL_PERMISSIONS"
+          command -v docker || true
+          id -nG | tr ' ' ','
+          docker ps --format 'NAME={{.Names}}' 2>/dev/null | grep -E 'ga-worker|planner' | head -n 12 || echo "docker_cli_not_allowed"
+          echo "HOST_COMPILED_CODE_AVAILABILITY"
+          if test -f /tmp/production_planner.py; then echo 'host_has_compiled_source'; else echo 'host_compiled_source_not_present'; fi
+          echo "PRIVATE_GA_OPTIMIZATION_INSTRUMENTATION_CAPABILITIES"
+          if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'ga-worker'; then
+            container=$(docker ps --format '{{.Names}}' | grep 'ga-worker' | head -n 1)
+            docker exec "$container" python3 - <<'PY' 2>/dev/null || true
+          import ast
+          from pathlib import Path
+          p=Path('/tmp/production_planner.py')
+          if not p.is_file():print('not_compiled');raise SystemExit
+          tree=ast.parse(p.read_text(encoding='utf-8'))
+          func_names=[n.name for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))]
+          interesting=[x for x in func_names if any(t in x.lower() for t in ['progress','evaluat','fitness','schedul','optimi','candidate','genom','population','generic'])]
+          print('FUNCTIONS',','.join(interesting[:110]))
+          for n in tree.body:
+            if not isinstance(n,ast.FunctionDef) or n.name not in ('optimize','_pp_optimize_generic','_pp_progress_snapshot'):
+              continue
+            print('FUNC',n.name,'START',n.lineno,'END',n.end_lineno)
+            for node in ast.walk(n):
+              if isinstance(node,ast.For):
+                target=ast.unparse(node.target)
+                it=ast.unparse(node.iter)
+                print('LOOP',node.lineno,target,'in',it[:150])
+              if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and any(t in node.func.id for t in ('evaluate','schedule','fitness','progress')):
+                print('CALL',node.lineno,node.func.id)
+            print('PERCENT_ASSIGNMENTS')
+            for sub in ast.walk(n):
+              if isinstance(sub,(ast.Assign,ast.AugAssign)):
+                expr=ast.unparse(sub)
+                if any(word in expr for word in ['percent','progress','evaluated','generation']):
+                  print('ASSIGN',sub.lineno,expr[:190])
+          PY
+          fi
+          REMOTE
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Publish safe progress instrumentation inventory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=ops/ovh/test-results/evaluation-hook-inventory-20261118.txt
+          mkdir -p "$(dirname "$p")"
+          if test -s "$RUNNER_TEMP/hook-inventory.txt"; then cp "$RUNNER_TEMP/hook-inventory.txt" "$p"; else echo 'audit_unavailable' > "$p"; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$p"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: inspect candidate-level GA hook availability'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+          fi
