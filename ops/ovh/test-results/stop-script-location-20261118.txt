@@ -1,0 +1,13 @@
+register=200
+html=200
+anchor___ppStopOptimizerInstalled=2
+anchor_context___ppStopOptimizerInstalled='){var res=prevRefresh.apply(this,arguments);delayedUpgrade();return res};\nupgrade();\nconsole.log("PP_SECONDARY_GANTTS_V3_READY",VER);\n})();\n</script><script id="ppStopOptimizationV1">(function(){\n"use strict";\nif(window.__ppStopOptimizerInstalled)return;\nwindow.__ppStopOptimizerInstalled=true;\nconst btn=document.getElementById("opt");\nif(!btn || typeof btn.onclick!=="function")return;\nconst stop=document.createElement("button");\nstop.type="button";stop.id="ppStopOptimizer";\ns'
+anchor_ppStopModal=13
+anchor_context_ppStopModal='nt("button");\nstop.type="button";stop.id="ppStopOptimizer";\nstop.textContent="Остановить оптимизацию";\nstop.disabled=true;\nbtn.insertAdjacentElement("afterend",stop);\nconst modal=document.createElement("div");\nmodal.id="ppStopModal";modal.setAttribute("role","presentation");\nmodal.style.display="none";document.body.appendChild(modal);\nconst style=document.createElement("style");\nstyle.id="ppStopOptimizerStyles";\nstyle.textContent="#ppStopOptimizer{display:none;align-items:cen'
+anchor_stop_ui_js=0
+anchor_restart_optimizer_ui_js=0
+anchor_ppSelectedPlanKpiReferenceV2=1
+anchor_context_ppSelectedPlanKpiReferenceV2='t.\nsetInterval(install,1500);\nwindow.__PP_KPI_FIRST_BEST_V1__={\n installed:true,\n get snapshot(){const p=currentProject();return read(p)},\n get compareVisible(){return !!visibility()},\n sync:install\n};\n})();\n\n;(function ppSelectedPlanKpiReferenceV2(){\n"use strict";\nif(window.__PP_KPI_SELECTED_REFERENCE_V2__?.installed)return;\nconst PREFIX="pp.kpi.first-best.v1.";\nconst keys=["duration","cycles","wait","idle"];\nconst project=()=>{\n try{\n  const id=localStorage.getItem("prodpla'
+anchor___PP_STOP_DEBUG__=9
+anchor_context___PP_STOP_DEBUG__=' активной оптимизации…";\n window.dispatchEvent(new Event("pp:optimizer-reconnect-pending"));\n setTimeout(ppRecoverRunningGaFromAccount,0);\n return true;\n}\nwindow.__PP_GA_RECHECK__=ppReconnectOptimizationOnDemand;\nwindow.__PP_STOP_DEBUG__=()=>({running,reconnecting,recoveredSession,remotePercent,remotePhase,remoteFailureCount,stopped:requestStop,variants:items.length,criterion,stoppedPlanAvailable,buttonText:btn.textContent});\nsetTimeout(ppRecoverRunningGaFromAccount,80);\n})()'
+script_sources=[]
