@@ -98,6 +98,16 @@ try{
   modal.style.display="flex";modal.classList.add("pp-open");
  },makePlan(4405));
  await page.locator("#ppStopModal .pp-actions button").first().click();
+ console.log("KPI_SELECTED_LIVE_CLICK_DIAGNOSTICS",JSON.stringify(await page.evaluate(()=>({
+  baseline:window.__PP_KPI_SELECTED_REFERENCE_V2__?.snapshot,
+  acceptedId:localStorage.getItem("prodplan.project.active.v2"),
+  orders:JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]")[0]?.model?.orders?.length,
+  committed:window.__ppOptimizerCommittedPlan?.duration_minutes,
+  operations:window.__ppOptimizerCommittedPlan?.operations?.length,
+  modalClosed:!document.getElementById("ppStopModal")?.classList.contains("pp-open"),
+  displayed:document.getElementById("dur").textContent,
+  delta:document.getElementById("durDelta").textContent
+ }))));
  await page.waitForFunction(()=>window.__PP_KPI_SELECTED_REFERENCE_V2__?.snapshot?.metrics?.duration===4405&&
   window.__PP_KPI_SELECTED_REFERENCE_V2__?.snapshot?.compare===false,null,{timeout:8000});
  const chosen=await page.evaluate(()=>({
