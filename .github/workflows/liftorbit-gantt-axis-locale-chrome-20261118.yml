@@ -1,0 +1,61 @@
+name: LiftOrbit Chrome verify shared Gantt axes locale and no duplicates
+on:
+  workflow_run:
+    workflows:
+      - LiftOrbit guarded OVH unified Gantt V2 axis titles and locale hotfix
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  chrome:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm deployment and public API
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx 'preflight=success' ops/ovh/test-results/gantt-axis-locale-release-latest.txt
+          grep -Fqx 'rollout=success' ops/ovh/test-results/gantt-axis-locale-release-latest.txt
+          grep -Fqx 'public_health=success' ops/ovh/test-results/gantt-axis-locale-release-latest.txt
+          command -v google-chrome
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
+      - name: Install lightweight headless Chrome driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Validate all Gantt modes with localized axis labels and zoom
+        id: acceptance
+        shell: bash
+        run: node ops/ovh/gantt-unified-v2-20261118/chrome.mjs
+      - uses: actions/checkout@v4
+        if: always()
+      - name: Save real browser acceptance
+        if: always()
+        env:
+          RUN: ${{ github.run_id }}
+          QA: ${{ steps.acceptance.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/gantt-axis-locale-chrome-latest.txt
+          mkdir -p "$(dirname "$target")"
+          printf 'workflow_run=%s\nchrome_acceptance=%s\n' "$RUN" "$QA" > "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record native Gantt V2 axis Chrome verification'
+            for attempt in 1 2 3; do
+              git pull --rebase origin main
+              if git push origin HEAD:main; then exit 0; fi
+              sleep 2
+            done
+            echo 'GANTT_AXIS_BROWSER_REPORT_PUSH_UNAVAILABLE'
+            exit 0
+          fi
