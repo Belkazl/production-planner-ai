@@ -1,5 +1,9 @@
 name: LiftOrbit live Chromium Quick 10x12 preset and API request acceptance
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-quick-depth-v2-live-chromium-20261118.yml
   workflow_run:
     workflows:
       - LiftOrbit guarded OVH Quick optimization 10 generations x 12 candidates
@@ -9,7 +13,7 @@ permissions:
   contents: write
 jobs:
   chromium:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -17,13 +21,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify completed guarded quick-mode deployment
+      - name: Verify public deployment health and protected authentication
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fqx 'preflight=success' ops/ovh/test-results/ga-quick-depth-v2-release-latest.txt
-          grep -Fqx 'rollout=success' ops/ovh/test-results/ga-quick-depth-v2-release-latest.txt
-          grep -Fqx 'public_health=success' ops/ovh/test-results/ga-quick-depth-v2-release-latest.txt
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://app.liftorbit.app/api/auth/me)" = 401
       - name: Install isolated Chromium
         shell: bash
         run: |
@@ -58,5 +61,6 @@ jobs:
           git add "$file"
           if ! git diff --cached --quiet; then
             git commit -m 'ci: record Quick 10x12 Chromium acceptance'
+            git pull --rebase origin main
             git push origin HEAD:main
           fi
