@@ -1,0 +1,61 @@
+name: LiftOrbit Chromium acceptance fresh optimizer never replaces 4355 with 9080
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-fresh-objective-live-browser-20261118.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  chromium:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.head_commit.message == 'test(liftorbit): live fresh guard must reject a worse real-browser result')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm installed guarded OVH deployment is healthy
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'preflight=success' ops/ovh/test-results/ga-fresh-objective-floor-release-latest.txt
+          grep -Fq 'rollout=success' ops/ovh/test-results/ga-fresh-objective-floor-release-latest.txt
+          grep -Fq 'public_health=success' ops/ovh/test-results/ga-fresh-objective-floor-release-latest.txt
+      - name: Install Chromium in test runner
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Exercise fresh GA objective floor with 4355/9080 fixture
+        id: browser_qa
+        shell: bash
+        run: node ops/ovh/fresh-objective-floor-live-browser-20261118.mjs
+      - name: Checkout to record acceptance outcome
+        if: always()
+        uses: actions/checkout@v4
+      - name: Publish safe browser acceptance result
+        if: always()
+        shell: bash
+        env:
+          QA_RESULT: ${{ steps.browser_qa.outcome }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          target=ops/ovh/test-results/ga-fresh-objective-browser-latest.txt
+          mkdir -p "$(dirname "$target")"
+          printf 'workflow_run=%s\nbrowser_acceptance=%s\n' "$RUN_ID" "$QA_RESULT" > "$target"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$target"
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record GA fresh objective live Chromium acceptance'
+            git push origin HEAD:main
+          fi
