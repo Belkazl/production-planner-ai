@@ -14,7 +14,7 @@ const appended=current.slice(at);
 const begin="  const existing=body.resume_plan;";
 const end="  if(!hint)return previousFetch.apply(this,arguments);";
 const i0=prior.indexOf(begin),i1=prior.indexOf(end,i0);
-const j0=current.indexOf(begin),j1=current.indexOf(end,j0);
+const j0=current.indexOf("  // The native planner may attach a legacy resume_plan."),j1=current.indexOf(end,j0);
 assert(i0>=0&&i1>i0&&j0>=0&&j1>j0,"hotfix legacy seed anchors");
 assert.equal(current.slice(0,j0),prior.slice(0,i0));
 assert.equal(current.slice(j1),prior.slice(i1));
