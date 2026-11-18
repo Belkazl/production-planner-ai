@@ -10,7 +10,7 @@ permissions:
 jobs:
   browser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Check current site
@@ -21,3 +21,5 @@ jobs:
         run: npm install --no-save --no-package-lock playwright-core@1.57.0
       - name: Reproduce large-plan optimization freeze
         run: node ops/ovh/browser-freeze-20261118/profile.mjs
+      - name: Verify real isolated optimizer run keeps browser responsive
+        run: node ops/ovh/browser-freeze-20261118/live-run.mjs
