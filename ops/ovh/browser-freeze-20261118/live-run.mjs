@@ -57,6 +57,11 @@ try{
  await page.goto(base,{waitUntil:"domcontentloaded",timeout:50000});
  await page.waitForFunction(()=>window.__PP_OPTIMIZER_DEPTH__?.installed===true&&!!document.getElementById("opt"),null,{timeout:35000});
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,null,{timeout:35000});
+ if(process.env.FREEZE_TEST_MODE==="deployed"){
+  const single=await page.evaluate(()=>window.__PP_SINGLE_GA_PROGRESS_RENDERER_V1__);
+  if(!single?.installed||!single.legacyObserverStopped)throw Error("DEPLOYED_SINGLE_PROGRESS_MISSING");
+  console.log("LIVE_FREEZE_DEPLOYED_SINGLE_PROGRESS",JSON.stringify(single));
+ }
  if(process.env.FREEZE_TEST_MODE==="single-progress"){
   const isolated=await page.evaluate(()=>{
    const a=window.__PP_TRUTHFUL_SMOOTH_GA_PERCENT_V1__;
