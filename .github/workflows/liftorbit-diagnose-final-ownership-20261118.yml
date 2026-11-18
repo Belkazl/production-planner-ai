@@ -1,4 +1,5 @@
 name: LiftOrbit diagnose recurring account_plan_mismatch safely
+# Verify worker source fingerprint after failed browser QA and rollback attempt.
 on:
   push:
     branches: [main]
