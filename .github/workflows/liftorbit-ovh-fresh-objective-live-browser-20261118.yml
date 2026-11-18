@@ -35,6 +35,7 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.57.0
           npx playwright install --with-deps chromium
       # Re-check live page code marker and full scenario after initial diagnostic failure.
+      # acceptance after active UI release
       # Exercise full synthetic response even if the current HTML guard marker is absent.
       - name: Exercise fresh GA objective floor with 4355/9080 fixture
         id: browser_qa
