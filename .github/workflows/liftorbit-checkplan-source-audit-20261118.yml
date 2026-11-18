@@ -34,13 +34,17 @@ jobs:
           root="$HOME/liftorbit-migration/sources/ovh-app/current"
           cd "$root"
           echo "ACCOUNT_PLAN_AUDIT_SOURCE_ONLY"
-          for target in python-ga-upstream.mjs ga-worker-build.ts ga-python-state-store.mjs baselines/2026-10-10/aps-setup-bridge/index.ts; do
+          for target in python-ga-upstream.mjs ga-worker-build.ts ga-python-state-store.mjs tenant-model-runtime.js python-ga-upstream-build.ts baselines/2026-10-10/aps-setup-bridge/index.ts; do
             if test -r "$target"; then
               echo "SOURCE_FILE=$target"
               sha256sum "$target" | cut -d ' ' -f1
               grep -nE 'account_plan_mismatch|checkPlan|account_model_changed_during_run|gaPlanOwned|planOwnership|owned\(' "$target" | cut -c 1-250 | head -n 24 || true
             fi
           done
+          echo "VALIDATOR_SPECIFIC_CONTEXT"
+          if test -r tenant-model-runtime.js; then
+            grep -n -C 9 -E "checkPlan[[:space:]]*[:=(]|account_plan_mismatch|validate.*plan|plan.*ownership" tenant-model-runtime.js | cut -c 1-250 | head -n 170 || true
+          fi
           echo "OTHER_CHECKPLAN_FILES"
           find . -maxdepth 2 -type f \( -name '*.mjs' -o -name '*.ts' -o -name '*.js' \) -not -path '*/node_modules/*' -print0 | xargs -0 grep -l 'checkPlan' | head -n 16 || true
           REMOTE
