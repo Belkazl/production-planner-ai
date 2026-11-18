@@ -11,7 +11,7 @@ const marker="\n;(()=>{\n\"use strict\";\n// Augment only real Continue requests
 const at=current.lastIndexOf(marker);
 assert(at>=0,"last appended hook is in live UI file");
 const appended=current.slice(at);
-assert.equal(prior+"\n"+appended+"\n",current,"production change must add only the wrapper");
+assert.equal(prior+appended,current,"production change must append only the continuation wrapper");
 const orderIds=Array.from({length:12},(_,i)=>"ORDER-"+i);
 const model={
  orders:orderIds.map(id=>({id})),
