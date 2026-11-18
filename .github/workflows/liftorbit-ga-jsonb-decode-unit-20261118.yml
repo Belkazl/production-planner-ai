@@ -16,12 +16,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
       - name: Verify raw JSONB text fails before decode and succeeds after
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/jsonb-qa/tests
-          cp ga-python-state-store.mjs /tmp/jsonb-qa/ga-python-state-store.mjs
+          cp pinned/ga-python-state-store.mjs /tmp/jsonb-qa/ga-python-state-store.mjs
           cp ops/ovh/account-plan-mismatch-20261118/jsonb-decode.test.mjs /tmp/jsonb-qa/tests/jsonb-decode.test.mjs
           if node --test /tmp/jsonb-qa/tests/jsonb-decode.test.mjs > /tmp/jsonb-before.log 2>&1; then
             echo 'DECODE_PREPATCH_SHOULD_FAIL'; exit 2
