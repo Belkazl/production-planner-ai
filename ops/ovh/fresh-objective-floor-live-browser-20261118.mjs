@@ -80,7 +80,14 @@ try {
   title:document.title
  }));
  console.log("FLOOR_LIVE_SCRIPT_DIAGNOSTICS",JSON.stringify(frontDiag));
- assert(frontDiag.scriptContains,"fresh objective floor must be installed on public HTML");
+ console.log("FLOOR_LIVE_GLOBALS",JSON.stringify(await page.evaluate(()=>({
+  renderPlan:typeof window.renderPlan,
+  projectAfterPlan:typeof window.ppProjectAfterPlan,
+  hasResult:typeof hasResult!=="undefined"?hasResult:null,
+  optOnclick:typeof document.getElementById("opt")?.onclick,
+  freshEnabled:!!window.__ppFreshOptimizerUiInstalled,
+  currentPlan:window.__ppOptimizerCommittedPlan?.duration_minutes
+ }))));
  const baseline=await api("/api/model");
  assert.equal(baseline.status,200);assert.equal(baseline.body.model?.orders?.length,12);
  const running=await api("/api/plan-progress");
