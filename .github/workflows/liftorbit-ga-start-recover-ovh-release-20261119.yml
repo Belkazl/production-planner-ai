@@ -36,8 +36,12 @@ jobs:
           mkdir -p old new
           scp -q "${opts[@]}" "$USER@$HOST:$root/async-plan-transport.js" old/async-plan-transport.js
           cp old/async-plan-transport.js new/async-plan-transport.js
+          scp -q "${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" new/python-ga-upstream.mjs
+          scp -q "${opts[@]}" "$USER@$HOST:$root/tests/async-plan-transport-contract.cjs" "$RUNNER_TEMP/async-plan-transport-contract.cjs"
           node ops/ovh/ga-start-recover-20261119/patch.mjs new
           node --check new/async-plan-transport.js
+          (cd new && node "$RUNNER_TEMP/async-plan-transport-contract.cjs")
+          echo GA_START_EXISTING_PRODUCTION_BUILD_CONTRACT_PASS
           node --check ops/ovh/ga-start-recover-20261119/live-regression.mjs
           diff -u old/async-plan-transport.js new/async-plan-transport.js > "$RUNNER_TEMP/ga-start-one-file.diff" || test "$?" -eq 1
           test "$(grep -c '^@@' "$RUNNER_TEMP/ga-start-one-file.diff")" = 1
