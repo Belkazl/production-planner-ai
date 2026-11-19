@@ -1,0 +1,45 @@
+name: LiftOrbit inspect recent true 502 GA start transport service health
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ga-start-502-runtime-audit-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Read only service health, recent error signatures and worker state
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          p="$HOME/liftorbit-migration/sources/ovh-app/current"
+          test -r "$p/async-plan-transport.js"
+          printf 'TRANSPORT_SHA '
+          sha256sum "$p/async-plan-transport.js" | cut -d' ' -f1
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then echo SERVICE_SMOKE_PASS; else echo SERVICE_SMOKE_FAIL; fi
+          echo AVAILABLE_DOCKER_COMMAND
+          command -v docker || true
+          if docker ps --format '{{.Names}} {{.Status}}' > /tmp/ga-start-502-dockerstatus.txt 2>/dev/null; then
+            grep -E 'liftorbit|ga-worker|planner|auth' /tmp/ga-start-502-dockerstatus.txt | head -n 14 || true
+            for name in $(sed -n '/liftorbit.*\(app\|auth\|planner\|ga-worker\)/{s/ .*//;p;}' /tmp/ga-start-502-dockerstatus.txt | head -n 8); do
+              echo CONTAINER_AUDIT "$name"
+              docker inspect "$name" --format '{{.State.Status}} {{.State.Health.Status}} {{.State.OOMKilled}} {{.RestartCount}}' 2>/dev/null || true
+              docker logs --since '2026-11-19T16:50:00Z' --until '2026-11-19T17:15:00Z' --tail 1000 "$name" 2>&1 | python3 -c 'import sys,re;lines=sys.stdin.read().splitlines();pat=re.compile(r"\b(502|bad.gateway|oom|killed|timeout|fatal|uncaught|error|restarted|connection.refused|upstream)\b",re.I);hit=[x for x in lines if pat.search(x)];print("SERVICE_LOG_STATS",len(lines),"matched",len(hit));print("ERROR_SIGNATURES",[(w,sum(bool(re.search(w,x,re.I)) for x in hit)) for w in ["502","oom","killed","timeout","fatal","uncaught","connection.refused","upstream"]])'
+            done
+          else echo DOCKER_LOGS_PERMISSION_UNAVAILABLE; fi
+          REMOTE
+          curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
