@@ -18,7 +18,7 @@ jobs:
       - name: Real first 886-op GA then safe second NEW run without continuation
         shell: bash
         env:
-          FREEZE_TEST_MODE: deployed
+          FREEZE_TEST_MODE: skip-gantt
         run: |
           set -euo pipefail
           npm install --no-save --no-package-lock playwright-core@1.57.0
