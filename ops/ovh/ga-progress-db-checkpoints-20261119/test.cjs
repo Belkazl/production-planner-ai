@@ -1,0 +1,17 @@
+const assert=require("node:assert/strict");
+const {readFileSync}=require("node:fs");
+const {resolve}=require("node:path");
+const source=readFileSync(resolve(process.argv[2],"python-ga-upstream.mjs"),"utf8");
+assert(source.includes("marker!==state.lastPersistedBestMarker"));
+assert(source.includes("(changed&&due>=12000)||due>=30000"));
+assert(source.includes("if(terminal||!state.lastPersistedAt||"));
+assert(source.includes("state.lastPersistedProgress=state.progress;"));
+assert(source.includes('state.lastPersistedState=state.state;'));
+assert(source.includes('state.lastPersistedBestMarker=marker;'));
+assert(source.includes('await save(principal,state);'));
+assert(source.includes("if(status.status==='completed'){"));
+assert(source.includes("const finalPlan=publicPlan(selected);"));
+assert(source.includes("async function cancel(req){"));
+assert(source.includes("await save(principal,job);"));
+assert(source.includes("const current=await currentJob(principal)"));
+console.log("GA_PROGRESS_DB_CHECKPOINT_GUARDS_PASS");
