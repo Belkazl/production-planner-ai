@@ -208,6 +208,10 @@ try{
  console.log("CERAMIC_DURABLE_PLAN_VERIFIED",JSON.stringify({rows:snapshot.result.operations.length,
    setups:snapshot.result.operations.filter(x=>x.is_setup).length,
    recovered:snapshot.result.optimization_account_check_recovered===true,
+   completedEarly:snapshot.result.optimization_completed_early===true,
+   reason:snapshot.result.optimization_termination_reason||null,
+   actualGenerations:snapshot.result.total_generations??null,
+   actualRuns:snapshot.result.optimization_run??null,
    duration:snapshot.result.duration_minutes}));
 
  if(errors.length)throw Error("BROWSER_ERRORS_"+JSON.stringify(errors.slice(0,4)));
