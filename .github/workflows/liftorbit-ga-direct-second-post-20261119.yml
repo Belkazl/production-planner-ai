@@ -19,6 +19,10 @@ jobs:
         shell: bash
         env:
           FREEZE_TEST_MODE: deployed
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           npm install --no-save --no-package-lock playwright-core@1.57.0
@@ -67,10 +71,48 @@ jobs:
            return {status:r.status,phase:v.phase,success:v.success,percent:v.percent,job_id:v.job_id||null,resultRows:v.result?.operations?.length||0};
           });
           console.log("DIRECT_SECOND_FINAL_STATUS",JSON.stringify(final));
+          if(acceptedStart.status!==202)throw Error("DIRECT_SECOND_HTTP_START_NOT_ACKNOWLEDGED_"+String(acceptedStart.status)+"_OLD_PROGRESS_NOT_SUCCESS");
           if(final.phase!=="completed"||final.success!==true||final.percent!==100)throw Error("DIRECT_SECOND_GA_NOT_COMPLETE");
           `+src.slice(end);
           writeFileSync('/tmp/liftorbit-direct-second.mjs',src);
           console.log("NATIVE_SECOND_POST_DIAGNOSTIC_READY");
           JS
           cp /tmp/liftorbit-direct-second.mjs ops/ovh/ga-start-recover-20261119/_direct_second_diag.mjs
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s > "$RUNNER_TEMP/host-bun.log" <<'REMOTE' &
+          set -euo pipefail
+          for sample in $(seq 0 100); do
+            printf 'HOSTPID %s ' "$sample"
+            ps -C bun -o pid=,rss=,etimes= | tr '\n' ';' | cut -c1-260
+            printf '\n'
+            sleep 2
+          done
+          REMOTE
+          monitor=$!
+          set +e
           node ops/ovh/ga-start-recover-20261119/_direct_second_diag.mjs
+          code=$?
+          set -e
+          kill "$monitor" 2>/dev/null || true
+          sleep 1
+          python3 - "$RUNNER_TEMP/host-bun.log" <<'PY'
+          import re,sys
+          from pathlib import Path
+          lines=Path(sys.argv[1]).read_text(errors='replace').splitlines()
+          previous=None;largest=0;changes=0
+          for line in lines:
+            if not line.startswith('HOSTPID'):continue
+            rows=re.findall(r'(\d+)\s+(\d+)\s+(\d+);',line)
+            ids=tuple(sorted(int(row[0]) for row in rows))
+            total=sum(int(row[1]) for row in rows)
+            largest=max(largest,total)
+            if ids!=previous:
+              print('BUN_PID_TRANSITION',line[:210])
+              changes+=1
+              previous=ids
+          print('BUN_MONITOR_SUMMARY',{'samples':len(lines),'changes':changes,'peak_rss_kb':largest})
+          PY
+          exit "$code"
