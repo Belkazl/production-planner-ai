@@ -326,9 +326,10 @@ try{
   if(route.request().method()!=="POST")return route.continue();
   maskedPosts++;
   if(maskedPosts>1)return route.continue();
+  const secondStartedAt=Date.now();
   const actual=await route.fetch({timeout:45000});
   let body=null;try{body=await actual.json()}catch{}
-  acceptedStart={status:actual.status(),accepted:body?.ok===true&&body?.started===true,
+  acceptedStart={postBytes:route.request().postDataBuffer()?.length||0,upstreamDurationMs:Date.now()-secondStartedAt,status:actual.status(),accepted:body?.ok===true&&body?.started===true,
    joined:body?.joined===true,contentType:(actual.headers()["content-type"]||"").slice(0,70)};
   console.log("GA_START_SECOND_UPSTREAM_STATUS",JSON.stringify(acceptedStart));
   // Mask a genuine accepted 202 with HTML 502, or propagate a real 502 from
