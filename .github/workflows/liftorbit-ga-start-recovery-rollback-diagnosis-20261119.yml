@@ -56,5 +56,13 @@ jobs:
                 if re.search(r'(password|token|secret|cookie|authorization|credential|private_key|DATABASE_URL|EMAIL|AUTH_\\w+)',x,re.I):continue
                 print("BUILD_TEST",x[:300])
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path.home()/'liftorbit-migration'/'sources'/'ovh-app'/'current'/'tests'/'async-plan-transport-contract.cjs'
+          print("TRANSPORT_CONTRACT_PRESENT",p.exists())
+          if p.exists():
+            for i,line in enumerate(p.read_text().splitlines()[:100],1):
+              print("TGUARD",i,line[:220])
+          PY
           REMOTE
           curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
