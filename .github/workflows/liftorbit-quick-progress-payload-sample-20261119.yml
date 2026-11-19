@@ -1,0 +1,20 @@
+name: LiftOrbit quick read-only GA progress payload size sample
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-quick-progress-payload-sample-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sample:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Capture only synthetic GA progress byte lengths
+        env:
+          FREEZE_TEST_MODE: sample-payload
+        run: node ops/ovh/ga-progress-payload-20261119/quick-sample.mjs
