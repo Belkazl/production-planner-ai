@@ -1,0 +1,42 @@
+name: LiftOrbit inspect tenant-model POST gateway 502 read-only
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-tenant-plan-route-readonly-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read tenant plan gateway branches with secrets stripped
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          files=[('tenant-model-runtime.js',range(1,164)),('auth-runtime.js',list(range(45,88))+list(range(112,165))),('ga-python-state-store.mjs',range(1,81))]
+          for name,inds in files:
+            p=Path(name);ls=p.read_text(errors='replace').splitlines()
+            print('FILE',name,'SHA',hashlib.sha256(p.read_bytes()).hexdigest(),'LINES',len(ls))
+            for i in inds:
+              if i>len(ls):break
+              s=ls[i-1]
+              if re.search(r'password|token|secret|credential|authorization|private.key|process.env|Bun.env|database_url|email|cookie|http(s)?://',s,re.I):s='[redacted]'
+              print('CODE',name,i,s[:225])
+          PY
+          REMOTE
