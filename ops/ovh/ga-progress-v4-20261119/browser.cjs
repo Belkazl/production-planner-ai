@@ -55,7 +55,7 @@ const code=readFileSync("ops/ovh/ga-progress-v4-20261119/runtime.js","utf8");
    state:window.__PP_GA_PROGRESS_V4__.state
   }));
   assert(activity.text.includes("%"));
-  assert.match(activity.content,/attr/);
+  assert(activity.content.includes("%"),"CSS pseudo-label must show active percent");
   assert.equal(await page.locator("#ppGaProgressBusyV2,#ppGaProgressFinalV2,#ppGaTerminal100V1").count(),0);
   console.log("GA_PROGRESS_V4_NO_SIDEBAR_STALLED_LABEL_PASS");
 
