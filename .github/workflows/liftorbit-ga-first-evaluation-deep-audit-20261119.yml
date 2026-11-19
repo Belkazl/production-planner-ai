@@ -56,32 +56,25 @@ jobs:
           # Read assembly to find the live full optimizer source. Source only.
           for i,line in enumerate(f.read_text().splitlines()[:22],1):
               print("ADAPTER_HEAD",i,line[:250])
-          try:
-              from ga_workers.full_runtime_adapter import SOURCE
-              compiled=Path(SOURCE)
-          except Exception as ex:
-              print("SOURCE_SYMBOL_UNAVAILABLE",str(ex));raise
-          code=compiled.read_text()
-          ls=code.splitlines()
-          print("COMPILED",str(compiled),"lines",len(ls))
-          tree=ast.parse(code)
-          for node in ast.walk(tree):
-              if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and (
-                  any(word in node.name for word in ["progress","optimiz","genetic","fitness","evaluate","ga_run","population"]) or node.name in ("plan","run")
-              ):
-                  print("FUNCTION",node.name,node.lineno,node.end_lineno)
-          sites=[]
-          for i,line in enumerate(ls):
-              if "_pp_progress_snapshot" in line or "percent" in line and ("_pp_" in line or "progress" in line):
-                  sites.append(i)
-          print("COMPILED_PROGRESS_SITES",len(sites))
-          selected=set()
-          for i in sites:
-              selected.update(range(max(0,i-6),min(len(ls),i+13)))
-          for i in sorted(selected)[:340]:
-              line=ls[i]
-              if re.search(r"(secret|password|token|api.key|os.environ)",line,re.I):line="[redacted]"
-              print(f"{i+1}: {line[:240]}")
-          print("COMPILED_PROGRESS_END")
+          compiled=Path("/tmp/production_planner.py")
+          print("HOST_COMPILED_PRESENT",compiled.is_file())
+          assembly=Path("ga_python_workers/ga_workers/compile_legacy_ga.py").read_text().splitlines()
+          print("ASSEMBLY_START")
+          for i,line in enumerate(assembly):
+              if i<240:
+                  if re.search(r"(secret|password|token|api.key|os.getenv|base64)",line,re.I):line="[redacted]"
+                  print(f"{i+1}: {line[:235]}")
+          print("ASSEMBLY_END")
+          # Worker-owned process may assemble its source inside a container.
+          # Inspect host paths only; never dump runtime environment or credentials.
+          if compiled.is_file():
+              code=compiled.read_text()
+              ls=code.splitlines()
+              print("COMPILED_LINES",len(ls))
+              for i,line in enumerate(ls):
+                  if "_pp_progress_snapshot" in line:
+                      for j in range(max(0,i-4),min(len(ls),i+21)):
+                          print(f"{j+1}: {ls[j][:200]}")
+          
           PY
           REMOTE
