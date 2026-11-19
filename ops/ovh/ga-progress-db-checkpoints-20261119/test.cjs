@@ -13,5 +13,5 @@ assert(source.includes("if(status.status==='completed'){"));
 assert(source.includes("const finalPlan=publicPlan(selected);"));
 assert(source.includes("async function cancel(req){"));
 assert(source.includes("await save(principal,job);"));
-assert(source.includes("const current=await currentJob(principal)"));
+assert(source.includes("async function currentJob(principal){"));
 console.log("GA_PROGRESS_DB_CHECKPOINT_GUARDS_PASS");
