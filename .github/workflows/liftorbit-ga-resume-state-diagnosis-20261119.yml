@@ -1,0 +1,49 @@
+name: LiftOrbit investigate GA continuation result schema and host memory
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-resume-state-diagnosis-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect sanitized continuation code, host capacity, and app readiness
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path=Path("python-ga-upstream.mjs")
+          lines=path.read_text().splitlines()
+          for a,b in [(132,185),(508,547)]:
+            for j in range(a-1,min(b,len(lines))):
+              line=lines[j]
+              if re.search(r'password|token|secret|credential|cookie|authorization|private.key|process.env|bun.env|database_url|https?://|email',line,re.I):line='[redacted]'
+              print('CODE',j+1,line[:230])
+          PY
+          echo MEMINFO
+          free -m | head -n 3
+          echo UPTIME
+          uptime
+          echo HOST_STATUS
+          sudo -n /usr/local/sbin/liftorbit-ops status | grep -E 'LIFTORBIT_SERVICE (app|ga-worker|planner-gateway|auth-gateway)' | head -n 7
+          echo HOST_HEALTH
+          curl -sS --max-time 12 -o /dev/null -w 'health=%{http_code}\n' https://app.liftorbit.app/__bridge_health
+          REMOTE
