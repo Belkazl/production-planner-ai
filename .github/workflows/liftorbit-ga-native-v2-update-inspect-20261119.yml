@@ -1,0 +1,54 @@
+name: LiftOrbit inspect native continuation install and rollback result safely
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-native-v2-update-inspect-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Sanitize private update logs and validate original source is restored
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          backup="$root/patch-backups/ga-continue-native-v2-20261119"
+          live="$root/sources/ovh-app/current"
+          echo SAFE_CURRENT_SHA
+          for f in python-ga-upstream.mjs ga_python_workers/ga_workers/full_runtime_adapter.py; do
+            sha256sum "$live/$f" | cut -d ' ' -f1
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          base=Path.home()/'liftorbit-migration'/'patch-backups'/'ga-continue-native-v2-20261119'
+          for fn in ['update-private.log','rollback-private.log']:
+            p=base/fn
+            print('LOG_FILE',fn,'exists',p.exists())
+            if not p.exists():continue
+            lines=p.read_text(errors='replace').splitlines()
+            print('LOG_LINE_COUNT',len(lines))
+            for x in lines[-65:]:
+              if re.search(r'(token|password|secret|credential|cookie|authorization|api.key|private.key|DATABASE_URL|EMAIL|AUTH_)',x,re.I):continue
+              x=re.sub(r'(?i)https?://\S+','[URL]',x)
+              print('LOG',fn,x[:220])
+          PY
+          sudo -n /usr/local/sbin/liftorbit-ops status | grep -E 'LIFTORBIT_SERVICE (app|ga-worker|planner-gateway|auth-gateway)' | head -n 8
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then echo SERVICE_SMOKE_PASS; else echo SERVICE_SMOKE_FAIL; fi
+          REMOTE
+          curl -sS --max-time 12 -o /dev/null -w 'public_health=%{http_code}\n' https://app.liftorbit.app/__bridge_health
