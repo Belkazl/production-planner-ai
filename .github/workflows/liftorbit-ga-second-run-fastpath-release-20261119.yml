@@ -1,4 +1,5 @@
 name: LiftOrbit validate and release same-account GA continuation fast path
+# Rerun after correcting stale-completed upstream 502 mock expectation
 on:
   push:
     branches: [main]
