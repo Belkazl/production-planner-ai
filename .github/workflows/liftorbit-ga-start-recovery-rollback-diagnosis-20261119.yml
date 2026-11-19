@@ -50,6 +50,11 @@ jobs:
               filtered.append(clean[:200])
             print("DIAGNOSTIC_LINES",name,len(lines),"filtered",len(filtered))
             for x in filtered[-35:]:print("DIAG",name,x)
+            if name=='update-private.log':
+              for x in lines:
+                if '#34' not in x:continue
+                if re.search(r'(password|token|secret|cookie|authorization|credential|private_key|DATABASE_URL|EMAIL|AUTH_\\w+)',x,re.I):continue
+                print("BUILD_TEST",x[:300])
           PY
           REMOTE
           curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
