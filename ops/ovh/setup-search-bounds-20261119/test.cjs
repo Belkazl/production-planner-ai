@@ -1,0 +1,14 @@
+const assert=require("node:assert/strict");
+const {readFileSync}=require("node:fs"),{resolve}=require("node:path");
+const src=readFileSync(resolve(process.argv[2],"worker-manager.ts"),"utf8");
+assert(src.includes("const iterations=n>=700?Math.min(desired,4):n>=300?Math.min(desired,12):desired;"));
+const calculate=(n,requested)=>n>=700?Math.min(requested,4):n>=300?Math.min(requested,12):requested;
+assert.equal(calculate(886,48),4);
+assert.equal(calculate(400,48),12);
+assert.equal(calculate(80,48),48);
+assert.equal(calculate(886,2),2);
+assert.equal(calculate(886,200),4);
+assert(src.includes('cmd:[process.execPath,"run","ga-worker-core.ts"]'));
+assert(src.includes('if(signal?.aborted)'));
+assert(src.includes('timeout=setTimeout('));
+console.log("BOUNDED_SECONDARY_SETUP_SEARCH_TEST_PASSED");
