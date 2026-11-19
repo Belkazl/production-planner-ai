@@ -33,13 +33,15 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
-          mkdir -p old new
+          mkdir -p old new old/tests
           scp -q "${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" old/python-ga-upstream.mjs
           scp -rq "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" old/ga_workers
+          scp -q "${opts[@]}" "$USER@$HOST:$root/tests/continuation-compat-contract.cjs" old/tests/continuation-compat-contract.cjs
           cp -a old/. new/
           node ops/ovh/ga-continue-native-v2-20261119/patch.mjs new
           node --check new/python-ga-upstream.mjs
           python3 -m py_compile new/ga_workers/full_runtime_adapter.py
+          node --check new/tests/continuation-compat-contract.cjs
           PYTHONPATH="$PWD/new" python3 - <<'PY'
           from ga_workers import full_runtime_adapter as a
           from ga_workers.continuation import ContinuationError
@@ -77,14 +79,14 @@ jobs:
           PY
           node ops/ovh/ga-continue-native-v2-20261119/prepare-live-two-run.mjs
           node --check ops/ovh/ga-continue-native-v2-20261119/_live-two-run.mjs
-          for file in python-ga-upstream.mjs ga_workers/full_runtime_adapter.py; do
+          for file in python-ga-upstream.mjs ga_workers/full_runtime_adapter.py tests/continuation-compat-contract.cjs; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$(basename "$file").sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$(basename "$file").sha"
           done
           command -v google-chrome
           npm install --no-save --no-package-lock playwright-core@1.57.0
           echo GA_CONTINUE_V2_PREFLIGHT_PASS
-      - name: Install only two SHA-pinned production files with automatic rollback
+      - name: Install three SHA-pinned production files with automatic rollback
         id: rollout
         shell: bash
         env:
@@ -103,29 +105,32 @@ jobs:
           root=/home/liftorbit-ci/liftorbit-migration
           scp -q "${opts[@]}" new/python-ga-upstream.mjs "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-upstream.next"
           scp -q "${opts[@]}" new/ga_workers/full_runtime_adapter.py "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-worker.next"
+          scp -q "${opts[@]}" new/tests/continuation-compat-contract.cjs "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-contract.next"
           ssh "${opts[@]}" "$USER@$HOST" bash -s -- \
             "$(cat "$RUNNER_TEMP/old-python-ga-upstream.mjs.sha")" \
             "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")" \
             "$(cat "$RUNNER_TEMP/old-full_runtime_adapter.py.sha")" \
-            "$(cat "$RUNNER_TEMP/new-full_runtime_adapter.py.sha")" <<'REMOTE'
+            "$(cat "$RUNNER_TEMP/new-full_runtime_adapter.py.sha")" \
+            "$(cat "$RUNNER_TEMP/old-continuation-compat-contract.cjs.sha")" \
+            "$(cat "$RUNNER_TEMP/new-continuation-compat-contract.cjs.sha")" <<'REMOTE'
           set -euo pipefail
           root="$HOME/liftorbit-migration"
           live="$root/sources/ovh-app/current"
           stage="$root/sources/ovh-app"
           backup="$root/patch-backups/ga-continue-native-v2-20261119"
-          files=("$live/python-ga-upstream.mjs" "$live/ga_python_workers/ga_workers/full_runtime_adapter.py")
-          staged=("$stage/ga-continue-v2-upstream.next" "$stage/ga-continue-v2-worker.next")
-          names=(python-ga-upstream.mjs full_runtime_adapter.py)
+          files=("$live/python-ga-upstream.mjs" "$live/ga_python_workers/ga_workers/full_runtime_adapter.py" "$live/tests/continuation-compat-contract.cjs")
+          staged=("$stage/ga-continue-v2-upstream.next" "$stage/ga-continue-v2-worker.next" "$stage/ga-continue-v2-contract.next")
+          names=(python-ga-upstream.mjs full_runtime_adapter.py continuation-compat-contract.cjs)
           expected=("$@")
-          test "${#expected[@]}" -eq 4
+          test "${#expected[@]}" -eq 6
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
-          for i in 0 1; do
+          for i in 0 1 2; do
             test "$(sha "${files[$i]}")" = "${expected[$((2*i))]}"
             test "$(sha "${staged[$i]}")" = "${expected[$((2*i+1))]}"
           done
           sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null
           mkdir -p "$backup"
-          for i in 0 1; do
+          for i in 0 1 2; do
             cp -p "${files[$i]}" "$backup/${names[$i]}"
             test "$(sha "$backup/${names[$i]}")" = "${expected[$((2*i))]}"
           done
@@ -169,7 +174,7 @@ jobs:
           set -euo pipefail
           node ops/ovh/ga-continue-native-v2-20261119/_live-two-run.mjs
           echo GA_CONTINUE_V2_REAL_TWO_JOB_PRODUCTION_E2E_PASS
-      - name: Revert both production source files if live verification fails
+      - name: Revert all three production source files if live verification fails
         if: ${{ failure() && steps.rollout.outcome == 'success' }}
         env:
           HOST: ${{ vars.OVH_HOST }}
@@ -188,9 +193,10 @@ jobs:
           root="$HOME/liftorbit-migration"
           backup="$root/patch-backups/ga-continue-native-v2-20261119"
           live="$root/sources/ovh-app/current"
-          for file in python-ga-upstream.mjs full_runtime_adapter.py; do test -r "$backup/$file"; done
+          for file in python-ga-upstream.mjs full_runtime_adapter.py continuation-compat-contract.cjs; do test -r "$backup/$file"; done
           cp -p "$backup/python-ga-upstream.mjs" "$live/python-ga-upstream.mjs"
           cp -p "$backup/full_runtime_adapter.py" "$live/ga_python_workers/ga_workers/full_runtime_adapter.py"
+          cp -p "$backup/continuation-compat-contract.cjs" "$live/tests/continuation-compat-contract.cjs"
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
           echo GA_CONTINUE_V2_EXACT_ROLLBACK_VERIFIED
