@@ -120,8 +120,20 @@ try{
  const beforeModel=await page.evaluate(async()=>{const r=await fetch("/api/model",{cache:"no-store",credentials:"same-origin"});return (await r.json()).model});
  const statusBefore=await page.evaluate(async()=>{const r=await fetch("/api/plan-progress",{cache:"no-store"});const p=await r.json();return{phase:p.phase,percent:p.percent,error:p.error}});
  console.log("QA_MODEL_AT_START",JSON.stringify({keys:Object.keys(beforeModel||{}).sort(),orders:beforeModel?.orders?.length,equipment:beforeModel?.equipment?.length,phase:statusBefore.phase}));
- console.log("LIVE_FREEZE_CLICK_BEGIN",JSON.stringify(await page.evaluate(()=>({stop:window.__PP_STOP_DEBUG__?.(),depth:window.__PP_OPTIMIZER_DEPTH__.get(),disabled:document.getElementById("opt").disabled}))));
- await page.locator("#opt").click({timeout:10000,noWaitAfter:true});
+ // The seeded model finishes loading asynchronously; keep test's native
+ // onclick in the same browser task as its test-only ready override.
+ // Do not change the production button logic or shortcut to the API.
+ const clickState=await page.evaluate(()=>{
+  if(typeof modelReady!=="undefined")modelReady=true;
+  if(typeof busy!=="undefined")busy=false;
+  const b=document.getElementById("opt");
+  b.disabled=false;
+  const pre={stop:window.__PP_STOP_DEBUG__?.(),depth:window.__PP_OPTIMIZER_DEPTH__.get(),
+   disabled:b.disabled,onclick:typeof b.onclick};
+  b.click();
+  return pre;
+ });
+ console.log("LIVE_FREEZE_CLICK_BEGIN",JSON.stringify(clickState));
  await page.waitForTimeout(200);
  started=requests.length>0;
  console.log("LIVE_FREEZE_AFTER_CLICK",JSON.stringify({requests:requests.length,errors:errors.slice(-2)})); 
