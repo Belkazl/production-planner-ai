@@ -1,4 +1,4 @@
-name: LiftOrbit percent within one button Chrome regression
+name: LiftOrbit in-button percent parser and 100 Chrome regression
 on:
   push:
     branches: [main]
