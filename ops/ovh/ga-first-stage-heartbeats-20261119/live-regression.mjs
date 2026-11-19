@@ -248,9 +248,13 @@ try{
  if(lastProgress?.phase!=="completed")throw Error("CERAMIC_COMPLEX_NO_VISIBLE_SUCCESS_"+JSON.stringify(lastProgress));
  const built=firstStageResponseHeaders.filter(x=>x.stage==="building_first_plan");
  const forwardedStageEvents=await page.evaluate(()=>window.__PP_GA_PROGRESS_V4__?.state.serverStageEvents||0);
- const shown=firstStageVisibleSamples.filter(x=>x.stage==="building_first_plan"&&
-  /Building the first plan|Формирование первого плана/.test(x.label||"")&&
-  /pp-ga-v4-busy/.test(x.cls||""));
+ // The first full status may correctly say queued, loading, or building:
+ // expensive GA response throttling can skip very brief intermediate stages.
+ // What matters is a genuine worker stage and an advancing visible clock
+ // while the real numerical progress still has not passed 1%.
+ const shown=firstStageVisibleSamples.filter(x=>
+  /Preparing optimization|Подготовка оптимизации|Preparing calculation|Подготовка расчёта|Validating model|Проверка модели|Preparing resources|Подготовка ресурсов|Building the first plan|Формирование первого плана|Optimizing candidate plans|Поиск лучшего плана/.test(x.label||"")&&
+  /pp-ga-v4-busy/.test(x.cls||"")&&x.percent<=1);
  const clock=x=>{const m=(x.label||"").match(/(\d\d):(\d\d)/);
   return m?Number(m[1])*60+Number(m[2]):-1};
  const advanced=shown.length>=2&&shown.some(x=>clock(x)>clock(shown[0]));
@@ -260,7 +264,7 @@ try{
  if((!built.length&&!forwardedStageEvents)||!shown.length||!advanced)
   throw Error("GA_INITIAL_STAGE_1_PERCENT_NO_ACTIVE_SERVER_HEARTBEAT_"+JSON.stringify({
    headers:firstStageResponseHeaders.map(x=>x.stage).slice(0,20),samples:firstStageVisibleSamples.slice(0,10)}));
- console.log("GA_INITIAL_STAGE_TRUTHFUL_FIRST_PLAN_CLOCK_LIVE_PASS");
+ console.log("GA_INITIAL_STAGE_TRUTHFUL_PREPARATION_CLOCK_LIVE_PASS");
  const shed=await page.evaluate(()=>window.__PP_GA_PROGRESS_LOAD_SHED_V1__?.state);
  const v4=await page.evaluate(()=>window.__PP_GA_PROGRESS_V4__?.state);
  console.log("GA_SHED_REAL_BROWSER_SUMMARY",JSON.stringify({shed,v4,errors:progressNetworkFailures,httpErrors:progressHttpErrors}));
