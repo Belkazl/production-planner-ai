@@ -41,7 +41,7 @@ const obsolete=[
 ].join("\n");
 const safe=[
  'assert(bridge.includes("seed=normalizedContinuationSeed(current.resume_state,model,false)"),"same-account compact persisted seed must be validated");',
- 'assert(bridge.includes("if(!seed&&sameModel&&current?.state===\\'completed\\'&&current?.result)"),"completed result fallback must require same account/model");',
+ `assert(bridge.includes("if(!seed&&sameModel&&current?.state==='completed'&&current?.result)"),"completed result fallback must require same account/model");`,
  'assert(!bridge.includes("owned(current.result,model)"),"starting next optimization must not revalidate multi-megabyte prior plan inline");',
  'assert(bridge.includes("if(!seed&&sameModel&&current?.best)"),"same-account best order must remain an optional fallback");'
 ].join("\n");
