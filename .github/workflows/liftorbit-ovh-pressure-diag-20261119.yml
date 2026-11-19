@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           printf 'utc=%s\n' "$(date -u +%H:%M:%S)"
           free -m | awk '/^Mem:/{printf "host_mem_mb total=%s used=%s free=%s available=%s\n",$2,$3,$4,$7}'
-          ps -eo comm,pcpu,pmem,rss --sort=-pcpu | awk 'NR<=13{print}'
+          ps -eo pid,ppid,comm,pcpu,pmem,rss,etime --sort=-pcpu | awk 'NR<=16{print}'
           if sudo -n /usr/local/sbin/liftorbit-ops status >/dev/null 2>&1; then echo 'maintenance_status=ok';else echo 'maintenance_status=unavailable';fi
           REMOTE
             curl -sS -o /dev/null -w 'public_health=%{http_code} duration=%{time_total}\n' --max-time 8 https://app.liftorbit.app/__bridge_health || true
