@@ -1,0 +1,48 @@
+name: LiftOrbit V5 no-early-Continue production preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-transition-v5-preflight-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  chrome-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no source drift in independent local fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ga-v5-fixture"
+          node --input-type=module - "$RUNNER_TEMP/ga-v5-fixture" <<'NODE'
+          import fs from "node:fs";
+          const dir=process.argv[2];
+          const v4=fs.readFileSync("ops/ovh/ga-progress-v4-20261119/runtime.js","utf8");
+          const shed=fs.readFileSync("ops/ovh/ga-progress-load-shed-20261119/runtime.js","utf8");
+          const original="/* ppUnifiedGanttV2 ppAutomaticIntermediatePreviewV1 ppStopRestorePreviousPlanV1 */\n"+
+           ";"+v4+"\n\n;"+shed+"\n";
+          fs.writeFileSync(dir+"/restart-optimizer-ui.js",original);
+          NODE
+          node ops/ovh/ga-native-transition-v5-20261119/patch.mjs "$RUNNER_TEMP/ga-v5-fixture"
+          node --check "$RUNNER_TEMP/ga-v5-fixture/restart-optimizer-ui.js"
+          node --input-type=module - "$RUNNER_TEMP/ga-v5-fixture" <<'NODE'
+          import fs from "node:fs";
+          const dir=process.argv[2];
+          const code=fs.readFileSync(dir+"/restart-optimizer-ui.js","utf8");
+          const shed=fs.readFileSync("ops/ovh/ga-progress-load-shed-20261119/runtime.js","utf8");
+          if(!code.endsWith("\n;"+shed+"\n")||!code.includes("showPendingInsideButton()")||!code.includes("ppUnifiedGanttV2"))throw Error("GA_V5_UNEXPECTED_SOURCE_CHANGE");
+          console.log("GA_V5_SOURCE_PINNED_NO_DRIFT_PASS");
+          NODE
+      - name: Full Chrome regression for 1 percent steps, pending verification, Stop and durable 100
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-native-transition-v5-20261119/browser.cjs
+          node ops/ovh/ga-progress-load-shed-20261119/browser.cjs
+          echo GA_V5_CHROME_PREFLIGHT_PASS
