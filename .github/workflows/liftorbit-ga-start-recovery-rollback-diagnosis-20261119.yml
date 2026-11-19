@@ -1,0 +1,55 @@
+name: LiftOrbit GA start source update rollback read-only diagnosis
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-start-recovery-rollback-diagnosis-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Verify source SHA, service smoke and redacted update failure reason
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          src="$root/sources/ovh-app/current/async-plan-transport.js"
+          backup="$root/patch-backups/ga-start-recover-20261119"
+          sha256sum "$src" "$backup/async-plan-transport.js" | awk '{print "SOURCE_SHA", $1}'
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null 2>&1; then echo "SERVER_SMOKE_VALID"; else echo "SERVER_SMOKE_INVALID"; fi
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          import re
+          root=Path.home()/'liftorbit-migration'/'patch-backups'/'ga-start-recover-20261119'
+          for name in ['update-private.log','rollback-private.log']:
+            p=root/name
+            print("DIAGNOSTIC_FILE",name,"exists",p.exists(),"bytes",p.stat().st_size if p.exists() else 0)
+            if not p.exists():continue
+            lines=p.read_text(errors='replace').splitlines()
+            filtered=[]
+            for l in lines:
+              if not re.search(r'(error|fail|exit|timeout|invalid|smoke|cannot|status|no such file|missing|refused|dead|healthy|unhealthy|container|permission)',l,re.I):continue
+              if re.search(r'(password|token|secret|cookie|authorization|credential|private_key|DATABASE_URL|EMAIL|AUTH_\w+)',l,re.I):continue
+              clean=re.sub(r'(?i)https?://\S+','[URL]',l)
+              filtered.append(clean[:200])
+            print("DIAGNOSTIC_LINES",name,len(lines),"filtered",len(filtered))
+            for x in filtered[-35:]:print("DIAG",name,x)
+          PY
+          REMOTE
+          curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
