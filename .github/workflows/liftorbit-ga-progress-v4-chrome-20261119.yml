@@ -1,0 +1,27 @@
+name: LiftOrbit persistent 100 percent in the original button Chrome tests
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-progress-v4-chrome-20261119.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Chrome test driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify full in-button 100 persistence and cancellation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/ga-progress-v4-20261119/runtime.js
+          node --check ops/ovh/ga-progress-v4-20261119/patch.mjs
+          node ops/ovh/ga-progress-v4-20261119/browser.cjs
