@@ -101,7 +101,7 @@ const replacement=String.raw`
    await sleep((attempt+1)*600);
   }
   // Preserve the real backend error when it is JSON. Never turn a 502 HTML
-  // page into the old opaque "ga_start_invalid_response" validator message.
+  // page into the old opaque validator message.
   return {status:lastStatus>=400&&lastStatus<=599?lastStatus:503,data:lastData};
  }
 `;
