@@ -1,0 +1,46 @@
+name: LiftOrbit read-only inspect GA progress state write path
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-progress-store-audit-20261119.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect trusted current source only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs')
+          s=p.read_text()
+          terms=['async function progress(req){','async function save(principal,state)','const save =','const rememberWorkerBest','function rememberWorkerBest','async function call(principal']
+          print('BYTES',len(s))
+          for term in terms:
+              i=s.find(term)
+              if i<0:
+                  print('MISSING',term);continue
+              limit=8000 if term.startswith('async function progress(req)') else 3000
+              print('SITE',term,'offset',i)
+              for ln in s[i:i+limit].splitlines()[:100]:
+                  if any(bad in ln for bad in ['process.env','Bun.env','DATABASE_URL','apiKey','authSecret']):
+                      print('[config-line-redacted]')
+                  else:
+                      print(ln[:270])
+              print('END',term)
+          PY
