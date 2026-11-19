@@ -1,0 +1,42 @@
+name: LiftOrbit inspect native continuation compatibility test
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-native-contract-readonly-inspect-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read bounded production continuation contract
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          for fn in ['tests/continuation-compat-contract.cjs','Dockerfile']:
+            p=Path(fn)
+            print('FILE',fn,p.exists())
+            if not p.is_file():continue
+            print('SHA256',hashlib.sha256(p.read_bytes()).hexdigest())
+            for i,line in enumerate(p.read_text(errors='replace').splitlines()[:120],1):
+              if re.search(r'(password|secret|token|api.key|database_url|authorization|cookie|private.key|email)',line,re.I):line='[sensitive code redacted]'
+              print('SOURCE',fn,i,line[:270])
+          PY
+          REMOTE
