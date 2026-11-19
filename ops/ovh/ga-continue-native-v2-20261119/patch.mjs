@@ -30,4 +30,26 @@ py=py.replace(oldPy,newPy);
 if(!py.includes("portable={")||!py.includes("load_resume_state(portable,normalized,objective,pins,ga)"))
  throw Error("GA_CONTINUE_PYTHON_PATCH_GUARD_FAILED");
 writeFileSync(worker,py);
+
+const compatPath=resolve(root,"tests/continuation-compat-contract.cjs");
+let compat=readFileSync(compatPath,"utf8");
+if(sha(compat)!=="2780c6ad763e4ad31238be1d101764f46a6355ed218a661904709f645a7b2e42")
+ throw Error("GA_CONTINUE_CONTRACT_PRODUCTION_SHA_MISMATCH_"+sha(compat));
+const obsolete=[
+ 'assert(bridge.includes("normalizedContinuationSeed(ownedResult||verifiedBest,model,true)"),"must prefer validated own incumbent");',
+ 'assert(bridge.includes("if(!seed&&sameModel&&current?.resume_state)"),"legacy state with own sequence must be recoverable");'
+].join("\n");
+const safe=[
+ 'assert(bridge.includes("seed=normalizedContinuationSeed(current.resume_state,model,false)"),"same-account compact persisted seed must be validated");',
+ 'assert(bridge.includes("if(!seed&&sameModel&&current?.state===\\'completed\\'&&current?.result)"),"completed result fallback must require same account/model");',
+ 'assert(!bridge.includes("owned(current.result,model)"),"starting next optimization must not revalidate multi-megabyte prior plan inline");',
+ 'assert(bridge.includes("if(!seed&&sameModel&&current?.best)"),"same-account best order must remain an optional fallback");'
+].join("\n");
+if(compat.split(obsolete).length!==2)throw Error("GA_CONTINUE_OBSOLETE_ASSERTIONS_CHANGED");
+compat=compat.replace(obsolete,safe);
+if(!compat.includes("args.resume_plan=seed")||!compat.includes("continue UI must send a compact incumbent seed"))
+ throw Error("GA_CONTINUE_COMPAT_GUARDS_DROPPED");
+writeFileSync(compatPath,compat);
+console.log("GA_CONTINUE_PINNED_COMPATIBILITY_CONTRACT_UPDATED",JSON.stringify({old:"2780c6ad",new:sha(compat)}));
+
 console.log("GA_CONTINUE_PATCH_READY",JSON.stringify({upstreamSha:sha(s),workerSha:sha(py),workerDelta:newPy.length-oldPy.length}));
