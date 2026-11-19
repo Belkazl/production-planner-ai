@@ -41,17 +41,17 @@ jobs:
           candidate=$(grep -Ei '(ga|python).*(worker|service)|(worker|service).*(ga|python)' /tmp/pp-ga-introspect-containers | head -n1 || true)
           if [ -z "$candidate" ]; then echo "NO_WORKER_CONTAINER_BY_NAME";exit 0;fi
           docker exec -i "$candidate" python3 -c '
-import ast
-from pathlib import Path
-p=Path("/tmp/production_planner.py")
-if not p.is_file():print("NO_COMPILED_RUNTIME");raise SystemExit(0)
-s=p.read_text();tree=ast.parse(s);lines=s.splitlines()
-print("COMPILED_AST_READY",len(s),len(lines))
-for node in tree.body:
- if isinstance(node,ast.FunctionDef) and any(key in node.name.lower() for key in ("optim","progress","fitness","evaluate","schedule","ga_run")):
-  print("FUNCTION",node.name,node.lineno,node.end_lineno)
-for i,line in enumerate(lines):
- if "_pp_progress_snapshot" in line or ("percent" in line and "progress" in line):
-  print("PROGRESS_SITE",i+1,line.strip()[:180])
-'
+          import ast
+          from pathlib import Path
+          p=Path("/tmp/production_planner.py")
+          if not p.is_file():print("NO_COMPILED_RUNTIME");raise SystemExit(0)
+          s=p.read_text();tree=ast.parse(s);lines=s.splitlines()
+          print("COMPILED_AST_READY",len(s),len(lines))
+          for node in tree.body:
+           if isinstance(node,ast.FunctionDef) and any(key in node.name.lower() for key in ("optim","progress","fitness","evaluate","schedule","ga_run")):
+            print("FUNCTION",node.name,node.lineno,node.end_lineno)
+          for i,line in enumerate(lines):
+           if "_pp_progress_snapshot" in line or ("percent" in line and "progress" in line):
+            print("PROGRESS_SITE",i+1,line.strip()[:180])
+          '
           REMOTE
