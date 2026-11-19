@@ -1,0 +1,28 @@
+name: LiftOrbit real 886-op GA percent timeline diagnosis
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-progress-heartbeat-diagnosis-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Sample true server GA percent every two seconds
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-progress-heartbeat-20261119/diagnose.mjs
