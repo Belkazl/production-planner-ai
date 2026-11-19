@@ -50,4 +50,13 @@ jobs:
                 if re.search(r'secret|password|api.key|token|private.key|authorization|cookie|process.env|Bun.env|DATABASE_URL',line,re.I):line='[config-line-redacted]'
                 print('LINE',j+1,line[:240])
           PY
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          p=Path("async-plan-transport.js")
+          lines=p.read_text().splitlines()
+          print("ASYNC_TRANSPORT_SHA",sha256(p.read_bytes()).hexdigest(),"TOTAL_LINES",len(lines))
+          for i,l in enumerate(lines[:115],1):
+            print("TRANSPORT",i,l[:260])
+          PY
           REMOTE
