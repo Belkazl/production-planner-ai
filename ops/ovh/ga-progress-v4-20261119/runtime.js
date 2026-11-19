@@ -181,6 +181,7 @@ function end(){
  if(!wasRunning)return;
  wasRunning=false;
  button?.removeAttribute("aria-busy");
+ initialChecked=true;
  const id=++version;
  // Native app may replace its label with Continue before the last
  // worker result is durable. Confirm first; then visibly finish to 100.
@@ -211,7 +212,7 @@ function attach(){
  button=candidate;
  if(!button)return;
  button.addEventListener("click",()=>{
-  if(finalDone){reset();} // Keep the ORIGINAL onclick and Continue action.
+  if(finalDone){reset();initialChecked=true;} // Keep the ORIGINAL onclick and Continue action.
  },true);
  observer=new MutationObserver(capture);
  watchButton();
