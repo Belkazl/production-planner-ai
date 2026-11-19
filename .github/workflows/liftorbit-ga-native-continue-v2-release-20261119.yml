@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/liftorbit-ga-native-continue-v2-release-20261119.yml
+      - ops/ovh/ga-continue-native-v2-20261119/**
 permissions:
   contents: read
 concurrency:
