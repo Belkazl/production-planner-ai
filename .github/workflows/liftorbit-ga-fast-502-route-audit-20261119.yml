@@ -1,0 +1,47 @@
+name: LiftOrbit inspect immediate 502 plan route branch readonly
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ga-fast-502-route-audit-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Locate Bun plan POST error handling and exact response status mapping
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          names=['index.ts','server.ts','server.js','api-plan-bridge.ts','api-plan-bridge.js','python-ga-upstream.mjs','Dockerfile','docker-compose.yml']
+          patterns=[r'502',r'upstream.*(plan|fetch|error)',r'\/api\/plan',r'ga_worker_unavailable',r'createPythonGAUpstream',r'ga_upstream',r'catch\s*\(']
+          for name in names:
+            p=Path(name)
+            if not p.exists():continue
+            ls=p.read_text(errors='replace').splitlines()
+            print('FILE',name,'LINES',len(ls))
+            hits=[i for i,l in enumerate(ls) if any(re.search(q,l,re.I) for q in patterns)]
+            sel=set()
+            for i in hits[:34]:sel.update(range(max(0,i-4),min(len(ls),i+5)))
+            for j in sorted(sel)[:210]:
+              s=ls[j]
+              if re.search(r'password|token|secret|private.key|credential|authorization|cookie|process.env|bun.env|database_url|email',s,re.I):s='[sensitive line]'
+              print('ROUTE',name,j+1,s[:205])
+          PY
+          REMOTE
