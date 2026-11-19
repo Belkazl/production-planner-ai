@@ -1,4 +1,4 @@
-name: LiftOrbit fix GA start invalid HTML response with safe production recovery
+name: LiftOrbit recover from real HTTP 502 on second account GA start
 on:
   push:
     branches: [main]
