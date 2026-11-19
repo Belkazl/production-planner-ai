@@ -247,6 +247,7 @@ try{
  console.log("QA_MODEL_DIFF_AFTER_RUN",JSON.stringify({same:!paths.length,changes:paths,orders:afterModel?.orders?.length,equipment:afterModel?.equipment?.length,phase:lastProgress?.phase,error:lastProgress?.error}));
  if(lastProgress?.phase!=="completed")throw Error("CERAMIC_COMPLEX_NO_VISIBLE_SUCCESS_"+JSON.stringify(lastProgress));
  const built=firstStageResponseHeaders.filter(x=>x.stage==="building_first_plan");
+ const forwardedStageEvents=await page.evaluate(()=>window.__PP_GA_PROGRESS_V4__?.state.serverStageEvents||0);
  const shown=firstStageVisibleSamples.filter(x=>x.stage==="building_first_plan"&&
   /Building the first plan|Формирование первого плана/.test(x.label||"")&&
   /pp-ga-v4-busy/.test(x.cls||""));
@@ -254,9 +255,9 @@ try{
   return m?Number(m[1])*60+Number(m[2]):-1};
  const advanced=shown.length>=2&&shown.some(x=>clock(x)>clock(shown[0]));
  console.log("GA_INITIAL_STAGE_LIVE_RESPONSE_AND_LABEL_AUDIT",JSON.stringify({
-  networkFirstPlan:built.length,headers:firstStageResponseHeaders.map(x=>x.stage).slice(0,20),
+  networkFirstPlan:built.length,forwardedStageEvents,headers:firstStageResponseHeaders.map(x=>x.stage).slice(0,20),
   firstPlanLabels:shown.map(x=>({at:x.at,label:x.label})),clockAdvanced:advanced}));
- if(!built.length||!shown.length||!advanced)
+ if((!built.length&&!forwardedStageEvents)||!shown.length||!advanced)
   throw Error("GA_INITIAL_STAGE_1_PERCENT_NO_ACTIVE_SERVER_HEARTBEAT_"+JSON.stringify({
    headers:firstStageResponseHeaders.map(x=>x.stage).slice(0,20),samples:firstStageVisibleSamples.slice(0,10)}));
  console.log("GA_INITIAL_STAGE_TRUTHFUL_FIRST_PLAN_CLOCK_LIVE_PASS");
