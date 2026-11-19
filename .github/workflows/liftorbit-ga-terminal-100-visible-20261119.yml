@@ -1,0 +1,161 @@
+name: LiftOrbit confirm 100 percent when real GA completes
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-terminal-100-visible-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check exact OVH interface addon and run isolated Chrome regressions
+        id: preflight
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=18)
+          root=/home/liftorbit-ci/liftorbit-migration
+          mkdir -p old new
+          scp -q "${opts[@]}" "$OVH_USER@$OVH_HOST:$root/sources/ovh-app/current/restart-optimizer-ui.js" old/restart-optimizer-ui.js
+          test "$(sha256sum old/restart-optimizer-ui.js | cut -d' ' -f1)" = 084d21e835a64c5b9b0b0b67efe6e63e24f59394a54a52e716d11f393dab6f16
+          cp old/restart-optimizer-ui.js new/restart-optimizer-ui.js
+          node ops/ovh/ga-terminal-100-20261119/patch.mjs new
+          node --check new/restart-optimizer-ui.js
+          diff -u old/restart-optimizer-ui.js new/restart-optimizer-ui.js > "$RUNNER_TEMP/terminal-one-file.diff" || test "$?" -eq 1
+          test "$(grep -c '^@@' "$RUNNER_TEMP/terminal-one-file.diff")" = 1
+          sha256sum old/restart-optimizer-ui.js | cut -d' ' -f1 > "$RUNNER_TEMP/old.sha"
+          sha256sum new/restart-optimizer-ui.js | cut -d' ' -f1 > "$RUNNER_TEMP/new.sha"
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-terminal-100-20261119/browser.cjs
+          echo "GA_TERMINAL_100_PREFLIGHT_PASSED"
+      - name: Install guarded one-file UI fix on OVH with rollback copy
+        id: rollout
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=18)
+          old=$(cat "$RUNNER_TEMP/old.sha")
+          new=$(cat "$RUNNER_TEMP/new.sha")
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/restart-optimizer-ui.js "$OVH_USER@$OVH_HOST:$root/sources/ovh-app/restart-optimizer-ui-ga-100-20261119.next"
+          ssh "${opts[@]}" "$OVH_USER@$OVH_HOST" bash -s -- "$old" "$new" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          staged="$root/sources/ovh-app/restart-optimizer-ui-ga-100-20261119.next"
+          backup="$root/patch-backups/ga-terminal-100-20261119"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -r "$live" && test -r "$staged"
+          test "$(sha "$live")" = "$1" && test "$(sha "$staged")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$live" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$1"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$live" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo "GA_TERMINAL_100_ROLLBACK_ATTEMPTED"
+          }
+          trap rollback ERR
+          mv "$staged" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$live")" = "$2"
+          trap - ERR
+          echo "GA_TERMINAL_100_OVH_INSTALLED"
+          REMOTE
+      - name: Verify public health, auth boundary and guest status
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$guest" = 401 ]]; then echo "GA_TERMINAL_100_PUBLIC_HEALTHY"; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: Real 900-operation optimization reaches visible authenticated 100 percent
+        id: live
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+          FREEZE_TEST_EXPECT_FINAL_100: "1"
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-terminal-100-20261119/instrument-live.mjs
+          node ops/ovh/account-plan-mismatch-20261118/ceramic-complex-bounded.mjs
+      - name: Roll back UI addon if real regression fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121" && test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=18)
+          ssh "${opts[@]}" "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          backup="$root/patch-backups/ga-terminal-100-20261119"
+          test -r "$backup/restart-optimizer-ui.js"
+          cp -p "$backup/restart-optimizer-ui.js" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo "GA_TERMINAL_100_ROLLBACK_VALIDATED"
+          REMOTE
+      - name: Report verified completion state
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+        run: echo "GA_TERMINAL_100_RELEASE preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
