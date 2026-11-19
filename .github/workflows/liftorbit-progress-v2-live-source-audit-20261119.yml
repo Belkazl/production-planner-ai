@@ -1,0 +1,45 @@
+name: LiftOrbit audit all active live percent writers before unified fix
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-progress-v2-live-source-audit-20261119.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect non-sensitive UI percent renderer declarations
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p=Path("/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js")
+          s=p.read_text()
+          print("SOURCE_SHA256",hashlib.sha256(s.encode()).hexdigest(),"BYTES",len(s))
+          needles=["ppSingleGaProgressRendererV1","__PP_SINGLE_GA_PROGRESS_RENDERER_V1__",
+            "ppTruthfulSmoothGaPercentV1","ppSmoothVerifiedProgressV1","ppGaTerminalHundredV1",
+            "pp-opt-running","pp-opt-progress-line"]
+          for token in needles:
+              start=0
+              print("TOKEN",token,"COUNT",s.count(token))
+              for k in range(2):
+                  at=s.find(token,start)
+                  if at<0:break
+                  print("CODE",token,"OFFSET",at,repr(s[max(0,at-300):at+2300]))
+                  start=at+len(token)
+          PY
