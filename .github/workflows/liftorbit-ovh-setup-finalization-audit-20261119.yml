@@ -1,0 +1,55 @@
+name: LiftOrbit read-only finalization and setup worker source audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-setup-finalization-audit-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check source call sites and active service types safely
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=15 "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          node - <<'NODE'
+          const fs=require("node:fs"), crypto=require("node:crypto");
+          const files=["worker-manager.ts","ga-worker-core.ts","ga-workers-enable.ts","index.ts","baselines/2026-10-10/aps-setup-bridge/index.ts","python-ga-upstream.mjs","restart-optimizer-ui.js"];
+          for(const f of files){
+            if(!fs.existsSync(f)){console.log("MISSING",f);continue}
+            const s=fs.readFileSync(f,"utf8");
+            console.log("SOURCE",f,"bytes",s.length,"sha256",crypto.createHash("sha256").update(s).digest("hex"));
+            if(f==="index.ts"||f.endsWith("/index.ts")||f==="ga-workers-enable.ts"){
+              for(const token of ["async function progress(req)","async function plan(req)","function convertOne(","function cachedFinal(","function saveFinal(","ppWorkerSearch(","await searchWithSetup(","ppPythonGAUpstream.fetch(req,","function ppCachedProgress("]){
+                let pos=0, count=0;
+                while(count++<4){
+                  const i=s.indexOf(token,pos);if(i<0)break;
+                  console.log("SOURCE_SITE",f,token,JSON.stringify(s.slice(Math.max(0,i-360),i+1150)));pos=i+token.length;
+                }
+              }
+            }
+            if(f==="worker-manager.ts"){
+              for(const token of ["PP_WORKER_TIMEOUT_MS","async function runIsolatedSetupSearch","child=Bun.spawn"]){
+                const i=s.indexOf(token);if(i>=0)console.log("WORKER_SITE",token,JSON.stringify(s.slice(Math.max(0,i-220),i+650)));
+              }
+            }
+          }
+          NODE
+          REMOTE
