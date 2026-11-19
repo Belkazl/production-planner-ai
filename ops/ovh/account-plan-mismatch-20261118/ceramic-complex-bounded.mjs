@@ -161,7 +161,12 @@ try{
   try{
    pageState=await Promise.race([
     page.evaluate(()=>({percent:document.getElementById("opt")?.textContent?.slice(0,65),probe:window.__freezeProbe,
-     candidate:window.__PP_AUTO_INTERMEDIATE_PREVIEW_V1__?.switches,legacyStopped:window.__qaLegacyProgressStopped||false,skipped:window.__qaSkippedGantt||0,bars:document.querySelectorAll(".pg2-bar").length})),
+     candidate:window.__PP_AUTO_INTERMEDIATE_PREVIEW_V1__?.switches,legacyStopped:window.__qaLegacyProgressStopped||false,skipped:window.__qaSkippedGantt||0,bars:document.querySelectorAll(".pg2-bar").length,
+     backendPhase:window.__PP_STOP_DEBUG__?.()?.remotePhase,
+     optimizerRunning:window.__PP_STOP_DEBUG__?.()?.running,
+     currentClass:document.getElementById("opt")?.className,
+     smoother:window.__PP_SMOOTH_VERIFIED_PROGRESS_V1__?.state,
+     nativeSmoothTarget:window.__PP_TRUTHFUL_SMOOTH_GA_PERCENT_V1__?.confirmedTarget})),
     new Promise((_,reject)=>setTimeout(()=>reject(Error("UI_EVAL_TIMEOUT")),4000))
    ]);
   }catch(e){pageState={error:String(e)}}
