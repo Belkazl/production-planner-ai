@@ -48,6 +48,7 @@ jobs:
           command -v google-chrome
           npm install --no-save --no-package-lock playwright-core@1.57.0
           node ops/ovh/ga-first-stage-heartbeats-20261119/browser.cjs
+          node ops/ovh/ga-first-stage-heartbeats-20261119/payload-stage-browser.cjs new/restart-optimizer-ui.js
           node ops/ovh/ga-first-stage-heartbeats-20261119/early-continue-race.cjs
           node ops/ovh/ga-native-transition-v5-20261119/browser.cjs
           node ops/ovh/ga-progress-load-shed-20261119/browser.cjs
