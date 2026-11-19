@@ -1,0 +1,27 @@
+name: LiftOrbit inspect native-shaped large model continuation POST difference
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-native-shaped-direct-20261119.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real 886-op first plan then direct POST with exact sanitized native Continue order seed
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: skip-gantt
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-post502-isolation-20261119/generate-direct-continue-native-shaped.mjs
+          node --check ops/ovh/ga-post502-isolation-20261119/_native-shaped-direct-second.mjs
+          node ops/ovh/ga-post502-isolation-20261119/_native-shaped-direct-second.mjs
