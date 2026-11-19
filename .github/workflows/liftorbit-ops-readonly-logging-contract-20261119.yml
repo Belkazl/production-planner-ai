@@ -1,0 +1,49 @@
+name: LiftOrbit inspect permitted service operations and container log access
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ops-readonly-logging-contract-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Safely check Docker log exposure and source layouts
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path=Path('/usr/local/sbin/liftorbit-ops')
+          print('OPS_EXISTS',path.is_file())
+          if path.is_file():
+            lines=path.read_text(errors='replace').splitlines()
+            print('OPS_LINES',len(lines))
+            for j,line in enumerate(lines):
+              if not re.search(r'logs|docker|compose|case |status\)|smoke\)|update\)|^if \[|^elif |^fi|stdout|stderr',line,re.I):continue
+              if re.search(r'secret|password|token|credential|cookie|authorization|private.key|database_url|api.key|email|env_file|export |https?://',line,re.I):continue
+              print('OPS',j+1,line[:230])
+          root=Path.home()/'liftorbit-migration'
+          for p in [root/'sources'/'ovh-app'/'current',root/'sources'/'ovh-app',root/'runtime',root/'compose']:
+            print('DIR',str(p),p.exists())
+            if p.is_dir():
+              for x in list(p.iterdir())[:40]:
+                if x.is_file() and x.suffix in {'.env','.key','.pem'}:continue
+                print('ITEM',x.name,'dir' if x.is_dir() else 'file')
+          PY
+          REMOTE
