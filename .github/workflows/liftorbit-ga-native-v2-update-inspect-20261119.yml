@@ -1,4 +1,5 @@
 name: LiftOrbit inspect native continuation install and rollback result safely
+# Second attempt with updated semantic contract; isolate remaining Docker build blocker.
 on:
   push:
     branches: [main]
