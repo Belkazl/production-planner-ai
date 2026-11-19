@@ -168,6 +168,10 @@ async function verify(token,instant=false){
     Array.isArray(p.result?.operations)&&p.result.operations.length){
     completed(instant);return;
   }
+  if((p.phase==="running"||p.phase==="queued")&&attempts<5&&isContinue()){
+    retryTimer=setTimeout(()=>{retryTimer=null;void verify(token,instant)},1400*attempts);
+    return;
+  }
   // Stop, failure or invalid result: never show completed 100.
   if(button.classList.contains("pp-ga-v4-final")&&!finalDone)restoreButton();
  }catch(_){
