@@ -1,0 +1,65 @@
+name: LiftOrbit read-only first percent worker initialization audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-first-percent-backend-audit-20261119.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Inspect worker startup and progress reporting only (no account data)
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          import re
+          root=Path("ga_python_workers")
+          if not root.is_dir(): raise SystemExit("NO_WORKER_DIRECTORY")
+          for file in sorted(root.rglob("*.py")):
+              if len(file.parts)>7: continue
+              size=file.stat().st_size
+              print("WORKER_FILE",str(file),size)
+          targets=[
+           Path("ga_python_workers/ga_workers/full_runtime_adapter.py"),
+           Path("ga_python_workers/ga_workers/server.py"),
+           Path("ga_python_workers/app.py"),
+           Path("python-ga-upstream.mjs")
+          ]
+          re_pat=re.compile(r"(^[ \t]*(async )?def |progress|\.start\(|Thread\(|Process\(|is_alive\(|best_preview|candidate_preview|status.?=.?(running|queued)|evaluation|generation|fitness|yield|callback|prepare|compile)",re.I)
+          for f in targets:
+              if not f.exists():continue
+              lines=f.read_text(errors="replace").splitlines()
+              print("TARGET",str(f),"lines",len(lines),"sha",sha256(f.read_bytes()).hexdigest())
+              hits=[i for i,line in enumerate(lines) if re_pat.search(line)]
+              selected=set()
+              for i in hits:
+                  lo=max(0,i-3);hi=min(len(lines),i+7)
+                  selected.update(range(lo,hi))
+              limit=600
+              for i in sorted(selected)[:limit]:
+                  line=lines[i]
+                  if re.search(r"(secret|password|token|api.key|private.key|auth.orization|cookie|process.env|Bun.env|DATABASE_URL)",line,re.I):
+                    print(f"{i+1}: [redacted]");continue
+                  print(f"{i+1}: {line[:250]}")
+              print("END_TARGET",str(f),"hits",len(hits))
+          PY
+          REMOTE
