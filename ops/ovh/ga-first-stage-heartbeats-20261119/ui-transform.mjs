@@ -9,7 +9,7 @@ export function patchInitialStageUiV6(source){
  once(
   "let updates=0,busyCount=0,finalCount=0,verifiedCount=0,has100=false;",
   "let updates=0,busyCount=0,finalCount=0,verifiedCount=0,has100=false;\n"+
-  "let firstStage='',firstStageSince=0,firstStageLastSecond=-1,firstStagePaints=0;\n"+
+  "let firstStage='',firstStageSince=0,firstStageLastSecond=-1,firstStagePaints=0,serverStageEvents=0;\n"+
   "const firstStageLabels={\n"+
   " queued:['Ожидание запуска','Waiting to start'],\n"+
   " loading_runtime:['Подготовка расчёта','Preparing calculation'],\n"+
@@ -90,13 +90,21 @@ export function patchInitialStageUiV6(source){
   " }catch(_){}\n"+
   " return r;\n"+
   "};\n"+
+  "window.addEventListener('pp:ga-server-stage',event=>{\n"+
+  " const incoming=event.detail;\n"+
+  " if(Object.prototype.hasOwnProperty.call(firstStageLabels,incoming)&&active()&&wasRunning&&confirmed<=1){\n"+
+  "  serverStageEvents++;\n"+
+  "  if(firstStage!==incoming){firstStage=incoming;firstStageLastSecond=-1}\n"+
+  "  showVerifiedPreparationStage();\n"+
+  " }\n"+
+  "});\n"+
   "window.addEventListener(\"pp:optimizer-started\",()=>{",
   "FETCH_STAGE_HEADER"
  );
  once(
   "  finishing,finalDone,finalCount,has100,verifiedCount,attempts,\n  visible:",
   "  finishing,finalDone,finalCount,has100,verifiedCount,attempts,\n"+
-  "  firstStage,firstStagePaints,\n  visible:",
+  "  firstStage,firstStagePaints,serverStageEvents,\n  visible:",
   "STATE_DIAGNOSTICS"
  );
  for(const marker of ["ppNativeOneOwnerProgressV4","showVerifiedPreparationStage()",
