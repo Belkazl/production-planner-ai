@@ -1,0 +1,165 @@
+name: LiftOrbit persistent 100 in native button after real ceramic GA
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-progress-v4-ovh-release-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight production SHA, isolated Chrome and one-file V4 replacement
+        id: preflight
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:$root/sources/ovh-app/current/restart-optimizer-ui.js" old/restart-optimizer-ui.js
+          old_sha=$(sha256sum old/restart-optimizer-ui.js | cut -d' ' -f1)
+          test -n "$old_sha"
+          # Backend is on its last verified original source. Never bundle an
+          # unverified database-throttle change with a UI-only rollout.
+          scp -q "${opts[@]}" "$USER@$HOST:$root/sources/ovh-app/current/python-ga-upstream.mjs" "$RUNNER_TEMP/python-ga-upstream.mjs"
+          test "$(sha256sum "$RUNNER_TEMP/python-ga-upstream.mjs" | cut -d' ' -f1)" = e552a2e213a5b9308e423c3cb94700e87b97ff2684dc4179433b33f3210834ad
+          cp old/restart-optimizer-ui.js new/restart-optimizer-ui.js
+          node ops/ovh/ga-progress-v4-20261119/patch.mjs new
+          node --check new/restart-optimizer-ui.js
+          diff -u old/restart-optimizer-ui.js new/restart-optimizer-ui.js > "$RUNNER_TEMP/progress-v4-one-file.diff" || test "$?" -eq 1
+          test "$(grep -c '^@@' "$RUNNER_TEMP/progress-v4-one-file.diff")" = 1
+          sha256sum old/restart-optimizer-ui.js | cut -d' ' -f1 > "$RUNNER_TEMP/old.sha"
+          sha256sum new/restart-optimizer-ui.js | cut -d' ' -f1 > "$RUNNER_TEMP/new.sha"
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-progress-v4-20261119/browser.cjs
+          echo "GA_PROGRESS_V4_PREFLIGHT_PASSED"
+      - name: Roll out a single UI source change with exact rollback
+        id: rollout
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          old=$(cat "$RUNNER_TEMP/old.sha")
+          new=$(cat "$RUNNER_TEMP/new.sha")
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/restart-optimizer-ui.js "$USER@$HOST:$root/sources/ovh-app/restart-optimizer-ui-progress-v4-20261119.next"
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- "$old" "$new" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          staged="$root/sources/ovh-app/restart-optimizer-ui-progress-v4-20261119.next"
+          backup="$root/patch-backups/ga-progress-v4-20261119"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -r "$live" && test -r "$staged"
+          test "$(sha "$live")" = "$1" && test "$(sha "$staged")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$live" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$1"
+          rollback(){
+           trap - ERR
+           cp -p "$backup/restart-optimizer-ui.js" "$live" || true
+           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+           echo "GA_PROGRESS_V4_AUTOROLLBACK_ATTEMPTED"
+          }
+          trap rollback ERR
+          mv "$staged" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$live")" = "$2"
+          trap - ERR
+          echo "GA_PROGRESS_V4_OVH_INSTALLED"
+          REMOTE
+      - name: Public availability, session protection and GA UI
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$health" = 200 && "$guest" = 401 ]]; then echo "GA_PROGRESS_V4_PUBLIC_HEALTHY"; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: Real 886-operation plan must keep 100 visible in the original button
+        id: live
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+          FREEZE_TEST_EXPECT_V4: "1"
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-progress-v4-20261119/instrument-live.mjs
+          node ops/ovh/account-plan-mismatch-20261118/ceramic-complex-bounded.mjs
+      - name: Roll back if real production browser verification fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          backup="$root/patch-backups/ga-progress-v4-20261119"
+          test -r "$backup/restart-optimizer-ui.js"
+          cp -p "$backup/restart-optimizer-ui.js" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo "GA_PROGRESS_V4_ROLLBACK_VALIDATED"
+          REMOTE
+      - name: Summarize authenticated and persistent in-button 100
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+        run: echo "GA_PROGRESS_V4_RELEASE preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
