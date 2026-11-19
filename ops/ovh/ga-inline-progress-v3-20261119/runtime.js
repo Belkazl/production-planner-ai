@@ -133,7 +133,7 @@ function capture(){
  const original=text.nodeValue||"";
  const match=percentRE.exec(original);
  if(!match)return;
- const incoming=clamp(match[0]);
+ const incoming=clamp(Number.parseInt(match[0],10));
  const newPrefix=original.slice(0,match.index);
  if(newPrefix.trim())prefix=newPrefix;
  if(shown==null){
