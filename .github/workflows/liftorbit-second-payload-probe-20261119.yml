@@ -1,0 +1,22 @@
+name: LiftOrbit read-only live 2-run POST payload and 502 latency probe
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-second-payload-probe-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: One disposable account first run then second POST without production patch
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-start-recover-20261119/live-regression.mjs
