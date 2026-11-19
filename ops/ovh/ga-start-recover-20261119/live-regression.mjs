@@ -318,6 +318,7 @@ try{
   let body=null;try{body=await actual.json()}catch{}
   acceptedStart={status:actual.status(),accepted:body?.ok===true&&body?.started===true,
    joined:body?.joined===true,contentType:(actual.headers()["content-type"]||"").slice(0,70)};
+  console.log("GA_START_SECOND_UPSTREAM_STATUS",JSON.stringify(acceptedStart));
   // Mask a genuine accepted 202 with HTML 502, or propagate a real 502 from
   // the upstream. Both must recover without displaying a validator error.
   if(actual.status()===202&&acceptedStart.accepted)
