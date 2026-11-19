@@ -1,4 +1,4 @@
-name: LiftOrbit reduce GA progress JSONB writes and verify no API timeouts
+name: LiftOrbit GA progress persistence optimization with zero-timeout regression
 on:
   push:
     branches: [main]
