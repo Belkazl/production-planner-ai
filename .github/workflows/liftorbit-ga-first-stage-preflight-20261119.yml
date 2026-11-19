@@ -1,0 +1,54 @@
+name: LiftOrbit first-plan truthful backend heartbeat preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-first-stage-preflight-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only known production source files into disposable build directory
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" old/python-ga-upstream.mjs
+          scp -q "${opts[@]}" "$USER@$HOST:$root/restart-optimizer-ui.js" old/restart-optimizer-ui.js
+          scp -rq "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" old/ga_workers
+          cp -a old/. new/
+          python3 ops/ovh/ga-first-stage-heartbeats-20261119/patch_backend.py new
+          node ops/ovh/ga-first-stage-heartbeats-20261119/patch-ui.mjs new
+          python3 -m py_compile new/ga_workers/manager.py new/ga_workers/full_runtime_adapter.py
+          node --check new/python-ga-upstream.mjs
+          node --check new/restart-optimizer-ui.js
+          python3 ops/ovh/ga-first-stage-heartbeats-20261119/backend-regression.py new
+          echo GA_INITIAL_STAGE_PINNED_BACKEND_AND_WORKER_TEST_PASS
+      - name: Browser shows actual building stage and elapsed seconds until true GA progress
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-first-stage-heartbeats-20261119/browser.cjs
+          node ops/ovh/ga-native-transition-v5-20261119/browser.cjs
+          node ops/ovh/ga-progress-load-shed-20261119/browser.cjs
+          echo GA_INITIAL_STAGE_PREFLIGHT_ALL_PASS
