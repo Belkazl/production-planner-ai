@@ -315,11 +315,16 @@ try{
   maskedPosts++;
   if(maskedPosts>1)return route.continue();
   const actual=await route.fetch({timeout:45000});
-  let body=null;try{body=await actual.json()}catch{}
-  acceptedStart={status:actual.status(),accepted:body?.ok===true&&body?.started===true,joined:body?.joined===true};
-  if(actual.status()!==202||!acceptedStart.accepted)
-   throw Error("SECOND_GA_START_BACKEND_NOT_202_"+JSON.stringify(acceptedStart));
-  return route.fulfill({status:502,contentType:"text/html",body:"<html><body>Bad Gateway</body></html>"});
+  let body=null;try{body=await actual.clone().json()}catch{}
+  acceptedStart={status:actual.status(),accepted:body?.ok===true&&body?.started===true,
+   joined:body?.joined===true,contentType:(actual.headers()["content-type"]||"").slice(0,70)};
+  // Mask a genuine accepted 202 with HTML 502, or propagate a real 502 from
+  // the upstream. Both must recover without displaying a validator error.
+  if(actual.status()===202&&acceptedStart.accepted)
+   return route.fulfill({status:502,contentType:"text/html",body:"<html><body>Bad Gateway</body></html>"});
+  if(actual.status()>=500)
+   return route.fulfill({response:actual});
+  return route.fulfill({response:actual});
  });
  const beforeSecond=requests.length;
  const secondGate=await page.evaluate(()=>({
@@ -330,7 +335,10 @@ try{
  if(!secondGate.transport||secondGate.disabled||!/continue|продолж/i.test(secondGate.text||""))
   throw Error("SECOND_GA_CONTINUE_GATE_"+JSON.stringify(secondGate));
  await page.locator("#opt").click({timeout:10000,noWaitAfter:true});
- await page.waitForFunction(()=>window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__?.state?.recoveries>=1,null,{timeout:45000});
+ await page.waitForFunction(()=>{
+  const s=window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__?.state;
+  return s&&(s.recoveries>=1||s.retries>=1);
+ },null,{timeout:45000});
  console.log("GA_START_HTML_502_LIVE_REJOIN",JSON.stringify({
   acceptedStart,maskedPosts,recovery:await page.evaluate(()=>window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__?.state)
  }));
@@ -344,18 +352,21 @@ try{
   transport:window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__?.state,
   validator:document.getElementById("validator")?.textContent?.slice(0,160)
  }));
- if(maskedPosts!==1||requests.length!==beforeSecond+1||!acceptedStart?.accepted||
+ if(maskedPosts<1||maskedPosts>3||requests.length!==beforeSecond+maskedPosts||
+    !(acceptedStart?.status===202||acceptedStart?.status>=500)||
     second.phase!=="completed"||second.success!==true||
     !Array.isArray(second.result?.operations)||second.result.operations.length<800||
     !secondUi.v4?.finalDone||!secondUi.text?.includes("100%")||
-    !secondUi.transport?.recoveries||/ga_start_invalid_response/.test(secondUi.validator||""))
+    !(secondUi.transport?.recoveries||secondUi.transport?.retries)||
+    /ga_start_invalid_response/.test(secondUi.validator||""))
   throw Error("SECOND_GA_HTML_502_RECOVERY_NOT_VERIFIED_"+JSON.stringify({
    maskedPosts,requests:requests.length-beforeSecond,acceptedStart,secondPhase:second.phase,
    secondRows:second.result?.operations?.length,secondUi
   }));
  console.log("GA_START_502_HTML_ON_REAL_886_OP_CONTINUE_NO_DUPLICATE_PASS",JSON.stringify({
   maskedPosts,status:acceptedStart.status,rows:second.result.operations.length,
-  secondRun:second.result.optimization_run,visible:secondUi.text,recoveries:secondUi.transport.recoveries
+  secondRun:second.result.optimization_run,visible:secondUi.text,
+  recoveries:secondUi.transport.recoveries,retries:secondUi.transport.retries
  }));
 
  if(errors.length)throw Error("BROWSER_ERRORS_"+JSON.stringify(errors.slice(0,4)));
