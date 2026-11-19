@@ -1,0 +1,20 @@
+import {readFileSync,writeFileSync} from "node:fs";
+import {resolve,dirname} from "node:path";
+import {fileURLToPath} from "node:url";
+import {patchTransitionV5} from "./transform.mjs";
+const target=process.argv[2];if(!target)throw Error("GA_V5_ROOT_REQUIRED");
+const file=resolve(target,"restart-optimizer-ui.js");
+const source=readFileSync(file,"utf8");
+const dir=dirname(fileURLToPath(import.meta.url));
+const v4=readFileSync(resolve(dir,"../ga-progress-v4-20261119/runtime.js"),"utf8");
+const loadShed=readFileSync(resolve(dir,"../ga-progress-load-shed-20261119/runtime.js"),"utf8");
+const suffix="\n;"+v4+"\n\n;"+loadShed+"\n";
+if(!source.endsWith(suffix))throw Error("GA_V5_SOURCE_DRIFT_OR_MISSING_LIVE_V4_AND_LOAD_SHED");
+const upgraded=patchTransitionV5(v4);
+if(upgraded===v4||!upgraded.includes("showPendingInsideButton()")||!upgraded.includes("ppNativeOneOwnerProgressV4"))throw Error("GA_V5_UNSAFE_EMPTY_TRANSFORM");
+const next=source.slice(0,-suffix.length)+"\n;"+upgraded+"\n\n;"+loadShed+"\n";
+for(const marker of ["ppUnifiedGanttV2","ppAutomaticIntermediatePreviewV1","ppStopRestorePreviousPlanV1","ppLargeGaProgressLoadShedV1"])
+ if(!next.includes(marker))throw Error("GA_V5_MISSING_REQUIRED_FEATURE_"+marker);
+if(next.split("ppNativeOneOwnerProgressV4(){").length!==2)throw Error("GA_V5_DUPLICATED_OWNER");
+writeFileSync(file,next);
+console.log("GA_V5_SOURCE_PINNED_PATCH_READY",JSON.stringify({original:source.length,upgraded:next.length,changed:next.length-source.length}));
