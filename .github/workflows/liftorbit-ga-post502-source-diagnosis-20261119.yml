@@ -1,0 +1,73 @@
+name: LiftOrbit investigate real server 502 at second GA POST safely
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-post502-source-diagnosis-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Read account start control flow and host service diagnostics without mutations
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          selections={
+            "python-ga-upstream.mjs":[(25,105),(185,267),(268,346)],
+            "tenant-model-runtime.js":[(115,172)],
+            "auth-runtime.js":[(52,85),(160,239)],
+            "async-plan-transport.js":[(25,105)],
+            "ga-python-state-store.mjs":[(1,45)]}
+          secret=re.compile(r'(password|token|secret|credential|cookie|authorization|private.key|process.env|bun.env|database_url|https?://|email)',re.I)
+          for name,ranges in selections.items():
+            p=Path(name)
+            if not p.is_file():
+              print('MISSING',name);continue
+            ls=p.read_text(errors='replace').splitlines()
+            print('FILE',name,'LINE_COUNT',len(ls))
+            for start,end in ranges:
+              for j in range(start-1,min(end,len(ls))):
+                s=ls[j]
+                if secret.search(s):s='[redacted]'
+                print('CODE',name,j+1,s[:235])
+          PY
+          echo 'SERVICE_GROUPS'
+          id -nG | sed -E 's/[^[:alnum:]_ -]//g'
+          if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null; then echo DOCKER_READ_ALLOWED; else echo DOCKER_READ_DENIED; fi
+          echo 'SERVER_SMOKE'
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1 && echo PASS || echo FAIL
+          echo 'DEPLOY_UPDATE_STATUS'
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration'/'patch-backups'/'ga-second-run-fastpath-20261119'
+          for fn in ('update-private.log','auto-rollback-private.log','qa-rollback-private.log'):
+            p=root/fn
+            print('LOG',fn,p.exists())
+            if not p.exists():continue
+            lines=p.read_text(errors='replace').splitlines()
+            for line in lines[-26:]:
+              s=re.sub(r'(?i)https?://\S+','[URL]',line)
+              if re.search(r'(token|secret|password|cookie|authorization|database_url|api.key|private.key)',s,re.I):s='[redacted]'
+              print('TAIL',fn,s[:210])
+          PY
+          REMOTE
