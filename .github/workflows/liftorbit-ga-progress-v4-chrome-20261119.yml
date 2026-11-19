@@ -1,4 +1,4 @@
-name: LiftOrbit persistent 100 percent and correct pseudo-element Chrome tests
+name: LiftOrbit persistent 100 percent without duplicate completion probes
 on:
   push:
     branches: [main]
