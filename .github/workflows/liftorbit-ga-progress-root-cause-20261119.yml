@@ -1,0 +1,67 @@
+name: LiftOrbit read-only GA progress stalls source audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-progress-root-cause-20261119.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Audit production progress source code without accessing customer records
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          sources={
+            "bridge":"baselines/2026-10-10/aps-setup-bridge/index.ts",
+            "progress_bridge":"index.ts",
+            "python_upstream":"python-ga-upstream.mjs",
+            "worker":"ga_python_workers/ga_workers/full_runtime_adapter.py",
+          }
+          tokens={
+            "bridge":["async function progress(req)","async function plan(req)","async function searchWithSetup("],
+            "progress_bridge":["async function progress(req)","async function plan(req)"],
+            "python_upstream":["async function progress(req)","async function call(principal"],
+            "worker":["def run(payload,progress):","while task.is_alive():"]
+          }
+          for name,path in sources.items():
+              p=Path(path)
+              if not p.is_file():
+                  print("NO_FILE",name,path)
+                  continue
+              s=p.read_text(errors="replace")
+              print("SOURCE",name,"bytes",len(s),"hash",sha256(s.encode()).hexdigest())
+              for term in tokens[name]:
+                  pos=s.find(term)
+                  if pos<0:
+                      print("MISSING",name,term);continue
+                  # Narrow, source-only excerpt. No model, keys, tenant data or env.
+                  sample=s[pos:pos+(7200 if term.startswith("async function progress(req)") else 2500)]
+                  print("SITE",name,term,"OFFSET",pos)
+                  for line in sample.splitlines()[:80]:
+                      if any(secret in line for secret in ["process.env","Bun.env","DATABASE_URL","apiKey","authSecret"]):
+                          print("[config-line-redacted]")
+                      else:
+                          print(line[:260])
+                  print("END_SITE",name,term)
+          PY
+          REMOTE
