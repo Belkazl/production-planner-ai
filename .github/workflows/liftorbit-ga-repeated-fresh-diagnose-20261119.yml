@@ -1,0 +1,27 @@
+name: LiftOrbit read-only diagnostic repeated fresh GA vs continuation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-repeated-fresh-diagnose-20261119.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real first 886-op GA then safe second NEW run without continuation
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-post502-isolation-20261119/generate-repeat-fresh.mjs
+          node --check ops/ovh/ga-post502-isolation-20261119/_fresh-second.mjs
+          node ops/ovh/ga-post502-isolation-20261119/_fresh-second.mjs
