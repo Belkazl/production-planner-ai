@@ -1,0 +1,204 @@
+name: LiftOrbit real second optimization portable warm-start production release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-native-continue-v2-release-20261119.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin exact production source and test real Python warm-state handoff without production writes
+        id: preflight
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old new
+          scp -q "\${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" old/python-ga-upstream.mjs
+          scp -rq "\${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" old/ga_workers
+          cp -a old/. new/
+          node ops/ovh/ga-continue-native-v2-20261119/patch.mjs new
+          node --check new/python-ga-upstream.mjs
+          python3 -m py_compile new/ga_workers/full_runtime_adapter.py
+          PYTHONPATH="$PWD/new" python3 - <<'PY'
+          from ga_workers import full_runtime_adapter as a
+          from ga_workers.continuation import ContinuationError
+          holder={}
+          model={'scheduler_mode':'resource','orders':[{'id':'A'},{'id':'B'}],
+                 'equipment':[],'employees':[],'materials':[]}
+          ga={'_PP_GENERIC_STATE':{},'canonicalize_model':lambda m:m,
+              'model_ready':lambda m:True,'install_model':lambda m:None,
+              '_pp_generic_declared':lambda m:True}
+          def optimize(gens,population,seed,continuing,objective):
+              holder['continued']=continuing
+              holder['order']=list(ga['_PP_GENERIC_STATE'].get('best_order',[]))
+              holder['score']=ga['_PP_GENERIC_STATE'].get('best_duration')
+              return {'ok':True,'valid':True,'duration_minutes':123,
+                'order_sequence':['A','B'],'optimization_run':2,'total_generations':20,
+                'operations':[{'order':'A','equipment_ids':[],'employee_ids':[]},
+                              {'order':'B','equipment_ids':[],'employee_ids':[]}]}
+          ga['optimize']=optimize
+          a._namespace=lambda:ga
+          samples=[]
+          result=a.run({'model':model,'options':{'continue':True,'generations':2,'population':2,
+                        'resume_plan':{'order_sequence':['B','A'],'duration_minutes':999}}},
+                       samples.append)
+          assert result['valid'] and result['resume_state']['version']==1
+          assert holder['continued'] and holder['order']==['B','A']
+          assert holder['score']==1_000_000_000.0
+          assert any(x.get('percent')==100 for x in samples)
+          try:
+              a.run({'model':model,'options':{'continue':True,
+                       'resume_plan':{'order_sequence':['A','FOREIGN']}}},lambda x:None)
+          except a.FullGAError as ex:
+              assert 'continuation_order_seed_missing_or_invalid' in str(ex)
+          else:raise AssertionError('foreign order was accepted')
+          print('GA_CONTINUE_REAL_WORKER_WARM_STATE_AND_FOREIGN_MODEL_GUARD_PASS')
+          PY
+          node ops/ovh/ga-continue-native-v2-20261119/prepare-live-two-run.mjs
+          node --check ops/ovh/ga-continue-native-v2-20261119/_live-two-run.mjs
+          for file in python-ga-upstream.mjs ga_workers/full_runtime_adapter.py; do
+            sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$(basename "$file").sha"
+            sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$(basename "$file").sha"
+          done
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          echo GA_CONTINUE_V2_PREFLIGHT_PASS
+      - name: Install only two SHA-pinned production files with automatic rollback
+        id: rollout
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "\${opts[@]}" new/python-ga-upstream.mjs "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-upstream.next"
+          scp -q "\${opts[@]}" new/ga_workers/full_runtime_adapter.py "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-worker.next"
+          ssh "\${opts[@]}" "$USER@$HOST" bash -s -- \
+            "$(cat "$RUNNER_TEMP/old-python-ga-upstream.mjs.sha")" \
+            "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")" \
+            "$(cat "$RUNNER_TEMP/old-full_runtime_adapter.py.sha")" \
+            "$(cat "$RUNNER_TEMP/new-full_runtime_adapter.py.sha")" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current"
+          stage="$root/sources/ovh-app"
+          backup="$root/patch-backups/ga-continue-native-v2-20261119"
+          files=("$live/python-ga-upstream.mjs" "$live/ga_python_workers/ga_workers/full_runtime_adapter.py")
+          staged=("$stage/ga-continue-v2-upstream.next" "$stage/ga-continue-v2-worker.next")
+          names=(python-ga-upstream.mjs full_runtime_adapter.py)
+          expected=("$@")
+          test "\${#expected[@]}" -eq 4
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          for i in 0 1; do
+            test "$(sha "\${files[$i]}")" = "\${expected[$((2*i))]}"
+            test "$(sha "\${staged[$i]}")" = "\${expected[$((2*i+1))]}"
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null
+          mkdir -p "$backup"
+          for i in 0 1; do
+            cp -p "\${files[$i]}" "$backup/\${names[$i]}"
+            test "$(sha "$backup/\${names[$i]}")" = "\${expected[$((2*i))]}"
+          done
+          rollback(){
+            trap - ERR
+            for i in 0 1; do cp -p "$backup/\${names[$i]}" "\${files[$i]}" || true; done
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_CONTINUE_V2_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          for i in 0 1; do mv "\${staged[$i]}" "\${files[$i]}"; done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 30); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          for i in 0 1; do test "$(sha "\${files[$i]}")" = "\${expected[$((2*i+1))]}"; done
+          trap - ERR
+          echo GA_CONTINUE_V2_PRODUCTION_INSTALLED
+          REMOTE
+      - name: Public production health and guest isolation
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$health" = 200 && "$guest" = 401 ]]; then echo GA_CONTINUE_V2_PUBLIC_HEALTH_PASS; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: E2E two real 886-operation optimization jobs, visible 100 and reload persistence
+        id: live
+        env:
+          FREEZE_TEST_MODE: deployed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-continue-native-v2-20261119/_live-two-run.mjs
+          echo GA_CONTINUE_V2_REAL_TWO_JOB_PRODUCTION_E2E_PASS
+      - name: Revert both production source files if live verification fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          backup="$root/patch-backups/ga-continue-native-v2-20261119"
+          live="$root/sources/ovh-app/current"
+          for file in python-ga-upstream.mjs full_runtime_adapter.py; do test -r "$backup/$file"; done
+          cp -p "$backup/python-ga-upstream.mjs" "$live/python-ga-upstream.mjs"
+          cp -p "$backup/full_runtime_adapter.py" "$live/ga_python_workers/ga_workers/full_runtime_adapter.py"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo GA_CONTINUE_V2_EXACT_ROLLBACK_VERIFIED
+          REMOTE
+      - name: Summary of live worker identity verification
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+        run: echo "GA_CONTINUE_V2_RELEASE preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
