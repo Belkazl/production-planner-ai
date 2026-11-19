@@ -329,7 +329,8 @@ try{
   const secondStartedAt=Date.now();
   const actual=await route.fetch({timeout:45000});
   let body=null;try{body=await actual.json()}catch{}
-  acceptedStart={postBytes:route.request().postDataBuffer()?.length||0,upstreamDurationMs:Date.now()-secondStartedAt,status:actual.status(),accepted:body?.ok===true&&body?.started===true,
+  let postKeys=[],postAsync=false,postContinue=false;try{const raw=JSON.parse(route.request().postData()||"{}");postKeys=Object.keys(raw).sort();postAsync=raw.__pp_async_start===true;postContinue=raw.continue===true||raw.continue_run===true}catch{};
+  acceptedStart={postBytes:route.request().postDataBuffer()?.length||0,upstreamDurationMs:Date.now()-secondStartedAt,postKeys,postAsync,postContinue,status:actual.status(),accepted:body?.ok===true&&body?.started===true,
    joined:body?.joined===true,contentType:(actual.headers()["content-type"]||"").slice(0,70)};
   console.log("GA_START_SECOND_UPSTREAM_STATUS",JSON.stringify(acceptedStart));
   // Mask a genuine accepted 202 with HTML 502, or propagate a real 502 from
@@ -344,7 +345,9 @@ try{
  const secondGate=await page.evaluate(()=>({
   text:document.getElementById("opt")?.textContent,
   disabled:document.getElementById("opt")?.disabled,
-  transport:window.__PP_ASYNC_PLAN_TRANSPORT__===true
+  transport:window.__PP_ASYNC_PLAN_TRANSPORT__===true,
+  statusAvailable:!!window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__,
+  status:window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__?.state||null
  }));
  if(!secondGate.transport||secondGate.disabled||!/continue|продолж/i.test(secondGate.text||""))
   throw Error("SECOND_GA_CONTINUE_GATE_"+JSON.stringify(secondGate));
