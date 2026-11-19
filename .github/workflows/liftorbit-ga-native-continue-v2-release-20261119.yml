@@ -33,8 +33,8 @@ jobs:
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
           mkdir -p old new
-          scp -q "\${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" old/python-ga-upstream.mjs
-          scp -rq "\${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" old/ga_workers
+          scp -q "${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" old/python-ga-upstream.mjs
+          scp -rq "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" old/ga_workers
           cp -a old/. new/
           node ops/ovh/ga-continue-native-v2-20261119/patch.mjs new
           node --check new/python-ga-upstream.mjs
@@ -100,9 +100,9 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           root=/home/liftorbit-ci/liftorbit-migration
-          scp -q "\${opts[@]}" new/python-ga-upstream.mjs "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-upstream.next"
-          scp -q "\${opts[@]}" new/ga_workers/full_runtime_adapter.py "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-worker.next"
-          ssh "\${opts[@]}" "$USER@$HOST" bash -s -- \
+          scp -q "${opts[@]}" new/python-ga-upstream.mjs "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-upstream.next"
+          scp -q "${opts[@]}" new/ga_workers/full_runtime_adapter.py "$USER@$HOST:$root/sources/ovh-app/ga-continue-v2-worker.next"
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- \
             "$(cat "$RUNNER_TEMP/old-python-ga-upstream.mjs.sha")" \
             "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")" \
             "$(cat "$RUNNER_TEMP/old-full_runtime_adapter.py.sha")" \
@@ -116,26 +116,26 @@ jobs:
           staged=("$stage/ga-continue-v2-upstream.next" "$stage/ga-continue-v2-worker.next")
           names=(python-ga-upstream.mjs full_runtime_adapter.py)
           expected=("$@")
-          test "\${#expected[@]}" -eq 4
+          test "${#expected[@]}" -eq 4
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
           for i in 0 1; do
-            test "$(sha "\${files[$i]}")" = "\${expected[$((2*i))]}"
-            test "$(sha "\${staged[$i]}")" = "\${expected[$((2*i+1))]}"
+            test "$(sha "${files[$i]}")" = "${expected[$((2*i))]}"
+            test "$(sha "${staged[$i]}")" = "${expected[$((2*i+1))]}"
           done
           sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null
           mkdir -p "$backup"
           for i in 0 1; do
-            cp -p "\${files[$i]}" "$backup/\${names[$i]}"
-            test "$(sha "$backup/\${names[$i]}")" = "\${expected[$((2*i))]}"
+            cp -p "${files[$i]}" "$backup/${names[$i]}"
+            test "$(sha "$backup/${names[$i]}")" = "${expected[$((2*i))]}"
           done
           rollback(){
             trap - ERR
-            for i in 0 1; do cp -p "$backup/\${names[$i]}" "\${files[$i]}" || true; done
+            for i in 0 1; do cp -p "$backup/${names[$i]}" "${files[$i]}" || true; done
             sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
             echo GA_CONTINUE_V2_ROLLBACK_ATTEMPTED
           }
           trap rollback ERR
-          for i in 0 1; do mv "\${staged[$i]}" "\${files[$i]}"; done
+          for i in 0 1; do mv "${staged[$i]}" "${files[$i]}"; done
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
           healthy=no
           for attempt in $(seq 1 30); do
@@ -143,7 +143,7 @@ jobs:
             sleep 5
           done
           test "$healthy" = yes
-          for i in 0 1; do test "$(sha "\${files[$i]}")" = "\${expected[$((2*i+1))]}"; done
+          for i in 0 1; do test "$(sha "${files[$i]}")" = "${expected[$((2*i+1))]}"; done
           trap - ERR
           echo GA_CONTINUE_V2_PRODUCTION_INSTALLED
           REMOTE
