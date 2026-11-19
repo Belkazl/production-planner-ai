@@ -1,17 +1,18 @@
-name: LiftOrbit ceramic GA 12900 m2 7-stage 14-machine validation
+name: LiftOrbit isolated GA test without intermediate browser updates
 # Trace whether best schedule contains foreign nested previews before rejected final.
 on:
   push:
     branches: [main]
     paths:
       - .github/workflows/liftorbit-ceramic-complex-qa-20261118.yml
+      - ops/ovh/account-plan-mismatch-20261118/ceramic-complex-bounded.mjs
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   real:
     runs-on: ubuntu-24.04
-    timeout-minutes: 9
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
       - name: Confirm public app and Chrome
@@ -23,5 +24,5 @@ jobs:
         run: npm install --no-save --no-package-lock playwright-core@1.57.0
       - name: Run realistic 6-order ceramic GA with materials and setups
         env:
-          FREEZE_TEST_MODE: deployed
-        run: node ops/ovh/account-plan-mismatch-20261118/ceramic-complex.mjs
+          FREEZE_TEST_MODE: no-intermediate
+        run: node ops/ovh/account-plan-mismatch-20261118/ceramic-complex-bounded.mjs

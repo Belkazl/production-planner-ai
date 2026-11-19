@@ -87,6 +87,22 @@ try{
    };
   });
  }
+ const noIntermediate=process.env.FREEZE_TEST_MODE==="no-intermediate";
+ let suppressedUiProgressRequests=0;
+ if(noIntermediate){
+  await page.route("**/api/plan-progress*",async route=>{
+   if(route.request().method()!=="GET")return route.continue();
+   suppressedUiProgressRequests++;
+   return route.fulfill({
+    status:200,
+    contentType:"application/json",
+    headers:{"cache-control":"no-store"},
+    body:JSON.stringify({phase:"running",running:true,percent:1,done:1,total:100,
+     result:null,best_preview:null,candidate_preview:null,variants:[]})
+   });
+  });
+  console.log("QA_INTERMEDIATE_BROWSER_UPDATES_DISABLED",JSON.stringify({isolatedAccount:true}));
+ }
  const gate=await page.evaluate(()=>({
   optDisabled:document.getElementById("opt")?.disabled,
   optText:document.getElementById("opt")?.textContent,
@@ -127,7 +143,7 @@ try{
  let lastProgress=null;
  for(let i=0;i<48;i++){
   if(Date.now()-epochs>155000)throw Error("CERAMIC_QA_WALL_TIME_EXCEEDED");
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(noIntermediate?8000:2000);
   let pageState=null,progressState=null;
   try{
    pageState=await Promise.race([
@@ -142,10 +158,13 @@ try{
     variantsCount:p.result?.variants?.length||0,candidateOps:p.candidate_preview?.operations?.length,candidateDuration:p.candidate_preview?.duration_minutes,bestDuration:p.best_preview?.duration_minutes,bestOps:p.best_preview?.operations?.length,unsetSetupOrder:(p.best_preview?.operations||[]).filter(x=>x?.is_setup&&x.order==null).length,bestValid:p.best_preview?.valid,bestPartial:p.best_preview?.partial,finalOps:p.result?.operations?.length,bestAudit:safeAudit(p.best_preview),candidateAudit:safeAudit(p.candidate_preview),finalAudit:safeAudit(p.result)};
   }catch(e){progressState={error:String(e).slice(0,70)}}
   lastProgress=progressState;
+  if(noIntermediate && (i%5===0||progressState?.phase==="completed"))console.log("QA_INTERMEDIATE_ISOLATION_STATS",JSON.stringify({suppressedUiProgressRequests,elapsed:Date.now()-epochs}));
   if(i%5===0||progressState?.phase==="completed"||progressState?.error)console.log("LIVE_CERAMIC_COMPLEX_SAMPLE",i,JSON.stringify({pageState,progressState,elapsed:Date.now()-epochs,requests:requests.length}));
   if(pageState?.error==="Error: UI_EVAL_TIMEOUT")throw Error("RENDERER_UI_BLOCKED");
   if(progressState?.phase==="completed"||progressState?.phase==="failed"||progressState?.phase==="timed_out"||progressState?.phase==="stale"||progressState?.error==="account_plan_mismatch")break;
  }
+ if(noIntermediate && suppressedUiProgressRequests<1)throw Error("NO_PROGRESS_REQUEST_INTERCEPTED");
+ console.log("QA_INTERMEDIATE_ISOLATION_TOTAL",suppressedUiProgressRequests);
  const afterModel=await page.evaluate(async()=>{const r=await fetch("/api/model",{cache:"no-store",credentials:"same-origin"});return (await r.json()).model});
  function different(a,b,p="",out=[]){
   if(out.length>=45)return out;
