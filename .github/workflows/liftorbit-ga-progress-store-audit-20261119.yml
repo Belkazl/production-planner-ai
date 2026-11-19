@@ -44,3 +44,12 @@ jobs:
                       print(ln[:270])
               print('END',term)
           PY
+          # Audit only the tail of progress() to confirm terminal persistence invariants.
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'TAIL'
+          from pathlib import Path
+          s=Path('/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs').read_text()
+          start=s.index("    if(status.status==='completed'){",s.index("async function progress(req){"))
+          end=s.index("async function fetchUpstream(",start)
+          for line in s[start:end].splitlines()[:115]:
+              print("PROGRESS_TAIL",line[:300])
+          TAIL
