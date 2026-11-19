@@ -18,7 +18,7 @@ const browserOpts={channel:"chrome",headless:true,args:["--no-sandbox"]};
    await page.route("https://app.liftorbit.app/api/plan-progress",r=>{
     progressGets++;
     const isComplete=active&&progressGets>=((kind==="recover_502_running"||kind==="bad_202_running"||kind==="recover_409_running")?4:8);
-    const p=isComplete?
+    const p=isComplete||kind==="stale_prev_completed_502"?
       {ok:true,phase:"completed",running:false,success:true,percent:100,result:{ok:true,valid:true,operations:[{id:"x1"}],duration_minutes:60}}:
       {ok:true,phase:active?"running":"idle",running:active,success:false,percent:active?12:0,result:null};
     return r.fulfill({status:200,contentType:"application/json",body:JSON.stringify(p)});
@@ -46,6 +46,7 @@ const browserOpts={channel:"chrome",headless:true,args:["--no-sandbox"]};
     }
     if(kind==="auth_401")return r.fulfill({status:401,contentType:"text/html",body:"<html>login</html>"});
     if(kind==="permanent_503")return r.fulfill({status:503,contentType:"text/html",body:"<html>unavailable</html>"});
+    if(kind==="stale_prev_completed_502")return r.fulfill({status:502,contentType:"text/html",body:"<html>upstream unavailable</html>"});
     if(kind==="cancel_502")return r.fulfill({status:502,contentType:"text/html",body:"<html>gateway</html>"});
     throw Error("unexpected "+kind);
    });
@@ -72,10 +73,12 @@ const browserOpts={channel:"chrome",headless:true,args:["--no-sandbox"]};
      assert.equal(result.status,401);
      assert.equal(result.body.error,"authentication_required");
      assert.equal(posts,1,"auth must not be retried");
-   }else if(kind==="permanent_503"){
+   }else if(kind==="permanent_503"||kind==="stale_prev_completed_502"){
      assert.equal(result.status,503);
      assert.equal(result.body.error,"ga_start_server_temporarily_unavailable");
      assert.equal(posts,3,"must retry with bounded attempts");
+     if(kind==="stale_prev_completed_502")assert.equal(result.diagnostics.recoveries,0,
+       "old successful result must NEVER be mistaken for fresh start");
    }else if(kind==="cancel_502"){
      assert.equal(result.aborted,true);
      assert.equal(posts,1,"Stop must cancel retries immediately");
@@ -96,7 +99,7 @@ const browserOpts={channel:"chrome",headless:true,args:["--no-sandbox"]};
   }finally{await page.close()}
  }
  try{
-  for(const kind of ["normal_202","recover_502_running","bad_202_running","recover_409_running","retry_502_then_202","auth_401","permanent_503","cancel_502","dedupe_concurrent"]){
+  for(const kind of ["normal_202","recover_502_running","bad_202_running","recover_409_running","retry_502_then_202","auth_401","permanent_503","stale_prev_completed_502","cancel_502","dedupe_concurrent"]){
    await scenario(kind,kind);
   }
   console.log("GA_START_HTTP_502_HTML_RECONNECTION_AND_STOP_ALL_PASS");
