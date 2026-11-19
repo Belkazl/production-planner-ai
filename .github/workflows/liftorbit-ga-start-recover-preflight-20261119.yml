@@ -1,4 +1,4 @@
-name: LiftOrbit GA start HTML error recovery Chrome preflight
+name: LiftOrbit GA start transient HTML recovery Chrome acceptance
 on:
   push:
     branches: [main]
