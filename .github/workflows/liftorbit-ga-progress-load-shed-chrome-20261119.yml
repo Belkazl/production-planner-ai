@@ -1,0 +1,26 @@
+name: LiftOrbit avoid repeated 900-op Gantt payload GET browser test
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-progress-load-shed-chrome-20261119.yml
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Check heavy plan only request throttling and terminal status bypass
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/ga-progress-load-shed-20261119/runtime.js
+          node ops/ovh/ga-progress-load-shed-20261119/browser.cjs
