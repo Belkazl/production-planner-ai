@@ -16,6 +16,11 @@ function finishOverlay(number){`],
    `  if(!finalDone){finishing=false;restoreButton()}`],
   [`  }else if(!finalDone){restoreButton()}`,
    `  }else if(!finalDone){finishing=false;restoreButton()}`],
+  [` restoreDisabled=button.disabled;
+ if(!instant)button.disabled=true;`,` if(restoreDisabled===null)restoreDisabled=button.disabled;
+ if(!instant)button.disabled=true;`],
+  [`  if((p.phase==="running"||p.phase==="queued")&&attempts<5&&isContinue()){`,`  if((p.phase==="running"||p.phase==="queued")&&attempts<30&&isContinue()){`],
+  [`    retryTimer=setTimeout(()=>{retryTimer=null;void verify(token,instant)},1400*attempts);`,`    retryTimer=setTimeout(()=>{retryTimer=null;void verify(token,instant)},Math.min(3000,1000+attempts*200));`],
   [`function end(){
  if(!wasRunning)return;
  wasRunning=false;
@@ -49,7 +54,7 @@ function finishOverlay(number){`],
   if(output.split(oldValue).length!==2)throw Error("GA_V5_SOURCE_DRIFT_OR_AMBIGUOUS_ANCHOR_"+oldValue.slice(0,45));
   output=output.replace(oldValue,newValue);
  }
- if(!output.includes("showPendingInsideButton()")||!output.includes("if(!isContinue()){reset();initialChecked=true;return}"))
+ if(!output.includes("showPendingInsideButton()")||!output.includes("if(!isContinue()){reset();initialChecked=true;return}")||!output.includes("attempts<30&&isContinue()"))
   throw Error("GA_V5_GUARD_MISSING");
  return output;
 }
