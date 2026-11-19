@@ -22,6 +22,11 @@ export function patchInitialStageUiV6(source){
   "STATE_VARS"
  );
  once(
+  'const active=()=>!!button?.classList.contains("pp-opt-running");',
+  'const active=()=>!!button?.classList.contains("pp-opt-running")&&!isContinue();',
+  "NATIVE_CONTINUE_BEFORE_CSS_CLASS_REMOVED"
+ );
+ once(
   "function begin(){\n reset();wasRunning=true;lastNativeAt=Date.now();",
   "function begin(){\n reset();wasRunning=true;lastNativeAt=Date.now();firstStageSince=Date.now();",
   "BEGIN_CLOCK"
