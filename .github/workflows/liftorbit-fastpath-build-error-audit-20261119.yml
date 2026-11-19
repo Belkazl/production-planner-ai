@@ -1,4 +1,5 @@
 name: LiftOrbit read-only inspect fastpath update failure and rollback
+# Repeat source-hash and service-smoke verification after latest E2E rollback
 on:
   push:
     branches: [main]
