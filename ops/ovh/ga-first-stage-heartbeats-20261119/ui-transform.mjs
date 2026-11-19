@@ -61,6 +61,11 @@ export function patchInitialStageUiV6(source){
  once(
   " if(!button||!active()||!wasRunning||shown==null)return;\n const t=Date.now();",
   " if(!button||!active()||!wasRunning||shown==null)return;\n"+
+  " // A first candidate is under construction while the native GA is at 1%.\n"+
+  " // Do not invent more percentages if stage headers are delayed by the proxy.\n"+
+  " if(!firstStage&&confirmed<=1&&Date.now()-lastNativeAt>=1500){\n"+
+  "  firstStage='building_first_plan';firstStageSince=Date.now();firstStageLastSecond=-1;\n"+
+  " }\n"+
   " if(firstStage&&confirmed<=1){showVerifiedPreparationStage();return}\n"+
   " const t=Date.now();",
   "POLL_EARLY"
