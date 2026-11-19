@@ -1,0 +1,57 @@
+name: LiftOrbit read-only inspect fastpath update failure and rollback
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-fastpath-build-error-audit-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Print sanitized update error and exact live source hashes
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          b="$root/patch-backups/ga-second-run-fastpath-20261119"
+          live="$root/sources/ovh-app/current"
+          for f in python-ga-upstream.mjs async-plan-transport.js; do
+            printf 'LIVE_SHA %s ' "$f"
+            sha256sum "$live/$f" | cut -d' ' -f1
+            printf 'BACKUP_SHA %s ' "$f"
+            sha256sum "$b/$f" | cut -d' ' -f1
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration'/'patch-backups'/'ga-second-run-fastpath-20261119'
+          for name in ('update-private.log','auto-rollback-private.log'):
+            p=root/name
+            if not p.exists():
+              print('LOG_NOT_FOUND',name);continue
+            ls=p.read_text(errors='replace').splitlines()
+            print('LOG_SUMMARY',name,'lines',len(ls))
+            filtered=[]
+            for line in ls:
+              if not re.search(r'error|failed|exit|test|#34|node|docker|invariant|assert|build|cannot|invalid|syntax|no such file',line,re.I):continue
+              if re.search(r'password|token|secret|cookie|credential|private.key|DATABASE_URL|authorization|process.env|bun.env|email',line,re.I):continue
+              line=re.sub(r'https?://\S+','[URL]',line)
+              filtered.append(line[:240])
+            for line in filtered[-35:]:print('DIAG',name,line)
+          PY
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then echo SERVICE_SMOKE_PASS; else echo SERVICE_SMOKE_FAIL; fi
+          REMOTE
+          curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
