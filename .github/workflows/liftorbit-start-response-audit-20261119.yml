@@ -1,0 +1,50 @@
+name: LiftOrbit diagnose ga_start_invalid_response live request contract
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-start-response-audit-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Read live start-response handling and upstream contract only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          import re
+          for path in [Path('restart-optimizer-ui.js'),Path('python-ga-upstream.mjs'),Path('ga_python_workers/ga_workers/server.py'),Path('ga_python_workers/ga_workers/manager.py')]:
+            lines=path.read_text(errors='replace').splitlines()
+            print('FILE',path.name,'LENGTH',len(lines),'SHA256',sha256(path.read_bytes()).hexdigest())
+            terms=['ga_start_invalid_response','start_invalid_response','/api/plan','async function run(req','async function run(req,opts)','started:','joined:','phase:', 'ga_worker_unavailable']
+            targets=[i for i,s in enumerate(lines) if any(q in s for q in terms)]
+            regions=set()
+            for i in targets[:32]:
+              for j in range(max(0,i-12),min(len(lines),i+16)): regions.add(j)
+            print('MATCHES',len(targets))
+            for j in sorted(regions)[:470]:
+              line=lines[j]
+              if re.search(r'(secret|password|token|private.key|api.key|authorization|cookie|process.env|Bun.env|database_url)',line,re.I):
+                print('LINE',j+1,'[redacted]')
+              else:print('LINE',j+1,line[:230])
+          PY
+          REMOTE
+          curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
