@@ -1,4 +1,4 @@
-name: LiftOrbit persistent 100 percent in the original button Chrome tests
+name: LiftOrbit persistent 100 percent and correct pseudo-element Chrome tests
 on:
   push:
     branches: [main]
