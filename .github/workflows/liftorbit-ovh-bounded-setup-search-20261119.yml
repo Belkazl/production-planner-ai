@@ -1,0 +1,171 @@
+name: LiftOrbit OVH bounded secondary setup search to prevent 900-op GA stalls
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-bounded-setup-search-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify one-file patch against exact live OVH worker source
+        id: preflight
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:$root/sources/ovh-app/current/worker-manager.ts" old/worker-manager.ts
+          cp old/worker-manager.ts new/worker-manager.ts
+          test "$(sha256sum old/worker-manager.ts | cut -d' ' -f1)" = 2e8a2d4b52ad8524ea894c906db310b2043cc80316196992b3beb37f95833bb6
+          node ops/ovh/setup-search-bounds-20261119/patch.mjs new
+          node ops/ovh/setup-search-bounds-20261119/test.cjs new
+          cp new/worker-manager.ts "$RUNNER_TEMP/setup-search-worker.mjs"
+          node --check "$RUNNER_TEMP/setup-search-worker.mjs"
+          diff -u old/worker-manager.ts new/worker-manager.ts > "$RUNNER_TEMP/setup-bound-one-file.diff" || test "$?" -eq 1
+          test "$(grep -c '^@@' "$RUNNER_TEMP/setup-bound-one-file.diff")" = 1
+          sha256sum old/worker-manager.ts | cut -d' ' -f1 > "$RUNNER_TEMP/old.sha"
+          sha256sum new/worker-manager.ts | cut -d' ' -f1 > "$RUNNER_TEMP/new.sha"
+          echo "SECONDARY_SETUP_BOUND_PREFLIGHT_PASSED"
+      - name: Deploy single guarded worker manager source and retain exact rollback copy
+        id: rollout
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          old=$(cat "$RUNNER_TEMP/old.sha")
+          new=$(cat "$RUNNER_TEMP/new.sha")
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/worker-manager.ts "$USER@$HOST:$root/sources/ovh-app/worker-manager-bounded-20261119.next"
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- "$old" "$new" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/worker-manager.ts"
+          staged="$root/sources/ovh-app/worker-manager-bounded-20261119.next"
+          backup="$root/patch-backups/worker-manager-bounded-20261119"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test -r "$live" && test -r "$staged"
+          test "$(sha "$live")" = "$1" && test "$(sha "$staged")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$live" "$backup/worker-manager.ts"
+          test "$(sha "$backup/worker-manager.ts")" = "$1"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/worker-manager.ts" "$live" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo "BOUND_SETUP_WORKER_AUTO_ROLLBACK_ATTEMPTED"
+          }
+          trap rollback ERR
+          mv "$staged" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$live")" = "$2"
+          trap - ERR
+          echo "BOUND_SETUP_WORKER_LIVE"
+          REMOTE
+      - name: Ensure public service and guest boundary healthy
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 15); do
+            public=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 16 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 16 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$public" = 200 && "$guest" = 401 ]]; then echo "PUBLIC_GA_BOUND_HEALTHY"; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: Install browser test driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Real 900-operation GA completes without intermediate browser transfer
+        id: isolated
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: no-intermediate
+        run: node ops/ovh/account-plan-mismatch-20261118/ceramic-complex-bounded.mjs
+      - name: Real 900-operation GA completes with automatic intermediate Gantt
+        id: ordinary
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: node ops/ovh/account-plan-mismatch-20261118/ceramic-complex-bounded.mjs
+      - name: Restore prior worker manager if full live validation fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current/worker-manager.ts"
+          backup="$root/patch-backups/worker-manager-bounded-20261119"
+          test -r "$backup/worker-manager.ts"
+          cp -p "$backup/worker-manager.ts" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo "SECONDARY_SETUP_BOUND_ROLLBACK_PASSED"
+          REMOTE
+      - name: Print final regression summary only
+        if: always()
+        shell: bash
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          ISOLATED: ${{ steps.isolated.outcome }}
+          ORDINARY: ${{ steps.ordinary.outcome }}
+        run: |
+          echo "SECONDARY_SETUP_BOUND_SUMMARY preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH isolated=$ISOLATED ordinary=$ORDINARY"
