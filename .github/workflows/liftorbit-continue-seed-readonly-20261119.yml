@@ -1,0 +1,40 @@
+name: LiftOrbit examine resume seed boundary only
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-continue-seed-readonly-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read bounded non-secret continuation order hint implementation
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          p=Path('python-ga-upstream.mjs');lines=p.read_text().splitlines()
+          print('SOURCE_SHA',hashlib.sha256(p.read_bytes()).hexdigest())
+          for i in list(range(40,100))+list(range(145,200))+list(range(300,340)):
+            s=lines[i]
+            if re.search(r'password|token|secret|credential|authorization|private.key|process\.env|Bun\.env|database.url|http(s)?://|api.key|email',s,re.I):
+              s='[redacted]'
+            print('SOURCE',i+1,s[:260])
+          PY
+          REMOTE
