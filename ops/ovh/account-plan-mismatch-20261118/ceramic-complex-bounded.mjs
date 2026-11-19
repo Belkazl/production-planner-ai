@@ -93,13 +93,13 @@ try{
   await page.route("**/api/plan-progress*",async route=>{
    if(route.request().method()!=="GET")return route.continue();
    suppressedUiProgressRequests++;
-   return route.fulfill({
-    status:200,
-    contentType:"application/json",
-    headers:{"cache-control":"no-store"},
-    body:JSON.stringify({phase:"running",running:true,percent:1,done:1,total:100,
-     result:null,best_preview:null,candidate_preview:null,variants:[]})
-   });
+   const response=await route.fetch({timeout:20000});
+   const data=await response.json();
+   delete data.best_preview;
+   delete data.candidate_preview;
+   delete data.variants;
+   if(data.result && data.phase!=="completed")delete data.result;
+   return route.fulfill({response,json:data});
   });
   console.log("QA_INTERMEDIATE_BROWSER_UPDATES_DISABLED",JSON.stringify({isolatedAccount:true}));
  }
