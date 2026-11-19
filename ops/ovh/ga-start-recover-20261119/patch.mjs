@@ -34,8 +34,8 @@ const replacement=String.raw`
    prior=await progressOnce();
    if(prior.r.ok&&prior.data?.running)return waitForPlan(signal);
   }catch(_){}
-  const oldCompleted=prior?.r?.ok&&prior.data?.phase==="completed";
-  const oldResult=oldCompleted?prior.data?.result:null;
+  // Existing completed result is NOT proof of this new attempt.
+  // Never infer a new job from an old completed schedule.
   payload.__pp_async_start=true;
   const headers=new Headers(init?.headers||(input instanceof Request?input.headers:undefined));
   headers.set("content-type","application/json");headers.set("accept","application/json");
@@ -86,14 +86,9 @@ const replacement=String.raw`
       startTelemetry.lastRecovery="joined_existing_job";
       return waitForPlan(signal);
      }
-     // If there was no previous completed result, a completed GA now belongs
-     // to this start attempt; never repeat it.
-     if(cur.r.ok&&cur.data?.phase==="completed"&&cur.data?.success===true&&
-        cur.data?.result&&(!oldCompleted||!oldResult)){
-      startTelemetry.recoveries++;
-      startTelemetry.lastRecovery="finished_during_start_response";
-      return {status:200,data:{...cur.data.result,ok:true}};
-     }
+     // Never turn a completed status into a new result. This endpoint does
+     // not expose a verified start-attempt identifier, so a completed result
+     // can belong to the PREVIOUS optimization (including after a 502).
     }catch(e){if(signal?.aborted)throw e}
    }
    if(!retryableStatus(lastStatus)&&lastStatus!==409)return {status:lastStatus,data:lastData};
