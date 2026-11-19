@@ -45,7 +45,7 @@ jobs:
           node --check new/python-ga-upstream.mjs
           node --check new/async-plan-transport.js
           (cd new && node "$RUNNER_TEMP/transport-contract.cjs")
-          (cd new && node "$RUNNER_TEMP/continuation-contract.cjs")
+          (cd new && ln -s ../baselines baselines && node "$RUNNER_TEMP/continuation-contract.cjs")
           for file in python-ga-upstream.mjs async-plan-transport.js; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$file.sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
