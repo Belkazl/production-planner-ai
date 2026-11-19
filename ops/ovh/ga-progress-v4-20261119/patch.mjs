@@ -16,7 +16,7 @@ const next=readFileSync(resolve(folder,"runtime.js"),"utf8");
 if(!next.includes("ppNativeOneOwnerProgressV4")||!next.includes("mode:\"one-button-real-terminal-persistent\"")||
  !next.includes("if(!r.ok)throw Error(\"GA_HTTP_\"+r.status)")||
  !next.includes("if(p.phase===\"completed\"")||
- !next.includes("if(finalDone){reset();}"))
+ !next.includes("if(finalDone){reset();initialChecked=true;}"))
  throw Error("GA_PROGRESS_V4_GUARDS_MISSING");
 const updated=original.slice(0,-suffix.length)+"\n;"+next+"\n";
 if(updated.includes("ppInlineOptimizerProgressV3"))throw Error("GA_PROGRESS_V4_OLD_OWNER_STILL_INCLUDED");
