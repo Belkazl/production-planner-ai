@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/liftorbit-ga-small-continue-native-diag-20261119.yml
+      - ops/ovh/ga-post502-isolation-20261119/generate-small-direct-continue.mjs
 permissions:
   contents: read
 concurrency:
