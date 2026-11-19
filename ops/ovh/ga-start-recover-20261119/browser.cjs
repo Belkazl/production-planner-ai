@@ -74,7 +74,7 @@ const browserOpts={channel:"chrome",headless:true,args:["--no-sandbox"]};
      assert.equal(result.body.error,"authentication_required");
      assert.equal(posts,1,"auth must not be retried");
    }else if(kind==="permanent_503"||kind==="stale_prev_completed_502"){
-     assert.equal(result.status,503);
+     assert.equal(result.status,kind==="stale_prev_completed_502"?502:503);
      assert.equal(result.body.error,"ga_start_server_temporarily_unavailable");
      assert.equal(posts,3,"must retry with bounded attempts");
      if(kind==="stale_prev_completed_502")assert.equal(result.diagnostics.recoveries,0,
