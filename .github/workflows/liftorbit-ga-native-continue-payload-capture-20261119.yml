@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/liftorbit-ga-native-continue-payload-capture-20261119.yml
+      - ops/ovh/ga-post502-isolation-20261119/generate-native-payload-inspect.mjs
 permissions:
   contents: read
 concurrency:
