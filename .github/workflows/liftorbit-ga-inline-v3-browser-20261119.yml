@@ -1,0 +1,25 @@
+name: LiftOrbit percent within one button Chrome regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-inline-v3-browser-20261119.yml
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated browser
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify the same button shows a real 100 with no adjacent labels
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/ga-inline-progress-v3-20261119/runtime.js
+          node --check ops/ovh/ga-inline-progress-v3-20261119/patch.mjs
+          node ops/ovh/ga-inline-progress-v3-20261119/browser.cjs
