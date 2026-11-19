@@ -1,0 +1,76 @@
+name: LiftOrbit native browser second GA POST without Playwright interception
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-direct-second-post-20261119.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test two runs on disposable account and trace actual second POST network status
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const path='ops/ovh/ga-start-recover-20261119/live-regression.mjs';
+          let src=readFileSync(path,'utf8');
+          const a=' let maskedPosts=0, acceptedStart=null;';
+          const b=' const beforeSecond=requests.length;';
+          const c=' await page.locator("#opt").click({timeout:10000,noWaitAfter:true});';
+          const d=' if(errors.length)throw Error("BROWSER_ERRORS_"';
+          if(src.split(a).length!==2||src.split(b).length!==2||src.split(c).length!==2||src.split(d).length!==2)throw Error('UNEXPECTED_TEST_SOURCE_LAYOUT');
+          const i=src.indexOf(a),j=src.indexOf(b),k=src.indexOf(c),end=src.indexOf(d,k);
+          if(!(i<j&&j<k&&k<end))throw Error('UNEXPECTED_TEST_SOURCE_ORDER');
+          src=src.slice(0,i)+` let maskedPosts=0, acceptedStart={status:0};
+          page.on("response",async r=>{
+           try{
+            if(new URL(r.url()).pathname!=="/api/plan"||r.request().method()!=="POST")return;
+            const info={status:r.status(),headers:Object.keys(r.headers()).filter(k=>/content-type|server|via|cf-|x-/i.test(k)).sort(),
+             contentType:r.headers()["content-type"]||null,requestMethod:r.request().method(),size:Number(r.request().postData()?.length||0)};
+            try{const t=await r.text();let v=null;try{v=JSON.parse(t)}catch{};
+             info.bodyBytes=t.length;info.dataError=v?.error||null;info.ok=v?.ok;info.started=v?.started;info.jobPresent=!!v?.job_id;
+             info.html=t.trimStart().startsWith("<")}catch(e){info.readError=String(e).slice(0,80)}
+            console.log("DIRECT_SECOND_PLAN_RESPONSE",JSON.stringify(info));
+           }catch(e){console.log("DIRECT_PLAN_TRACE_ERROR",String(e).slice(0,100))}
+          });
+          `+src.slice(j,k)+` await page.locator("#opt").click({timeout:10000,noWaitAfter:true});
+          console.log("DIRECT_SECOND_BUTTON_CLICKED",{previousPosts:beforeSecond});
+          for(let sample=0;sample<24;sample++){
+           await page.waitForTimeout(1500);
+           const p=await page.evaluate(async()=>{
+             const r=await fetch("/api/plan-progress?ppNoCache=1",{cache:"no-store"});
+             let v={};try{v=await r.json()}catch{}
+             const transport=window.__PP_ASYNC_PLAN_TRANSPORT_STATUS__?.state||null;
+             return {status:r.status,phase:v.phase,percent:v.percent,success:v.success,
+              running:v.running,job_id:v.job_id||null,hasResult:Array.isArray(v.result?.operations),
+              opt:document.getElementById("opt")?.textContent,visible:window.__PP_GA_PROGRESS_V4__?.state?.visible,transport}
+           });
+           console.log("DIRECT_SECOND_PROGRESS",JSON.stringify({sample,p,postCount:requests.length-beforeSecond}));
+           if(sample>4&&!p.running)break;
+          }
+          if(requests.length<=beforeSecond)throw Error("SECOND_GA_POST_NOT_SENT");
+          const final=await page.evaluate(async()=>{
+           const r=await fetch("/api/plan-progress?ppNoCache=1",{cache:"no-store"});
+           const v=await r.json();
+           return {status:r.status,phase:v.phase,success:v.success,percent:v.percent,job_id:v.job_id||null,resultRows:v.result?.operations?.length||0};
+          });
+          console.log("DIRECT_SECOND_FINAL_STATUS",JSON.stringify(final));
+          if(final.phase!=="completed"||final.success!==true||final.percent!==100)throw Error("DIRECT_SECOND_GA_NOT_COMPLETE");
+          `+src.slice(end);
+          writeFileSync('/tmp/liftorbit-direct-second.mjs',src);
+          console.log("NATIVE_SECOND_POST_DIAGNOSTIC_READY");
+          JS
+          cp /tmp/liftorbit-direct-second.mjs ops/ovh/ga-start-recover-20261119/_direct_second_diag.mjs
+          node ops/ovh/ga-start-recover-20261119/_direct_second_diag.mjs
