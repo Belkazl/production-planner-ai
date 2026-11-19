@@ -1,0 +1,44 @@
+name: LiftOrbit inspect Python GA resume contract and safe persisted seed usage
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-resume-contract-exact-20261119.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read Python continue resume-state schema and producer safely
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for fn,limit in [('ga_python_workers/ga_workers/continuation.py',250),
+                           ('ga_python_workers/ga_workers/full_runtime_adapter.py',150),
+                           ('ga_python_workers/tests/test_continuation.py',150)]:
+            f=Path(fn)
+            print('FILE',fn,'exists',f.exists())
+            if not f.exists():continue
+            lines=f.read_text(errors='replace').splitlines()
+            for j,line in enumerate(lines[:limit],1):
+              if re.search(r'password|token|secret|credential|cookie|authorization|private.key|process.env|bun.env|database_url|https?://|email',line,re.I):line='[redacted]'
+              print('SRC',fn,j,line[:240])
+          PY
+          REMOTE
