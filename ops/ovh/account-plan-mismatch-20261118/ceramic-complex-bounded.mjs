@@ -89,20 +89,6 @@ try{
  }
  const noIntermediate=process.env.FREEZE_TEST_MODE==="no-intermediate";
  let suppressedUiProgressRequests=0;
- if(noIntermediate){
-  await page.route("**/api/plan-progress*",async route=>{
-   if(route.request().method()!=="GET")return route.continue();
-   suppressedUiProgressRequests++;
-   const response=await route.fetch({timeout:20000});
-   const data=await response.json();
-   delete data.best_preview;
-   delete data.candidate_preview;
-   delete data.variants;
-   if(data.result && data.phase!=="completed")delete data.result;
-   return route.fulfill({response,json:data});
-  });
-  console.log("QA_INTERMEDIATE_BROWSER_UPDATES_DISABLED",JSON.stringify({isolatedAccount:true}));
- }
  const gate=await page.evaluate(()=>({
   optDisabled:document.getElementById("opt")?.disabled,
   optText:document.getElementById("opt")?.textContent,
@@ -125,7 +111,34 @@ try{
  await page.locator("#opt").click({timeout:10000,noWaitAfter:true});
  await page.waitForTimeout(200);
  started=requests.length>0;
- console.log("LIVE_FREEZE_AFTER_CLICK",JSON.stringify({requests:requests.length,errors:errors.slice(-2)}));
+ console.log("LIVE_FREEZE_AFTER_CLICK",JSON.stringify({requests:requests.length,errors:errors.slice(-2)})); 
+ if(noIntermediate){
+  // Keep the real startup handshake intact. The worker must already be running
+  // before we isolate client-side progress traffic.
+  if(!started)throw Error("REAL_OPTIMIZER_POST_WAS_NOT_SENT");
+  let realProgress=null;
+  for(let attempt=0;attempt<24;attempt++){
+   const response=await ctx.request.get(base+"/api/plan-progress",{timeout:12000});
+   const body=await response.json();
+   if(body.phase==="running"){realProgress=body;break}
+   if(["failed","stale","invalid"].includes(body.phase))throw Error("FAILED_BEFORE_ISOLATION_"+body.phase);
+   await page.waitForTimeout(400);
+  }
+  if(!realProgress)throw Error("REAL_OPTIMIZER_DID_NOT_START");
+  const safeProgress={ok:true,running:true,success:false,
+   done:realProgress.done||0,total:100,percent:realProgress.percent||0,
+   phase:"running",best_preview:null,candidate_preview:null,result:null,error:null};
+  await page.route("**/api/plan-progress*",async route=>{
+   if(route.request().method()!=="GET")return route.continue();
+   suppressedUiProgressRequests++;
+   return route.fulfill({status:200,contentType:"application/json",
+    headers:{"cache-control":"no-store"},body:JSON.stringify(safeProgress)});
+  });
+  console.log("QA_REAL_GA_RUNNING_BEFORE_INTERCEPTION",
+   JSON.stringify({postCount:requests.length,phase:realProgress.phase,percent:realProgress.percent}));
+  console.log("QA_INTERMEDIATE_BROWSER_UPDATES_DISABLED",JSON.stringify({isolatedAccount:true}));
+ }
+
  const safeAudit=plan=>{if(!plan)return null;
  const rows=plan.generic_operations?.length?plan.generic_operations:(plan.operations||[]);
  const sets={ord:new Set(model.orders.map(v=>String(v.id))),eq:new Set(model.equipment.map(v=>String(v.id))),emp:new Set(model.employees.map(v=>String(v.id))),mat:new Set(model.materials.map(v=>String(v.id)))};
