@@ -1,0 +1,87 @@
+name: LiftOrbit inspect actual GA first evaluation and published percentages
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-first-evaluation-deep-audit-20261119.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Analyze compiled optimizer progress update site and adapter lifecycle (source only)
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,ast
+          f=Path("ga_python_workers/ga_workers/full_runtime_adapter.py")
+          lines=f.read_text().splitlines()
+          print("ADAPTER_START")
+          for i,line in enumerate(lines):
+              if i<22 or i>=109:
+                  if re.search(r"(secret|token|password|key|os.getenv)",line,re.I):print(f"{i+1}: [redacted]");continue
+                  print(f"{i+1}: {line[:240]}")
+          print("ADAPTER_END")
+          m=Path("ga_python_workers/ga_workers/manager.py")
+          lines=m.read_text().splitlines()
+          print("MANAGER_PROGRESS_START")
+          re_p=re.compile(r"progress|snapshot|update|status|spawn|Thread|Process|queue|job|worker",re.I)
+          focus=[i for i,line in enumerate(lines) if re_p.search(line)]
+          selected=set()
+          for i in focus:
+              if any(term in lines[i].lower() for term in ["def ", "progress", "status", "snapshot", "def worker", "runner", "on_progress"]):
+                  selected.update(range(max(0,i-2),min(len(lines),i+6)))
+          for i in sorted(selected)[:350]:
+              line=lines[i]
+              if re.search(r"(secret|password|token|api.key)",line,re.I):line="[redacted]"
+              print(f"{i+1}: {line[:240]}")
+          print("MANAGER_PROGRESS_END")
+          # Read assembly to find the live full optimizer source. Source only.
+          for i,line in enumerate(f.read_text().splitlines()[:22],1):
+              print("ADAPTER_HEAD",i,line[:250])
+          try:
+              from ga_workers.full_runtime_adapter import SOURCE
+              compiled=Path(SOURCE)
+          except Exception as ex:
+              print("SOURCE_SYMBOL_UNAVAILABLE",str(ex));raise
+          code=compiled.read_text()
+          ls=code.splitlines()
+          print("COMPILED",str(compiled),"lines",len(ls))
+          tree=ast.parse(code)
+          for node in ast.walk(tree):
+              if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and (
+                  any(word in node.name for word in ["progress","optimiz","genetic","fitness","evaluate","ga_run","population"]) or node.name in ("plan","run")
+              ):
+                  print("FUNCTION",node.name,node.lineno,node.end_lineno)
+          sites=[]
+          for i,line in enumerate(ls):
+              if "_pp_progress_snapshot" in line or "percent" in line and ("_pp_" in line or "progress" in line):
+                  sites.append(i)
+          print("COMPILED_PROGRESS_SITES",len(sites))
+          selected=set()
+          for i in sites:
+              selected.update(range(max(0,i-6),min(len(ls),i+13)))
+          for i in sorted(selected)[:340]:
+              line=ls[i]
+              if re.search(r"(secret|password|token|api.key|os.environ)",line,re.I):line="[redacted]"
+              print(f"{i+1}: {line[:240]}")
+          print("COMPILED_PROGRESS_END")
+          PY
+          REMOTE
