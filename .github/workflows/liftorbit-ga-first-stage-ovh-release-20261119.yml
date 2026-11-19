@@ -1,4 +1,4 @@
-name: LiftOrbit truthful first plan GA stage and heartbeat production release
+name: LiftOrbit GA first-percent preparation stages and visible clock release
 on:
   push:
     branches: [main]
