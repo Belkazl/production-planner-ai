@@ -14,10 +14,18 @@ const suffix="\n;"+previous+"\n\n;"+shed+"\n";
 if(!source.endsWith(suffix))throw Error("GA_INITIAL_STAGE_EXPECTED_V5_AND_SHED_BASELINE");
 if(source.includes("ppFirstStageFetchV6"))throw Error("GA_INITIAL_STAGE_ALREADY_APPLIED");
 const nextRuntime=patchInitialStageUiV6(previous);
-const result=source.slice(0,-suffix.length)+"\n;"+nextRuntime+"\n\n;"+shed+"\n";
+const payloadSite="    const payload=await response.clone().json();";
+if(shed.split(payloadSite).length!==2)throw Error("GA_STAGE_PAYLOAD_EVENT_SOURCE_DRIFT");
+const bridge="\n    // Forward a tiny, worker-generated stage event. No extra HTTP requests,\n"+
+ "    // no second JSON parsing, and no synthetic percentage updates.\n"+
+ "    if(typeof payload?.stage==='string'){\n"+
+ "      window.dispatchEvent(new CustomEvent('pp:ga-server-stage',{detail:payload.stage}));\n"+
+ "    }";
+const nextShed=shed.replace(payloadSite,payloadSite+bridge);
+const result=source.slice(0,-suffix.length)+"\n;"+nextRuntime+"\n\n;"+nextShed+"\n";
 for(const feature of ["ppUnifiedGanttV2","ppAutomaticIntermediatePreviewV1",
  "ppStopRestorePreviousPlanV1","ppNativeOneOwnerProgressV4","ppLargeGaProgressLoadShedV1",
- "ppFirstStageFetchV6"]){
+ "ppFirstStageFetchV6","pp:ga-server-stage"]){
  if(!result.includes(feature))throw Error("GA_INITIAL_STAGE_FEATURE_LOST_"+feature);
 }
 if(result.split("ppNativeOneOwnerProgressV4(){").length!==2)throw Error("GA_INITIAL_STAGE_MULTIPLE_PROGRESS_OWNERS");
