@@ -1,0 +1,51 @@
+name: LiftOrbit inspect GA worker POST handling and continuation bottlenecks
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-worker-start-root-audit-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Read-only inspect timing-sensitive GA worker launch and source versions
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          names=['ga_python_workers/ga_workers/manager.py','ga_python_workers/ga_workers/server.py','ga_python_workers/ga_workers/full_runtime_adapter.py','python-ga-upstream.mjs']
+          for name in names:
+            p=Path(name)
+            lines=p.read_text(errors='replace').splitlines()
+            patterns = [r'(start|submit|create)_job',r'POST',r'/jobs',r'continue',r'resume',r'run_async',r'Process',r'executor',r'max_workers',r'wait\(',r'timeout',r'deadline',r'call\(',r'response\(']
+            hits=[i for i,line in enumerate(lines) if any(re.search(q,line,re.I) for q in patterns)]
+            selected=set()
+            for i in hits[:32]:
+              selected.update(range(max(0,i-3),min(len(lines),i+7)))
+            print('FILE',name,'SHA256',hashlib.sha256(p.read_bytes()).hexdigest(),'LINES',len(lines),'MATCHES',len(hits))
+            for j in sorted(selected)[:255]:
+              line=lines[j]
+              if re.search(r'password|secret|token|cookie|authorization|credential|private.key|process.env|bun.env|DATABASE_URL|email|http(s)?://|api.key',line,re.I):
+                line='[sensitive line redacted]'
+              print('CODE',name,j+1,line[:230])
+          PY
+          printf 'READONLY_HOST_MEMORY '; free -m | awk '/^Mem:/ {print $2,$7}'
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then echo SERVICE_SMOKE_PASS; else echo SERVICE_SMOKE_FAIL; fi
+          REMOTE
+          curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
