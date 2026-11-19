@@ -1,0 +1,45 @@
+name: LiftOrbit GA start HTML error recovery Chrome preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-start-recover-preflight-20261119.yml
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 11
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source-pin actual production async plan fetch and patch only one file
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/async-plan-transport.js" old/async-plan-transport.js
+          cp old/async-plan-transport.js new/async-plan-transport.js
+          node ops/ovh/ga-start-recover-20261119/patch.mjs new
+          node --check new/async-plan-transport.js
+          diff -u old/async-plan-transport.js new/async-plan-transport.js > "$RUNNER_TEMP/ga-start-change.diff" || test "$?" -eq 1
+          test "$(grep -c '^@@' "$RUNNER_TEMP/ga-start-change.diff")" = 1
+          echo GA_START_RECONNECT_SOURCE_PINNED_PASS
+      - name: Real Chrome mock proxy faults and optimization resumption
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-start-recover-20261119/browser.cjs new/async-plan-transport.js
+          echo GA_START_RECONNECT_CHROME_ALL_PASS
