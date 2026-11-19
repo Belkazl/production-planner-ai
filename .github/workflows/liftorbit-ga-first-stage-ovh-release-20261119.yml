@@ -1,0 +1,190 @@
+name: LiftOrbit truthful first plan GA stage and heartbeat production release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-first-stage-ovh-release-20261119.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight both server progress and single UI owner against active production sources
+        id: preflight
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" old/python-ga-upstream.mjs
+          scp -q "${opts[@]}" "$USER@$HOST:$root/restart-optimizer-ui.js" old/restart-optimizer-ui.js
+          scp -rq "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" old/ga_workers
+          cp -a old/. new/
+          python3 ops/ovh/ga-first-stage-heartbeats-20261119/patch_backend.py new
+          node ops/ovh/ga-first-stage-heartbeats-20261119/patch-ui.mjs new
+          python3 -m py_compile new/ga_workers/manager.py new/ga_workers/full_runtime_adapter.py
+          node --check new/python-ga-upstream.mjs
+          node --check new/restart-optimizer-ui.js
+          python3 ops/ovh/ga-first-stage-heartbeats-20261119/backend-regression.py new
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-first-stage-heartbeats-20261119/browser.cjs
+          node ops/ovh/ga-native-transition-v5-20261119/browser.cjs
+          node ops/ovh/ga-progress-load-shed-20261119/browser.cjs
+          echo GA_INITIAL_STAGE_PINNED_BACKEND_AND_CHROME_PREFLIGHT_PASS
+      - name: Install four source pinned stage files with exact backup and rollback
+        id: rollout
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration
+          names=(restart-optimizer-ui.js python-ga-upstream.mjs full_runtime_adapter.py manager.py)
+          oldfiles=(old/restart-optimizer-ui.js old/python-ga-upstream.mjs old/ga_workers/full_runtime_adapter.py old/ga_workers/manager.py)
+          newfiles=(new/restart-optimizer-ui.js new/python-ga-upstream.mjs new/ga_workers/full_runtime_adapter.py new/ga_workers/manager.py)
+          stagefiles=(ga-stage-ui.next ga-stage-upstream.next ga-stage-adapter.next ga-stage-manager.next)
+          checks=()
+          for i in 0 1 2 3; do
+            oldsha=$(sha256sum "${oldfiles[$i]}" | cut -d' ' -f1)
+            newsha=$(sha256sum "${newfiles[$i]}" | cut -d' ' -f1)
+            test "$oldsha" != "$newsha"
+            checks+=("$oldsha" "$newsha")
+            scp -q "${opts[@]}" "${newfiles[$i]}" "$USER@$HOST:$root/sources/ovh-app/${stagefiles[$i]}"
+          done
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- "${checks[@]}" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current"
+          stage="$root/sources/ovh-app"
+          backup="$root/patch-backups/ga-first-stage-heartbeats-20261119"
+          files=("$live/restart-optimizer-ui.js" "$live/python-ga-upstream.mjs" "$live/ga_python_workers/ga_workers/full_runtime_adapter.py" "$live/ga_python_workers/ga_workers/manager.py")
+          staged=("$stage/ga-stage-ui.next" "$stage/ga-stage-upstream.next" "$stage/ga-stage-adapter.next" "$stage/ga-stage-manager.next")
+          names=(restart-optimizer-ui.js python-ga-upstream.mjs full_runtime_adapter.py manager.py)
+          expected=("$@")
+          test "${#expected[@]}" -eq 8
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          for i in 0 1 2 3; do
+            test -r "${files[$i]}" && test -r "${staged[$i]}"
+            test "$(sha "${files[$i]}")" = "${expected[$((2*i))]}"
+            test "$(sha "${staged[$i]}")" = "${expected[$((2*i+1))]}"
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          for i in 0 1 2 3; do
+            cp -p "${files[$i]}" "$backup/${names[$i]}"
+            test "$(sha "$backup/${names[$i]}")" = "${expected[$((2*i))]}"
+          done
+          rollback(){
+            trap - ERR
+            for i in 0 1 2 3; do
+              cp -p "$backup/${names[$i]}" "${files[$i]}" || true
+            done
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_INITIAL_STAGE_SERVER_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          for i in 0 1 2 3; do mv "${staged[$i]}" "${files[$i]}"; done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          for i in 0 1 2 3; do
+            test "$(sha "${files[$i]}")" = "${expected[$((2*i+1))]}"
+          done
+          trap - ERR
+          echo GA_INITIAL_STAGE_BACKEND_AND_UI_INSTALLED
+          REMOTE
+      - name: Verify public site, authenticated isolation and production health
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$health" = 200 && "$guest" = 401 ]]; then echo "GA_V5_TRANSITION_PUBLIC_HEALTHY"; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: 'Real authenticated 886-operation Chrome run with first plan heartbeat and persistent 100'
+        id: live
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-first-stage-heartbeats-20261119/live-regression.mjs
+      - name: Restore exact four backed up files if authenticated browser test fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          live="$root/sources/ovh-app/current"
+          backup="$root/patch-backups/ga-first-stage-heartbeats-20261119"
+          for name in restart-optimizer-ui.js python-ga-upstream.mjs; do
+            test -r "$backup/$name"
+            cp -p "$backup/$name" "$live/$name"
+          done
+          for name in full_runtime_adapter.py manager.py; do
+            test -r "$backup/$name"
+            cp -p "$backup/$name" "$live/ga_python_workers/ga_workers/$name"
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo GA_INITIAL_STAGE_ALL_FOUR_ROLLED_BACK
+          REMOTE
+      - name: Summarize first plan startup heartbeat release and real Chrome validation
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+        run: echo "GA_INITIAL_STAGE_RELEASE preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
