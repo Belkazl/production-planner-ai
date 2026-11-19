@@ -1,0 +1,53 @@
+name: LiftOrbit locate native ga_start_invalid_response and actual API POST handlers
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-start-handler-source-inspect-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Read native validator and producer in live source only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          files=[]
+          for ext in ('*.js','*.mjs','*.ts','*.html'):
+            files.extend(Path('.').glob(ext))
+          for f in files:
+            try: s=f.read_text(errors='replace')
+            except Exception:continue
+            terms=['ga_start_invalid_response','ga_start_','optimization_running_stop_first','started!==true','started === true','started===true']
+            if not any(w in s for w in terms):continue
+            ls=s.splitlines()
+            matches=[i for i,l in enumerate(ls) if any(w in l for w in terms)]
+            print('FILE',f.name,'lines',len(ls),'matches',len(matches))
+            seen=set()
+            for i in matches[:18]:
+              for j in range(max(0,i-23),min(len(ls),i+26)):
+                if j in seen:continue
+                seen.add(j)
+                line=ls[j]
+                if re.search(r'secret|password|api.key|token|private.key|authorization|cookie|process.env|Bun.env|DATABASE_URL',line,re.I):line='[config-line-redacted]'
+                print('LINE',j+1,line[:240])
+          PY
+          REMOTE
