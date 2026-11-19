@@ -1,4 +1,4 @@
-name: LiftOrbit GA start source update rollback read-only diagnosis
+name: LiftOrbit GA start source latest rollback read-only verification
 on:
   push:
     branches: [main]
