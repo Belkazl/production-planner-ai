@@ -1,0 +1,39 @@
+name: LiftOrbit current first-stage source state and service health
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-first-stage-live-state-readonly-20261119.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Read safe checksums and smoke (no changes)
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          p="$HOME/liftorbit-migration/sources/ovh-app/current"
+          for file in "$p/ga_python_workers/ga_workers/full_runtime_adapter.py" "$p/ga_python_workers/ga_workers/manager.py" "$p/python-ga-upstream.mjs" "$p/restart-optimizer-ui.js"; do
+            printf 'LIVE_FILE %s ' "${file##*/}"
+            sha256sum "$file" | cut -d' ' -f1
+          done
+          for file in "$p/ga_python_workers/ga_workers/full_runtime_adapter.py" "$p/ga_python_workers/ga_workers/manager.py" "$p/python-ga-upstream.mjs" "$p/restart-optimizer-ui.js"; do
+            if grep -q 'pp_ga_initial_stage_v1\|ppFirstStageFetchV6' "$file";then echo "STAGE_MARKER_PRESENT ${file##*/}";else echo "STAGE_MARKER_ABSENT ${file##*/}";fi
+          done
+          if sudo -n /usr/local/sbin/liftorbit-ops smoke;then echo LIVE_SMOKE_PASS;else echo LIVE_SMOKE_FAILED;fi
+          REMOTE
+          curl -fsS --max-time 12 https://app.liftorbit.app/__bridge_health
