@@ -120,7 +120,7 @@ jobs:
             sleep 4
           done
           exit 1
-      - name: Real authenticated 886-operation Chrome run: no early Continue, Stop, durable 100
+      - name: 'Real authenticated 886-operation Chrome run: no early Continue, Stop, durable 100'
         id: live
         shell: bash
         env:
