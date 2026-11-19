@@ -15,7 +15,9 @@ export function patchInitialStageUiV6(source){
   " loading_runtime:['Подготовка расчёта','Preparing calculation'],\n"+
   " validating_model:['Проверка модели','Validating model'],\n"+
   " installing_model:['Подготовка ресурсов','Preparing resources'],\n"+
-  " building_first_plan:['Формирование первого плана','Building the first plan']\n"+
+  " building_first_plan:['Формирование первого плана','Building the first plan'],\n"+
+  " optimizing:['Поиск лучшего плана','Optimizing candidate plans'],\n"+
+  " finalizing:['Проверка результата','Finalizing schedule']\n"+
   "};",
   "STATE_VARS"
  );
