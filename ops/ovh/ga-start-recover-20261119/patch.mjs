@@ -69,7 +69,8 @@ const replacement=String.raw`
      return {status:200,data:body};
     }
     lastData=normalizeStartError(status,body);
-    if(status>=400&&status<500&&status!==408&&status!==409&&status!==425&&status!==429)
+    // Explicitly preserve the non-202 HTTP error branch required by the native contract.
+    if(start.status!==202&&status>=400&&status<500&&status!==408&&status!==409&&status!==425&&status!==429)
      return {status,data:lastData};
    }
    // On any uncertain start response, first probe the existing job. A second
