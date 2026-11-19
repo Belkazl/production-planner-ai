@@ -1,0 +1,26 @@
+name: LiftOrbit unified progress v2 browser regression before production
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-unified-progress-chrome-20261119.yml
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser test driver
+        run: |
+          set -euo pipefail
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Check unified GA progress behavior
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/ga-unified-progress-v2-20261119/runtime.js
+          node --check ops/ovh/ga-unified-progress-v2-20261119/patch.mjs
+          node --check ops/ovh/ga-unified-progress-v2-20261119/browser.cjs
+          node ops/ovh/ga-unified-progress-v2-20261119/browser.cjs
