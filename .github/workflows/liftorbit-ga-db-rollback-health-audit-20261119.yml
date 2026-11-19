@@ -1,0 +1,41 @@
+name: LiftOrbit confirm original GA upstream source after failed regression rollback
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-db-rollback-health-audit-20261119.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Confirm public health and exact original GA source checksum
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN" > "$RUNNER_TEMP/known"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/known"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          f="$HOME/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs"
+          test -r "$f"
+          sha=$(sha256sum "$f" | cut -d' ' -f1)
+          echo "GA_UPSTREAM_CURRENT_SHA256=$sha"
+          test "$sha" = e552a2e213a5b9308e423c3cb94700e87b97ff2684dc4179433b33f3210834ad
+          echo "GA_UPSTREAM_ORIGINAL_SOURCE_RESTORED"
+          sudo -n /usr/local/sbin/liftorbit-ops status | grep -E 'planner-gateway|auth-gateway|ga-worker|app|postgres-main|postgres-auth' | head -n 10
+          REMOTE
+          health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health)
+          test "$health" = 200
+          echo "GA_ROLLBACK_PUBLIC_HEALTHY"
