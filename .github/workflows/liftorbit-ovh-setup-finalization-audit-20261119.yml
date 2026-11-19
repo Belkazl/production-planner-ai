@@ -29,27 +29,28 @@ jobs:
           ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=15 "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
           set -euo pipefail
           cd "$HOME/liftorbit-migration/sources/ovh-app/current"
-          node - <<'NODE'
-          const fs=require("node:fs"), crypto=require("node:crypto");
-          const files=["worker-manager.ts","ga-worker-core.ts","ga-workers-enable.ts","index.ts","baselines/2026-10-10/aps-setup-bridge/index.ts","python-ga-upstream.mjs","restart-optimizer-ui.js"];
-          for(const f of files){
-            if(!fs.existsSync(f)){console.log("MISSING",f);continue}
-            const s=fs.readFileSync(f,"utf8");
-            console.log("SOURCE",f,"bytes",s.length,"sha256",crypto.createHash("sha256").update(s).digest("hex"));
-            if(f==="index.ts"||f.endsWith("/index.ts")||f==="ga-workers-enable.ts"){
-              for(const token of ["async function progress(req)","async function plan(req)","function convertOne(","function cachedFinal(","function saveFinal(","ppWorkerSearch(","await searchWithSetup(","ppPythonGAUpstream.fetch(req,","function ppCachedProgress("]){
-                let pos=0, count=0;
-                while(count++<4){
-                  const i=s.indexOf(token,pos);if(i<0)break;
-                  console.log("SOURCE_SITE",f,token,JSON.stringify(s.slice(Math.max(0,i-360),i+1150)));pos=i+token.length;
-                }
-              }
-            }
-            if(f==="worker-manager.ts"){
-              for(const token of ["PP_WORKER_TIMEOUT_MS","async function runIsolatedSetupSearch","child=Bun.spawn"]){
-                const i=s.indexOf(token);if(i>=0)console.log("WORKER_SITE",token,JSON.stringify(s.slice(Math.max(0,i-220),i+650)));
-              }
-            }
-          }
-          NODE
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          files=["worker-manager.ts","ga-worker-core.ts","ga-workers-enable.ts","index.ts","baselines/2026-10-10/aps-setup-bridge/index.ts","python-ga-upstream.mjs","restart-optimizer-ui.js"]
+          for f in files:
+              p=Path(f)
+              if not p.exists():
+                  print("MISSING",f)
+                  continue
+              s=p.read_text()
+              print("SOURCE",f,"bytes",len(s),"sha256",hashlib.sha256(s.encode()).hexdigest())
+              if f=="index.ts" or f.endswith("/index.ts") or f=="ga-workers-enable.ts":
+                  for token in ["async function progress(req)","async function plan(req)","function convertOne(","function cachedFinal(","function saveFinal(","ppWorkerSearch(","await searchWithSetup(","ppPythonGAUpstream.fetch(req,","function ppCachedProgress("]:
+                      pos=0
+                      for _ in range(4):
+                          i=s.find(token,pos)
+                          if i<0:break
+                          print("SOURCE_SITE",f,token,json.dumps(s[max(0,i-360):i+1150]))
+                          pos=i+len(token)
+              if f=="worker-manager.ts":
+                  for token in ["PP_WORKER_TIMEOUT_MS","async function runIsolatedSetupSearch","child=Bun.spawn"]:
+                      i=s.find(token)
+                      if i>=0: print("WORKER_SITE",token,json.dumps(s[max(0,i-220):i+650]))
+          PY
           REMOTE
