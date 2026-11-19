@@ -11,7 +11,7 @@ export function patchInitialStageUiV6(source){
   "let updates=0,busyCount=0,finalCount=0,verifiedCount=0,has100=false;\n"+
   "let firstStage='',firstStageSince=0,firstStageLastSecond=-1,firstStagePaints=0,serverStageEvents=0;\n"+
   "const firstStageLabels={\n"+
-  " queued:['Ожидание запуска','Waiting to start'],\n"+
+  " queued:['Подготовка оптимизации','Preparing optimization'],\n"+
   " loading_runtime:['Подготовка расчёта','Preparing calculation'],\n"+
   " validating_model:['Проверка модели','Validating model'],\n"+
   " installing_model:['Подготовка ресурсов','Preparing resources'],\n"+
