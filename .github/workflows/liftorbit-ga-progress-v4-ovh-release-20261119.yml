@@ -1,4 +1,4 @@
-name: LiftOrbit persistent 100 in native button after real ceramic GA
+name: LiftOrbit guarded persistent 100 in native Continue button release
 on:
   push:
     branches: [main]
