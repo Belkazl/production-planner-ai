@@ -315,7 +315,7 @@ try{
   maskedPosts++;
   if(maskedPosts>1)return route.continue();
   const actual=await route.fetch({timeout:45000});
-  let body=null;try{body=await actual.clone().json()}catch{}
+  let body=null;try{body=await actual.json()}catch{}
   acceptedStart={status:actual.status(),accepted:body?.ok===true&&body?.started===true,
    joined:body?.joined===true,contentType:(actual.headers()["content-type"]||"").slice(0,70)};
   // Mask a genuine accepted 202 with HTML 502, or propagate a real 502 from
