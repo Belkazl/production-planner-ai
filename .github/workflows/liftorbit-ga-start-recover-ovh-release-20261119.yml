@@ -1,4 +1,4 @@
-name: LiftOrbit recover from real HTTP 502 on second account GA start
+name: LiftOrbit real HTTP 502 GA start recovery with reliable Chrome native click
 on:
   push:
     branches: [main]
