@@ -1,0 +1,57 @@
+name: LiftOrbit read-only worker runtime introspection
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ga-readonly-runtime-introspection-20261119.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Inspect permission to read running worker compiled GA functions only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          echo "USER_GROUPS $(id -nG)"
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "DOCKER_UNAVAILABLE";exit 0
+          fi
+          if ! docker ps --format '{{.Names}}' >/tmp/pp-ga-introspect-containers 2>/dev/null; then
+            echo "DOCKER_READ_DENIED";exit 0
+          fi
+          echo "READABLE_CONTAINERS_START"
+          cat /tmp/pp-ga-introspect-containers | grep -E 'ga|python|liftorbit|worker' | sed -E 's/[a-z0-9]{12,}/<id>/g' || true
+          echo "READABLE_CONTAINERS_END"
+          candidate=$(grep -Ei '(ga|python).*(worker|service)|(worker|service).*(ga|python)' /tmp/pp-ga-introspect-containers | head -n1 || true)
+          if [ -z "$candidate" ]; then echo "NO_WORKER_CONTAINER_BY_NAME";exit 0;fi
+          docker exec -i "$candidate" python3 -c '
+import ast
+from pathlib import Path
+p=Path("/tmp/production_planner.py")
+if not p.is_file():print("NO_COMPILED_RUNTIME");raise SystemExit(0)
+s=p.read_text();tree=ast.parse(s);lines=s.splitlines()
+print("COMPILED_AST_READY",len(s),len(lines))
+for node in tree.body:
+ if isinstance(node,ast.FunctionDef) and any(key in node.name.lower() for key in ("optim","progress","fitness","evaluate","schedule","ga_run")):
+  print("FUNCTION",node.name,node.lineno,node.end_lineno)
+for i,line in enumerate(lines):
+ if "_pp_progress_snapshot" in line or ("percent" in line and "progress" in line):
+  print("PROGRESS_SITE",i+1,line.strip()[:180])
+'
+          REMOTE
