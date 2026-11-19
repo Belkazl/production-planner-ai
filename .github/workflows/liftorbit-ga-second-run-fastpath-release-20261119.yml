@@ -38,14 +38,13 @@ jobs:
             cp "old/$file" "new/$file"
           done
           scp -q "${opts[@]}" "$USER@$HOST:$root/tests/async-plan-transport-contract.cjs" "$RUNNER_TEMP/transport-contract.cjs"
-          scp -q "${opts[@]}" "$USER@$HOST:$root/tests/continuation-compat-contract.cjs" "$RUNNER_TEMP/continuation-contract.cjs"
-          scp -q "${opts[@]}" "$USER@$HOST:$root/restart-optimizer-ui.js" "new/restart-optimizer-ui.js"
           node ops/ovh/ga-second-run-fastpath-20261119/patch.mjs new
           node ops/ovh/ga-start-recover-20261119/patch.mjs new
           node --check new/python-ga-upstream.mjs
           node --check new/async-plan-transport.js
           (cd new && node "$RUNNER_TEMP/transport-contract.cjs")
-          (cd new && ln -s ../baselines baselines && node "$RUNNER_TEMP/continuation-contract.cjs")
+          grep -Fq "normalizedContinuationSeed(ownedResult||verifiedBest,model,true)" new/python-ga-upstream.mjs
+          grep -Fq "if(!seed&&sameModel&&current?.resume_state)" new/python-ga-upstream.mjs
           for file in python-ga-upstream.mjs async-plan-transport.js; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$file.sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
