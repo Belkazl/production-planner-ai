@@ -26,7 +26,7 @@ const replacement=String.raw`      const sameModel=current?.modelKey===modelKey;
       // schedule verification (hundreds of operations and setup rows).
       // The seed score stays untrusted: the worker must recompute the schedule.
       let seed=null,source=null;
-      if(sameModel&&current?.resume_state){
+      if(!seed&&sameModel&&current?.resume_state){
         seed=normalizedContinuationSeed(current.resume_state,model,false);
         if(seed)source="stored_order_seed";
       }
