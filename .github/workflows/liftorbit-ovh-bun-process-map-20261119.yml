@@ -1,0 +1,40 @@
+name: LiftOrbit read-only process attribution without secrets
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-ovh-bun-process-map-20261119.yml
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Identify resource pressure by process owner without arguments
+        shell: bash
+        env:
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$OVH_HOST" = "51.255.163.121"
+          test "$OVH_USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=18 "$OVH_USER@$OVH_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          date -u +%H:%M:%SZ
+          ps -eo pid,ppid,user,comm,pcpu,pmem,rss,etime --sort=-pcpu | head -n 30
+          echo "ALLOWLIST_STATUS"
+          sudo -n /usr/local/sbin/liftorbit-ops status 2>/dev/null | head -n 25 || true
+          echo "CURRENT_APPLICATION_OWNER"
+          for p in $(pgrep -x bun | head -n 15); do
+            printf "process=%s parent=%s uid=%s cmd0=" "$p" "$(awk '/^PPid:/{print $2}' /proc/$p/status)" "$(stat -c %u /proc/$p)"
+            head -c 1024 /proc/$p/cmdline 2>/dev/null | tr '\0' '\n' | head -n 1 | sed 's|.*/||' || true
+          done
+          REMOTE
