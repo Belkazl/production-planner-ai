@@ -1,0 +1,165 @@
+name: LiftOrbit validate and release same-account GA continuation fast path
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ga-second-run-fastpath-release-20261119.yml]
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin production source, patch two handlers and run Chrome + native contracts
+        id: preflight
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121 && test "$USER" = liftorbit-ci
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old new
+          for file in python-ga-upstream.mjs async-plan-transport.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/$file" "old/$file"
+            cp "old/$file" "new/$file"
+          done
+          scp -q "${opts[@]}" "$USER@$HOST:$root/tests/async-plan-transport-contract.cjs" "$RUNNER_TEMP/transport-contract.cjs"
+          node ops/ovh/ga-second-run-fastpath-20261119/patch.mjs new
+          node ops/ovh/ga-start-recover-20261119/patch.mjs new
+          node --check new/python-ga-upstream.mjs
+          node --check new/async-plan-transport.js
+          (cd new && node "$RUNNER_TEMP/transport-contract.cjs")
+          for file in python-ga-upstream.mjs async-plan-transport.js; do
+            sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$file.sha"
+            sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
+          done
+          command -v google-chrome
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-start-recover-20261119/browser.cjs new/async-plan-transport.js
+          echo FASTPATH_PREFLIGHT_ALL_PASS
+      - name: Install only two pinned sources with exact backups and built-in recovery
+        id: rollout
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration
+          for file in python-ga-upstream.mjs async-plan-transport.js; do
+            scp -q "${opts[@]}" "new/$file" "$USER@$HOST:$root/sources/ovh-app/$file.fastpath.next"
+          done
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- \
+            "$(cat "$RUNNER_TEMP/old-python-ga-upstream.mjs.sha")" \
+            "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")" \
+            "$(cat "$RUNNER_TEMP/old-async-plan-transport.js.sha")" \
+            "$(cat "$RUNNER_TEMP/new-async-plan-transport.js.sha")" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          base="$root/sources/ovh-app"
+          backup="$root/patch-backups/ga-second-run-fastpath-20261119"
+          files=(python-ga-upstream.mjs async-plan-transport.js)
+          old=("$1" "$3"); new=("$2" "$4")
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          for i in 0 1; do
+            test "$(sha "$base/current/${files[$i]}")" = "${old[$i]}"
+            test "$(sha "$base/${files[$i]}.fastpath.next")" = "${new[$i]}"
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          for i in 0 1; do
+            cp -p "$base/current/${files[$i]}" "$backup/${files[$i]}"
+            test "$(sha "$backup/${files[$i]}")" = "${old[$i]}"
+          done
+          rollback(){
+            trap - ERR
+            for i in 0 1; do cp -p "$backup/${files[$i]}" "$base/current/${files[$i]}" || true; done
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/auto-rollback-private.log" 2>&1 || true
+            echo FASTPATH_AUTOROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          for i in 0 1; do mv "$base/${files[$i]}.fastpath.next" "$base/current/${files[$i]}"; done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          for i in 0 1; do test "$(sha "$base/current/${files[$i]}")" = "${new[$i]}"; done
+          trap - ERR
+          echo FASTPATH_PRODUCTION_INSTALLED
+          REMOTE
+      - name: Check public health and session boundary
+        id: health
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$health" = 200 && "$guest" = 401 ]]; then echo FASTPATH_PUBLIC_HEALTHY; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: Live Chromium first and second account GA with HTML 502 recovery and persistent 100
+        id: live
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-start-recover-20261119/live-regression.mjs
+          echo FASTPATH_2_RUN_LIVE_E2E_PASS
+      - name: Restore both exact sources if any live verification fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          base="$HOME/liftorbit-migration/sources/ovh-app/current"
+          backup="$HOME/liftorbit-migration/patch-backups/ga-second-run-fastpath-20261119"
+          for file in python-ga-upstream.mjs async-plan-transport.js; do
+            test -r "$backup/$file"
+            cp -p "$backup/$file" "$base/$file"
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo FASTPATH_ROLLBACK_VERIFIED
+          REMOTE
+      - name: Summarize deployment and real E2E results
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+        run: echo "FASTPATH_RELEASE preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
