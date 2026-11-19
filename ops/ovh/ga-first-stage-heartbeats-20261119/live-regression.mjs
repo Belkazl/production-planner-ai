@@ -202,11 +202,23 @@ try{
   // covers it with Optimization N% and the original button cannot be clicked.
   // The first visibly clickable Continue must contain the verified 100%.
   if(pageState && /continue|продолж/i.test(String(pageState.percent||"")) && !pageState.v4?.finalDone){
-   if(!pageState.v4?.finishing||!pageState.v4?.visible?.includes("%")||
-    /continue|продолж/i.test(pageState.v4.visible)||!pageState.currentDisabled||
-    !/(pp-ga-v4-busy|pp-ga-v4-final)/.test(pageState.currentClass||"")||
-    !/Optimization|Оптимизация/.test(pageState.effectiveAfter||""))
-    throw Error("GA_V5_REAL_EARLY_CONTINUE_EXPOSED_"+JSON.stringify({pageState,elapsed:Date.now()-epochs}));
+   // The native app changes text and class across separate microtasks.
+   // Give the single V5 owner one 65-ms polling tick before deciding that
+   // a transient DOM snapshot was actually exposed to the user.
+   await page.waitForTimeout(350);
+   const transition=await page.evaluate(()=>({
+    native:document.getElementById("opt")?.textContent,
+    disabled:document.getElementById("opt")?.disabled,
+    cls:document.getElementById("opt")?.className,
+    css:getComputedStyle(document.getElementById("opt"),"::after").content,
+    v4:window.__PP_GA_PROGRESS_V4__?.state
+   }));
+   if(/continue|продолж/i.test(String(transition.native||""))&&!transition.v4?.finalDone&&
+     (!transition.v4?.finishing||!transition.v4?.visible?.includes("%")||
+      /continue|продолж/i.test(transition.v4.visible)||!transition.disabled||
+      !/(pp-ga-v4-busy|pp-ga-v4-final)/.test(transition.cls||"")||
+      !/Optimization|Оптимизация/.test(transition.css||"")))
+    throw Error("GA_V5_REAL_EARLY_CONTINUE_EXPOSED_"+JSON.stringify({transition,previous:pageState,elapsed:Date.now()-epochs}));
   }
     console.log("GA_LOAD_SHED_REAL_BROWSER_SAMPLE",JSON.stringify({i,elapsed:Date.now()-epochs,state:progressState,ui:pageState?.percent,visible:pageState?.v4?.visible}));
   if(noIntermediate && (i%5===0||progressState?.phase==="completed"))console.log("QA_INTERMEDIATE_ISOLATION_STATS",JSON.stringify({suppressedUiProgressRequests,elapsed:Date.now()-epochs}));
