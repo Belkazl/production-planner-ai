@@ -59,3 +59,27 @@ jobs:
           const xs=[...s.matchAll(/.{0,110}\/api\/plan-progress.{0,170}/g)].slice(0,35);
           console.log('PROGRESS_CALL_CONTEXTS',xs.map(x=>x[0].trim()).join('\n'));
           JS
+          echo "=== PUBLIC_BROWSER_SCRIPT_STATUS_HANDLERS ==="
+          npm install --no-save --no-package-lock playwright-core@1.57.0 >/dev/null 2>&1
+          node - <<'JS'
+          const {chromium}=require('playwright-core');
+          (async()=>{
+            const b=await chromium.launch({headless:true,channel:'chrome',args:['--no-sandbox']});
+            try{
+              const p=await b.newPage();
+              await p.goto('https://app.liftorbit.app',{waitUntil:'domcontentloaded',timeout:30000});
+              const a=await p.evaluate(()=>{
+                const out=[];
+                for(const [i,x] of [...document.scripts].entries()){
+                  const s=x.textContent||'';
+                  const keys=['plan-progress','__PP_','setInterval','optimizer-started'];
+                  const contexts=[];
+                  for(const k of keys){let pos=-1,n=0;while((pos=s.indexOf(k,pos+1))>=0&&n++<7)contexts.push({k,around:s.slice(Math.max(0,pos-100),Math.min(s.length,pos+130)).replace(/\s+/g,' ')})}
+                  out.push({i,src:x.src.split('?')[0].slice(-85),inlineBytes:s.length,contexts:contexts.slice(0,12)});
+                }
+                return out;
+              });
+              console.log(JSON.stringify(a,null,2).slice(0,16000));
+            }finally{await b.close()}
+          })().catch(e=>{console.error('BROWSER_AUDIT_FAILED',String(e));process.exitCode=1});
+          JS
