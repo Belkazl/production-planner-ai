@@ -1,0 +1,42 @@
+name: Inspect real GA progress milestones and early stopping
+on:
+  push:
+    branches: [fix/progress-real-root-20261120]
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-ga-progress-readonly
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect active GA worker source without modifications
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root=/home/liftorbit-ci/liftorbit-migration/sources/current/ga
+          echo GA_SOURCE_ROOT_EXISTS
+          test -d "$root"
+          find -L "$root" -maxdepth 4 -type f \( -name '*.py' -o -name '*.mjs' -o -name '*.js' \) -not -path '*/node_modules/*' -not -path '*/__pycache__/*' | head -n 100 | sed "s@^$root/@@"
+          echo GA_PROGRESS_REFERENCES
+          find -L "$root" -maxdepth 4 -type f \( -name '*.py' -o -name '*.mjs' \) -not -path '*/__pycache__/*' | while IFS= read -r file; do
+            count=$(grep -Eic "early_stop|early.stop|stagnation|plateau|progress|generation" "$file" 2>/dev/null || true)
+            if [ "$count" -gt 0 ];then
+              echo "GA_FILE $(basename "$file") hits=$count"
+              grep -Ein -C 2 'early_stop|early.stop|stagnation|plateau|progress.?=|progress\(|generations|max_generations|generation [<>=]|generation_count|on_progress|percent' "$file" | head -n 120 | cut -c1-250 || true
+            fi
+          done
+          REMOTE
