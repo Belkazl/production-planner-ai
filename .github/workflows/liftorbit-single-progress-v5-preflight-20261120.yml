@@ -1,5 +1,5 @@
 name: LiftOrbit single server progress V5 preflight
-# enforce never ahead of confirmed backend progress while smoothing 30 to 70
+# assert generated real E2E uses deployed V5 guard, not retired legacy progress
 on:
   push:
     branches: [main]
