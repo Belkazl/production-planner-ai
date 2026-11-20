@@ -1,5 +1,5 @@
 name: LiftOrbit SSE end-to-end protocol and UI tests
-# verify no unintended restart after Stop and no periodic browser API
+# validate startup SSE HTTP 409 reconnect without polling, then full 0-100 and Stop
 on:
   push:
     branches: [main]
