@@ -26,6 +26,18 @@ jobs:
           printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" "$RUNNER_TEMP/native-ui.js"
+          echo "=== APP_HTTP_STATUS_CALLS_BY_FILE ==="
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -u
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          find "$base" -maxdepth 3 -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.html' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -size -3M | while IFS= read -r f; do
+            matches=$(grep -nc 'api/plan-progress' "$f" 2>/dev/null || true)
+            if [ "$matches" != 0 ] && [ -n "$matches" ];then
+              echo "SOURCE ${f#$base/} count=$matches"
+              grep -nE 'plan-progress|setInterval|setTimeout' "$f" | head -n 35 | cut -c1-200 || true
+            fi
+          done
+          REMOTE
           echo "=== ALL_PROGRESS_REFS ==="
           grep -n -C 3 'plan-progress' "$RUNNER_TEMP/native-ui.js" | head -n 300 | cut -c1-200 || true
           echo "=== MODULE_OWNERS ==="
