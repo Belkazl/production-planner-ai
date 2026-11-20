@@ -33,7 +33,7 @@ jobs:
           mkdir -p old new
           scp -q "${opts[@]}" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/async-plan-transport.js" old/async-plan-transport.js
           cp old/async-plan-transport.js new/async-plan-transport.js
-          node ops/ovh/ga-start-recover-20261119/patch.mjs new
+          node ops/ovh/ga-post502-isolation-20261119/patch-fast-retry.mjs new
           node --check new/async-plan-transport.js
           sha256sum old/async-plan-transport.js | cut -d' ' -f1 > "$RUNNER_TEMP/old.sha"
           sha256sum new/async-plan-transport.js | cut -d' ' -f1 > "$RUNNER_TEMP/new.sha"
@@ -61,7 +61,7 @@ jobs:
           set -euo pipefail
           root="$HOME/liftorbit-migration"
           base="$root/sources/ovh-app"
-          backup="$root/patch-backups/ga502retry-20261120"
+          backup="$root/patch-backups/ga502fastretry-20261120"
           live="$base/current/async-plan-transport.js"
           stage="$base/async-plan-transport.ga502retry.next"
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
@@ -126,11 +126,11 @@ jobs:
           ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
           set -euo pipefail
           base="$HOME/liftorbit-migration"
-          backup="$base/patch-backups/ga502retry-20261120/async-plan-transport.js"
+          backup="$base/patch-backups/ga502fastretry-20261120/async-plan-transport.js"
           live="$base/sources/ovh-app/current/async-plan-transport.js"
           test -f "$backup"
           cp -p "$backup" "$live"
-          sudo -n /usr/local/sbin/liftorbit-ops update > "$base/patch-backups/ga502retry-20261120/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$base/patch-backups/ga502fastretry-20261120/qa-rollback-private.log" 2>&1
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
           echo GA_502_RETRY_ROLLBACK_VERIFIED
           REMOTE
