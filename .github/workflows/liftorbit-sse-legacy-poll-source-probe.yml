@@ -25,7 +25,7 @@ jobs:
           printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
           printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
-          scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST:$HOME/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" "$RUNNER_TEMP/native-ui.js"
+          scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" "$RUNNER_TEMP/native-ui.js"
           echo "=== ALL_PROGRESS_REFS ==="
           grep -n -C 3 'plan-progress' "$RUNNER_TEMP/native-ui.js" | head -n 300 | cut -c1-200 || true
           echo "=== MODULE_OWNERS ==="
