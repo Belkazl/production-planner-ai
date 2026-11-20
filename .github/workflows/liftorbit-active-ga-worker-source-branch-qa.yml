@@ -35,6 +35,10 @@ jobs:
             scp -q "${opts[@]}" "$USER@$HOST:$ga_root/ga_workers/$f" "old/ga_python_workers/ga_workers/$f"
           done
           cp -a old/. new/
+          echo ACTUAL_MANAGER_SYMBOLS
+          grep -nE 'class .*Job|progress|stage|started_at|ended_at|state=|state =|notify_all|def metrics|def get|def stream_wait' old/ga_python_workers/ga_workers/manager.py | head -n 160 | cut -c1-170 || true
+          echo ACTUAL_SERVER_SYMBOLS
+          grep -nE 'server_version|protocol_version|def do_GET|len\\(parts\\)|stream_events|respond\\(404' old/ga_python_workers/ga_workers/server.py | head -n 75 | cut -c1-170 || true
           node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new
           node ops/ovh/sse-stream-v1-20261120/patch-backend.mjs new
           node ops/ovh/sse-stream-v1-20261120/patch-frontend.mjs new
