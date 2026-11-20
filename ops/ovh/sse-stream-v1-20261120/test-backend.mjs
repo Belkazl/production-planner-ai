@@ -1,6 +1,7 @@
 import {createPythonGAUpstream} from "../../../new/python-ga-upstream.mjs";
 import assert from "node:assert/strict";
 const jobId="a".repeat(32),principal="one-account";
+const simulateMissing=process.env.SSE_TEST_CANDIDATE_WITHOUT_SETUPS==="1";
 const model={
  orders:[{id:"A"}],
  equipment:Array.from({length:14},(_,i)=>({id:"E"+i})),
@@ -30,7 +31,8 @@ const plan={ok:true,valid:true,partial:false,operations,
  resume_state:{version:0,order_sequence:["A"]}};
 // Match the real GA worker: interim `candidate_preview` has separate
 // setup_operations, while operations/generic_operations contain only jobs.
-const liveCandidate={...plan,operations,generic_operations:operations};
+const liveCandidate={...plan,operations,generic_operations:operations,
+ setup_operations:simulateMissing?[]:setups};
 let state="queued", seq=0,controller=null,readStatus=0,starts=0;
 const send=(phase,pct)=>{
  if(!controller)return;
@@ -120,8 +122,10 @@ assert.ok(previews.length>0);
 for(const preview of previews){
  assert.equal(preview.partial,true);
  assert.equal(preview._pp_preview_setups_included,true);
- assert.equal(preview._pp_preview_detached_setups,168,
-  "All 168 real worker setups must be recovered from detached setup_operations");
+ assert.equal(preview._pp_preview_detached_setups,simulateMissing?0:168,
+  "Detached setup restoration must work; verified best fallback must avoid duplicates");
+ assert.equal(preview._pp_preview_origin,simulateMissing?"best":"candidate",
+  "Choose verified setup-aware best only when the tentative candidate has no setup schedule");
  assert.equal(preview._pp_preview_per_row,10);
  assert.equal(preview._pp_preview_production_count,70);
  assert.equal(preview._pp_preview_setup_count,70);
