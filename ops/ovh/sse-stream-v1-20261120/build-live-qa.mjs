@@ -42,7 +42,7 @@ one(' const epochs=Date.now();',[
  ' }',
  ' let lostLine=0,interimMax=0,previewSamples=0,progressDuringRun=0;',
  ' const epochs=Date.now();'
- ].join("\\n"),"first_real_event_before_QA_loop");
+ ].join("\n"),"first_real_event_before_QA_loop");
 const oldState='nativeSmoothTarget:window.__PP_TRUTHFUL_SMOOTH_GA_PERCENT_V1__?.confirmedTarget,shed:window.__PP_GA_PROGRESS_LOAD_SHED_V1__?.state,v4:window.__PP_GA_PROGRESS_V4__?.state';
 one(oldState,'sse:window.__PP_SSE_PROGRESS_V1__?.state',"status_bind");
 between(
