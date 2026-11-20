@@ -96,7 +96,8 @@ window.fetch=function ppLeanPlanProgress(input,init){
  if(closed||!u||u.origin!==location.origin||u.pathname!==statusPath||
   method(input,init)!=="GET"||!isRunning()||u.searchParams.has("ppNoCache")||
   u.searchParams.has("ppPreview")||u.searchParams.has("ppForce")||
-  u.searchParams.has("ppLight"))return oldFetch(input,init);
+  u.searchParams.has("ppLight")||u.searchParams.has("stop_snapshot")||
+  u.searchParams.has("ppStopConfirm")||u.searchParams.has("ppReconnect"))return oldFetch(input,init);
  u.pathname=directSnapshotPath;
  u.searchParams.set("ppLight","1");
  u.searchParams.set("ppNoCache","1");
