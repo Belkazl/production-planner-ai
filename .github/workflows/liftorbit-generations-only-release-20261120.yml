@@ -1,0 +1,24 @@
+name: LiftOrbit GA complete all requested generations production release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-generations-only-release-20261120.yml
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy true generation-driven optimization with rollback and real SSE tests
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/ga-generations-only-20261120/deploy.sh
