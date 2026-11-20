@@ -1,0 +1,49 @@
+name: LiftOrbit read currently deployed UI progress and Gantt render hotspots
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-render-jank-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read deployed UI and progress handlers without user data
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p current
+          for file in restart-optimizer-ui.js auth-runtime.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/$file" "current/$file"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=(Path('current/restart-optimizer-ui.js')).read_text(errors='replace').splitlines()
+          patterns=['function renderPlan','function ppUnifiedGanttV2','ppAutomaticIntermediatePreviewV1',
+                    'ppNativeOneOwnerProgressV4','ppFourSecondFogPreviewV1','ppLargeGaProgressLoadShedV1',
+                    'window.renderPlan','pp-ga-light-progress','requestAnimationFrame','setInterval(',
+                    'ppPreview=1','__PP_FOUR_SECOND_PREVIEW__']
+          hits=[i for i,l in enumerate(lines) if any(p in l for p in patterns)]
+          print('UI_LINES',len(lines),'HITS',[i+1 for i in hits[:90]])
+          for a,b in [(180,300),(520,660),(700,840),(1450,1660),(1730,1940),(2010,2460)]:
+            print('REGION',a,b)
+            for i in range(a-1,min(len(lines),b)):
+              l=lines[i]
+              if re.search('(?i)(password|secret|token|cookie|authorization|process.env|credential|private.key|api.key)',l):l='[redacted]'
+              print('SRC',i+1,l[:200])
+          PY
