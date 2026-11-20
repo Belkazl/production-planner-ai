@@ -88,7 +88,7 @@ while(Date.now()<deadline){
   if(type&&data)seen.push({type,data:JSON.parse(data)});
  }
 }
-console.log("SSE_EARLY_STREAM_AUDIT",JSON.stringify(seen.map(x=>({type:x.type,percent:x.data?.percent,reason:x.data?.reason,ops:x.data?.plan?.operations?.length}))));
+console.log("SSE_EARLY_STREAM_AUDIT",JSON.stringify({events:seen.map(x=>({type:x.type,percent:x.data?.percent,reason:x.data?.reason,ops:x.data?.plan?.operations?.length})),readStatus,state,starts}));
 const statuses=seen.filter(x=>x.type==="progress").map(x=>x.data.percent);
 const previews=seen.filter(x=>x.type==="preview").map(x=>x.data.plan);
 const complete=seen.filter(x=>x.type==="complete");
