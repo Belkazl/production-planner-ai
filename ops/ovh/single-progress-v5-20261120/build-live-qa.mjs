@@ -79,6 +79,7 @@ between(
  ' console.log("GA_V5_LIVE_SUMMARY",JSON.stringify({v5,preview,interimMax,lineLost,interimDetailsChecked,previewPaintMax}));',
  ' if(!v5?.finalDone||!v5?.has100||!v5?.visible?.includes("100%"))',
  '  throw Error("V5_UNVERIFIED_FINAL_100_"+JSON.stringify(v5));',
+ ' if(v5.interimDialogBlocked)throw Error("V5_FINAL_OPERATION_DETAILS_NOT_RESTORED");',
  ' if(!preview||preview.version!==2||preview.previews<2||preview.activity<4||',
  '    preview.light<8||preview.maxPaintMs>500)',
  '  throw Error("V5_4SECOND_PREVIEW_UNHEALTHY_"+JSON.stringify(preview));',
