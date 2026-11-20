@@ -1,6 +1,6 @@
     # Read-only, disposable current-candidate preview. This must never alter
     # the optimizer's incumbent, constraints, locks, or final full schedule.
-    preview_slot={'serial':0,'last_at':0.0,'plan':None}
+    preview_slot={'serial':0,'last_at':0.0,'plan':None,'calls':0,'kind':'none','shape':[]}
     schedule=ga.get('_pp_schedule_sequence')
     if callable(schedule):
         first_eq=[str(r.get('id')) for r in
@@ -11,6 +11,12 @@
                     if isinstance(o,dict)}
         def live_schedule(*args,**kwargs):
             result=schedule(*args,**kwargs)
+            preview_slot['calls']+=1
+            if preview_slot['calls']<=2:
+                preview_slot['kind']=type(result).__name__
+                preview_slot['shape']=(list(result.keys())[:12] if isinstance(result,dict)
+                    else [type(x).__name__ for x in result[:6]]
+                    if isinstance(result,(list,tuple)) else [])
             stamp=time.monotonic()
             if stamp-preview_slot['last_at'] < 3.7 or not isinstance(result,dict):
                 return result
