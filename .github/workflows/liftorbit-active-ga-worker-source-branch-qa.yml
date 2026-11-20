@@ -37,8 +37,18 @@ jobs:
           cp -a old/. new/
           echo ACTUAL_MANAGER_SYMBOLS
           grep -nE 'class .*Job|progress|stage|started_at|ended_at|state=|state =|notify_all|def metrics|def get|def stream_wait' old/ga_python_workers/ga_workers/manager.py | head -n 160 | cut -c1-170 || true
+          echo MANAGER_DATACLASS_75_96
+          sed -n '75,96p' old/ga_python_workers/ga_workers/manager.py | cut -c1-170
+          echo MANAGER_CANCEL_154_173
+          sed -n '154,173p' old/ga_python_workers/ga_workers/manager.py | cut -c1-170
+          echo MANAGER_RUNNING_233_250
+          sed -n '233,250p' old/ga_python_workers/ga_workers/manager.py | cut -c1-170
+          echo MANAGER_PROGRESS_284_300
+          sed -n '284,300p' old/ga_python_workers/ga_workers/manager.py | cut -c1-170
+          echo MANAGER_TERMINAL_318_332
+          sed -n '318,332p' old/ga_python_workers/ga_workers/manager.py | cut -c1-170
           echo ACTUAL_SERVER_SYMBOLS
-          grep -nE 'server_version|protocol_version|def do_GET|len\\(parts\\)|stream_events|respond\\(404' old/ga_python_workers/ga_workers/server.py | head -n 75 | cut -c1-170 || true
+          grep -nE 'server_version|protocol_version|def do_GET|len|stream_events|respond' old/ga_python_workers/ga_workers/server.py | head -n 75 | cut -c1-170 || true
           node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new
           node ops/ovh/sse-stream-v1-20261120/patch-backend.mjs new
           node ops/ovh/sse-stream-v1-20261120/patch-frontend.mjs new
