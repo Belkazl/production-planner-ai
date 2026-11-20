@@ -154,7 +154,7 @@ async function verify(token){
      Number(p.percent)===100&&p.result?.valid!==false&&
      Array.isArray(p.result?.operations)&&p.result.operations.length){
     verifiedCount++;mode="completing";finishing=true;
-    confirmed=100;lastStatusAt=now();verifyNext=0;paint();return;
+    confirmed=100;latestPercent=100;lastStatusAt=now();verifyNext=0;paint();return;
   }
   if(["cancelled","canceled","stopped","failed","idle"].includes(p.phase)){
    reset();return;
