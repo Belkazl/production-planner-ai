@@ -35,7 +35,7 @@ for n in python-ga-upstream.mjs restart-optimizer-ui.js; do
  sha "new/$n" > "$tmp/new-$n.sha"
 done
 echo SSE_KPI_PREDEPLOY_BROWSER_BACKEND_TESTS_PASS
-if [ "__PREFLIGHT_ONLY__" = yes ]; then
+if [ "${KPI_PREFLIGHT_ONLY:-no}" = yes ]; then
  echo SSE_KPI_READONLY_BRANCH_PREFLIGHT_PASS
  exit 0
 fi
