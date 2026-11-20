@@ -59,7 +59,10 @@ function ensureMeter(){
   fill=document.createElement("span");fill.className="pp-sse-fill";track.appendChild(fill);btn.appendChild(track);
  }
  if(!btn.classList.contains("pp-sse-active"))btn.classList.add("pp-sse-active");
- if(label.textContent!==percent+"%")label.textContent=percent+"%";
+ const doneText=(/^ru/i.test(document.documentElement.lang||"")||
+   window.__PP_LANGUAGE__?.current==="ru")?"Продолжить · 100%":"Continue · 100%";
+ const shownText=completed?doneText:percent+"%";
+ if(label.textContent!==shownText)label.textContent=shownText;
  if(fill.style.width!==percent+"%")fill.style.width=percent+"%";
  if(btn.getAttribute("aria-valuenow")!==String(percent))
   btn.setAttribute("aria-valuenow",String(percent));

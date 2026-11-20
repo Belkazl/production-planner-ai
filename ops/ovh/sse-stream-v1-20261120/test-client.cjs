@@ -94,7 +94,8 @@ const fs=require("node:fs");
    {job_id:"job-A",percent:100,verified:true}));
   await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.completed,null,{
    timeout:9000});
-  assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"100%");
+  assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"Continue · 100%");
+  assert.equal(await page.locator("#opt").getAttribute("aria-valuenow"),"100");
   const after=await page.evaluate(()=>({
    state:window.__PP_SSE_PROGRESS_V1__.state,
    calls:window.__unit.calls.slice(),

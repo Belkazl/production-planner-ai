@@ -97,7 +97,7 @@ between(
  ' const held=await page.evaluate(()=>({sse:window.__PP_SSE_PROGRESS_V1__?.state,',
  '   text:document.querySelector("#opt .pp-sse-label")?.textContent,',
  '   buttonDisabled:document.getElementById("opt")?.disabled}));',
- ' if(!held.sse?.completed||held.text!=="100%"||held.buttonDisabled)',
+ ' if(!held.sse?.completed||held.text!=="Continue · 100%"||held.buttonDisabled)',
  '  throw Error("SSE_FULL_PLAN_BUTTON_NOT_READY_"+JSON.stringify(held));',
  ' console.log("SSE_VISIBLE_FULL_100_VERIFIED",JSON.stringify(held));'
  ],"full_plan");
@@ -110,6 +110,6 @@ one('  v4:window.__PP_GA_PROGRESS_V4__?.state,\n  text:document.getElementById("
  '   sse:window.__PP_SSE_PROGRESS_V1__?.state,\n   text:document.querySelector("#opt .pp-sse-label")?.textContent,',
  "second_state");
 one('     !secondUi.v4?.finalDone||!secondUi.text?.includes("100%")||',
- '     !secondUi.sse?.completed||secondUi.text!=="100%"||',"second_ui_assert");
+ '     !secondUi.sse?.completed||secondUi.text!=="Continue · 100%"||',"second_ui_assert");
 writeFileSync("ops/ovh/sse-stream-v1-20261120/_live-qa.mjs",s);
 console.log("SSE_REAL_TWO_RUN_886_OP_QA_GENERATED",s.length);
