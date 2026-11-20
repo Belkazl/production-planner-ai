@@ -1,0 +1,60 @@
+name: LiftOrbit snapshot contract preflight
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-snapshot-contract-readonly-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate current worker candidate and progress projection boundaries
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p current
+          for f in python-ga-upstream.mjs restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$f" "current/$f"
+          done
+          scp -q "${opts[@]}" "$USER@$HOST:$base/ga_python_workers/ga_workers/full_runtime_adapter.py" current/adapter.py
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          red=re.compile(r'(?i)(password|private.key|credential|cookie|authorization|process.env|database_url|api.key|\bsecret\b|\btoken\b)')
+          items=[
+           ('backend',Path('current/python-ga-upstream.mjs'),[(422,551)]),
+           ('frontend',Path('current/restart-optimizer-ui.js'),[(680,730),(2240,2313)]),
+           ('adapter',Path('current/adapter.py'),[])
+          ]
+          for name,path,ranges in items:
+            ls=path.read_text(errors='replace').splitlines()
+            print('SOURCE_FILE',name,len(ls))
+            if not ranges:
+              pat=re.compile(r'(?i)(candidate|preview|on_progress|progress_callback|emit\(|current.*plan|intermediate)')
+              ii=[i for i,l in enumerate(ls) if pat.search(l)]
+              print('ADAPTER_MATCHES',[i+1 for i in ii[:65]])
+              ranges=[(max(1,i-2),min(len(ls),i+3)) for i in ii[:22]]
+            shown=set()
+            for a,b in ranges:
+              for i in range(a-1,min(b,len(ls))):
+                if i in shown:continue
+                shown.add(i)
+                s=ls[i].strip()
+                if red.search(s):s='[redacted]'
+                print('SOURCE_LINE',name,i+1,s[:220])
+          PY
