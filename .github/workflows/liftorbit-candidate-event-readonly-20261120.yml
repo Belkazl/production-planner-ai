@@ -1,0 +1,51 @@
+name: LiftOrbit candidate generation event audit
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-candidate-event-readonly-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Identify existing non-improvement GA candidate event from installed engine
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p worker
+          scp -rq "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers" worker/
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('worker/ga_workers')
+          files=list(root.rglob('*.py'))
+          print('PY_FILES',[(p.name,len(p.read_text(errors='replace').splitlines())) for p in files])
+          pattern=re.compile(r'(?i)(progress_snapshot|candidate_preview|_pp_progress|def optimize|best_preview|current_candidate|on_generation|candidate_plan)')
+          secret=re.compile(r'(?i)(password|private.key|credential|cookie|authorization|process.env|database_url|api.key|\bsecret\b|\btoken\b)')
+          for p in files:
+            lines=p.read_text(errors='replace').splitlines()
+            hits=[i for i,l in enumerate(lines) if pattern.search(l)]
+            if not hits:continue
+            print('HITS',p.name,[i+1 for i in hits[:100]])
+            chosen=set()
+            for i in hits[:24]:chosen.update(range(max(0,i-2),min(len(lines),i+4)))
+            for j in sorted(chosen)[:160]:
+              s=lines[j].strip()
+              if secret.search(s):s='[redacted]'
+              print('CODE',p.name,j+1,s[:190])
+          PY
