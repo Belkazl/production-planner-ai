@@ -1,0 +1,45 @@
+name: LiftOrbit inspect auth and GA router bypass compatibility
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-preview-router-readonly-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read GA builder and authenticated dispatcher only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p temp
+          for f in python-ga-upstream-build.ts auth-runtime.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/$f" "temp/$f"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          pat=re.compile(r'(?i)(password|secret|token|cookie|authorization|private.key|process.env|credential|database_url)')
+          spans=[('python-ga-upstream-build.ts',[(1,43)]),('auth-runtime.js',[(1,85),(195,239)])]
+          for fn,ranges in spans:
+            lines=(Path('temp')/fn).read_text().splitlines()
+            for a,b in ranges:
+              for i in range(a-1,min(len(lines),b)):
+                s=lines[i]
+                if pat.search(s):s='[redacted]'
+                print('SRC',fn,i+1,s[:300])
+          PY
