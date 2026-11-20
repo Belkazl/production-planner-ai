@@ -1,0 +1,81 @@
+// Fast, account-scoped progress delivery. A heavy model-status read is
+// launched once asynchronously; 1s and 4s HTTP polls never wait for it.
+// The real worker remains the sole source of percentages and candidates.
+;(function ppAsyncPreviewDeliveryV2(){
+ const slowRead=ppFogHandleAuthenticated;
+ const slots=new Map();
+ const makeResponse=data=>Response.json(data,{headers:{"cache-control":"no-store"}});
+ const base={ok:true,phase:"queued",running:true,success:false,percent:0,done:0,
+   total:100,stage:"preparing",candidate_preview:null,best_preview:null,result:null,error:null};
+ function project(data,now,slot,light){
+   if(!data)return {...base,snapshot_pending:true,snapshot_age_ms:null};
+   const meta={...data};
+   if(light){
+     meta.candidate_preview=null;meta.best_preview=null;meta.result=null;
+   }
+   meta.snapshot_pending=!!slot.refresh;
+   meta.snapshot_age_ms=Math.max(0,now-slot.at);
+   return meta;
+ }
+ function trigger(key,slot,req,forced){
+   const now=Date.now();
+   if(slot.refresh||(!forced&&now-slot.lastStart<3900))return;
+   slot.lastStart=now;
+   const target=new URL(req.url);
+   target.search="?ppPreview=1";
+   const ownRequest=new Request(target.toString(),{method:"GET",headers:req.headers});
+   const version=slot.version;
+   // Server response is delivered independently of this request's latency.
+   slot.refresh=Promise.resolve().then(()=>slowRead(ownRequest)).then(async r=>{
+     if(r.status!==200)return;
+     const data=await r.json();
+     if(slot.version!==version||data?.ok!==true)return;
+     // Never persist a full schedule in the fast endpoint.
+     if(data.running===true){
+       slot.data={...data,best_preview:null,result:null};
+       slot.at=Date.now();
+     }else if(data.phase==="completed"){
+       slot.data={...data,candidate_preview:null,best_preview:null,result:null};
+       slot.at=Date.now();
+       slot.needFull=true;
+     }else{
+       slot.data={...data,candidate_preview:null,best_preview:null,result:null};
+       slot.at=Date.now();
+     }
+     slot.error=null;
+   }).catch(e=>{slot.error=String(e).slice(0,100)}).finally(()=>{
+     slot.refresh=null;
+   });
+ }
+ ppFogHandleAuthenticated=async function ppAsyncPreviewSnapshot(req){
+   const url=new URL(req.url);
+   const light=url.searchParams.has("ppLight");
+   const preview=url.searchParams.has("ppPreview");
+   if(!light&&!preview)return makeResponse({ok:false,error:"preview_mode_required"});
+   const key=ppSecureSessionKey(req),now=Date.now();
+   let slot=slots.get(key);
+   if(!slot){
+     slot={data:null,at:0,lastStart:0,refresh:null,version:0,needFull:false,error:null};
+     slots.set(key,slot);
+   }
+   if(url.searchParams.has("ppFresh")){
+     slot.version++;slot.data=null;slot.at=0;slot.lastStart=0;slot.needFull=false;
+   }
+   if(slots.size>128){const first=slots.keys().next().value;slots.delete(first)}
+   // Terminal verification MUST return the original FULL verified final plan.
+   // In-flight snapshots never masquerade as a completed full plan.
+   if(slot.needFull&&light){
+     const real=await slowRead(req);
+     if(real.ok){
+       let data=await real.clone().json().catch(()=>null);
+       if(data?.phase==="completed"&&data.result?.operations?.length){
+         slot.needFull=false;
+         slot.data=null;
+         return real;
+       }
+     }
+   }
+   trigger(key,slot,req,preview);
+   return makeResponse(project(slot.data,now,slot,light));
+ };
+})();
