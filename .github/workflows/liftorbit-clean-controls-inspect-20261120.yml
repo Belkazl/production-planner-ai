@@ -1,0 +1,51 @@
+name: Read current LiftOrbit plan controls and legacy time-limit banner
+on:
+  push:
+    branches: [fix/clean-live-gantt-controls-20261120]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only affected client files over OVH SSH
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current')
+          needles=['ppLivePreview','GA time limit reached','optimization_time_limit_reached','optimization_completed_early','Candidate plan','Best found','gaTimeLimit','time limit reached','time_limit_reached']
+          print('SOURCE_EXISTS',root.is_dir())
+          listed=[]
+          for path in root.rglob('*'):
+              if not path.is_file() or path.suffix.lower() not in {'.js','.html','.mjs','.css','.ts'} or path.stat().st_size>5000000:continue
+              if any(x in path.parts for x in ('node_modules','vendor','.git','dist','build','.next')):continue
+              listed.append(path)
+          print('CLIENT_FILES',len(listed))
+          for p in listed:
+              try:lines=p.read_text(encoding='utf8').splitlines()
+              except (OSError,UnicodeDecodeError):continue
+              found=[]
+              for i,line in enumerate(lines):
+                  matched=[n for n in needles if n.lower() in line.lower()]
+                  if matched:
+                      found.append((i,matched))
+              if not found:continue
+              print('MATCH_FILE',p.relative_to(root),'TOTAL_MATCH_LINES',len(found))
+              for i,matches in found[:35]:
+                  print('MATCH_LINE',i+1,'NEEDLES',','.join(matches),'CODE',lines[i][:330])
+                  if 'ppLivePreview' in matches or 'GA time limit reached' in matches or 'time limit reached' in matches:
+                      for j in range(max(0,i-2),min(len(lines),i+3)):
+                          print('CONTEXT',j+1,lines[j][:350])
+          PY
