@@ -1,0 +1,49 @@
+name: LiftOrbit four-second preview architecture preflight
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-preview-architecture-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read current preview and Gantt integration surface
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p current
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "current/$file"
+          done
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          sources={"backend":Path("current/python-ga-upstream.mjs"),"frontend":Path("current/restart-optimizer-ui.js")}
+          pattern=re.compile(r'(?i)(candidate_preview|best_preview|function progress\(|function renderPlan\(|__ppLiveMode|__ppOptimizationInFlight|ppGanttToolV2)')
+          for name,path in sources.items():
+            lines=path.read_text().splitlines()
+            hits=[i for i,l in enumerate(lines) if pattern.search(l)]
+            print('SOURCE_SCAN',name,'lines',len(lines),'hits',[i+1 for i in hits[:90]])
+            for i in hits[:35]:
+              lo=max(0,i-1); hi=min(len(lines),i+2)
+              for j in range(lo,hi):
+                s=lines[j].strip()
+                if re.search('(?i)(password|secret|token|private.key|credential|cookie|authorization|process.env)',s):s='[redacted]'
+                print('LINE',name,j+1,s[:180])
+          PY
