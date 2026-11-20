@@ -1,4 +1,4 @@
-name: LiftOrbit release true 4-second current-candidate fog Gantt
+name: LiftOrbit eliminate progress and Gantt freezes on large plans
 # rerun after cross-realm contract assertion correction
 on:
   push:
@@ -37,12 +37,13 @@ jobs:
             scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "old/$file"
             cp "old/$file" "new/$file"
           done
-          node ops/ovh/four-second-fog-preview-20261120/patch-client-auth.mjs new
+          node ops/ovh/ga-jank-fix-20261120/patch.mjs new
           node --check new/auth-runtime.js
           node --check new/restart-optimizer-ui.js
           node ops/ovh/four-second-fog-preview-20261120/test-contract.cjs
-          node ops/ovh/four-second-fog-preview-20261120/build-live-qa.mjs
-          node --check ops/ovh/four-second-fog-preview-20261120/_live-qa.mjs
+          node ops/ovh/ga-jank-fix-20261120/test-async.cjs
+          node ops/ovh/ga-jank-fix-20261120/build-live-qa.mjs
+          node --check ops/ovh/ga-jank-fix-20261120/_live-qa.mjs
           for file in auth-runtime.js restart-optimizer-ui.js; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$file.sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
@@ -129,8 +130,8 @@ jobs:
           FREEZE_TEST_MODE: deployed
         run: |
           set -euo pipefail
-          node ops/ovh/four-second-fog-preview-20261120/_live-qa.mjs
-          echo FOG_REAL_140_TWO_GA_RUNS_FULL_100_PASS
+          node ops/ovh/ga-jank-fix-20261120/_live-qa.mjs
+          echo JANK_NONBLOCKING_4SECOND_GANTT_AND_100_PASS
       - name: Restore both exact previous files if real browser QA fails
         if: ${{ failure() && steps.rollout.outcome == 'success' }}
         shell: bash
@@ -165,4 +166,4 @@ jobs:
           ROLLOUT: ${{ steps.rollout.outcome }}
           HEALTH: ${{ steps.health.outcome }}
           LIVE: ${{ steps.live.outcome }}
-        run: echo "FOG_CURRENT_GA preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
+        run: echo "JANK_RESOLVED preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
