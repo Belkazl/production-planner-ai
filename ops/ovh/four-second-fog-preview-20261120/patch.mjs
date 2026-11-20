@@ -12,13 +12,13 @@ const hash=s=>createHash("sha256").update(s).digest("hex");
 let manager=readFileSync(target("ga_python_workers/ga_workers/manager.py"),"utf8");
 manager=repl(manager,
  "    best_preview: Optional[dict] = field(default=None, repr=False)",
- "    best_preview: Optional[dict] = field(default=None, repr=False)\n    candidate_preview: Optional[dict] = field(default=None, repr=False)\n    candidate_serial: int = 0","manager_fields");
+ "    best_preview: Optional[dict] = field(default=None, repr=False)\n    candidate_preview: Optional[dict] = field(default=None, repr=False)\n    candidate_serial: int = 0\n    preview_probe: Optional[dict] = field(default=None, repr=False)","manager_fields");
 manager=repl(manager,
  '                  "error": job.error, "best_preview": job.best_preview,',
- '                  "error": job.error, "best_preview": job.best_preview,\n                  "candidate_preview": job.candidate_preview,\n                  "candidate_serial": job.candidate_serial,',"manager_status");
+ '                  "error": job.error, "best_preview": job.best_preview,\n                  "candidate_preview": job.candidate_preview,\n                  "candidate_serial": job.candidate_serial,\n                  "preview_probe": job.preview_probe,',"manager_status");
 manager=repl(manager,
  '                            if isinstance(data.get("best_preview"), dict):\n                                job.best_preview = data["best_preview"]',
- '                            if isinstance(data.get("best_preview"), dict):\n                                job.best_preview = data["best_preview"]\n                            if isinstance(data.get("candidate_preview"), dict):\n                                candidate = data["candidate_preview"]\n                                if (candidate.get("_pp_preview_limited") is True and\n                                    0 < len(candidate.get("operations") or []) <= 140):\n                                    job.candidate_preview = candidate\n                                    job.candidate_serial += 1',"manager_progress");
+ '                            if isinstance(data.get("best_preview"), dict):\n                                job.best_preview = data["best_preview"]\n                            if isinstance(data.get("candidate_preview"), dict):\n                                candidate = data["candidate_preview"]\n                                if (candidate.get("_pp_preview_limited") is True and\n                                    0 < len(candidate.get("operations") or []) <= 140):\n                                    job.candidate_preview = candidate\n                                    job.candidate_serial += 1\n                            if isinstance(data.get("preview_probe"),dict):\n                                job.preview_probe=data["preview_probe"]',"manager_progress");
 let worker=readFileSync(target("ga_python_workers/ga_workers/full_runtime_adapter.py"),"utf8");
 const capture=readFileSync(here+"worker-hook.py.txt","utf8");
 worker=repl(worker,"    state={}\n    def compute():",capture+"    state={}\n    def compute():","worker_capture");
@@ -30,7 +30,7 @@ worker=repl(worker,
  "            current_serial=preview_slot['serial']\n            if (pct,last[1] if best is not None else 0)!=last or current_serial!=last_candidate_serial:","worker_tick_if");
 worker=repl(worker,
  "                if isinstance(best,dict) and best.get('operations'):\n                    preview['best_preview']=best\n                progress(preview)\n                last=(pct,1 if best is not None else 0)",
- "                if isinstance(best,dict) and best.get('operations'):\n                    preview['best_preview']=best\n                if current_serial!=last_candidate_serial and isinstance(preview_slot['plan'],dict):\n                    preview['candidate_preview']=preview_slot['plan']\n                    last_candidate_serial=current_serial\n                progress(preview)\n                last=(pct,1 if best is not None else 0)","worker_tick_send");
+ "                if isinstance(best,dict) and best.get('operations'):\n                    preview['best_preview']=best\n                if current_serial!=last_candidate_serial and isinstance(preview_slot['plan'],dict):\n                    preview['candidate_preview']=preview_slot['plan']\n                    last_candidate_serial=current_serial\n                preview['preview_probe']={\n                    'calls':preview_slot['calls'],'kind':preview_slot['kind'],\n                    'shape':preview_slot['shape'],'available':bool(schedule)}\n                progress(preview)\n                last=(pct,1 if best is not None else 0)","worker_tick_send");
 let backend=readFileSync(target("python-ga-upstream.mjs"),"utf8");
 const ownedPreview=readFileSync(here+"owned-preview.js.txt","utf8");
 backend=repl(backend,"  async function progress(req){",ownedPreview+"  async function progress(req){","backend_preview_validator");
@@ -45,7 +45,7 @@ backend=repl(backend,
  "    if(status.candidate_preview){\n      const liveCandidate=publicPlan(status.candidate_preview);\n      if(ownedCandidatePreview(liveCandidate,model))state.candidate=liveCandidate;","backend_candidate_accept");
 backend=repl(backend,
  "    const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));",
- "    const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));\n    if(previewOnly)return response({ok:true,job_id:state.id,running,\n      stage:status.stage||null,success:status.status==='completed',\n      done:pct,total:100,percent:pct,phase:status.status,\n      candidate_preview:running?(state.candidate||null):null,\n      candidate_serial:status.candidate_serial||0,\n      best_preview:null,result:null,error:state.error||null});","backend_return_preview");
+ "    const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));\n    if(previewOnly)return response({ok:true,job_id:state.id,running,\n      stage:status.stage||null,success:status.status==='completed',\n      done:pct,total:100,percent:pct,phase:status.status,\n      candidate_preview:running?(state.candidate||null):null,\n      candidate_serial:status.candidate_serial||0,\n      preview_probe:status.preview_probe||null,\n      best_preview:null,result:null,error:state.error||null});","backend_return_preview");
 let frontend=readFileSync(target("restart-optimizer-ui.js"),"utf8");
 if(frontend.includes("ppFourSecondFogPreviewV1"))throw Error("FRONTEND_ALREADY_PATCHED");
 for(const marker of ["ppNativeOneOwnerProgressV4","ppUnifiedGanttV2",
