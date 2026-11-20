@@ -1,4 +1,5 @@
 name: LiftOrbit diagnose actual UI freezes on large Gantt
+# profile run after corrected source anchors
 on:
   push:
     branches: [main]
