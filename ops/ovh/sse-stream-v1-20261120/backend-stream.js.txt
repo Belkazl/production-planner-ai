@@ -34,7 +34,7 @@
     };
   };
   async function stream(req){
-    let principal,model;
+    let principal,model,job=null;
     try{
       principal=await account(req);
       model=await readAccountModel(req);
@@ -89,7 +89,6 @@
             // has finished creating its account job. This eliminates the 409
             // request storm during the initial optimization startup race.
             emit("ready",{transport:"one-sse-stream"});
-            let job=null;
             for(let tries=0;tries<120&&!closed;tries++){
               let candidate=null;
               try{candidate=await currentJob(principal)}catch(_){}
