@@ -1,4 +1,5 @@
 name: LiftOrbit read-only V5 rollback integrity check
+# confirm production source restored after final-Gantt QA false-positive
 on:
   push:
     branches: [main]
