@@ -1,0 +1,40 @@
+name: LiftOrbit identify active optimization engine without secrets
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-active-engine-readonly-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect enabled state of Python worker in nonsecret compose configuration
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration'
+          for p in root.rglob('*compose*.yml'):
+            if len(p.relative_to(root).parts)>7:continue
+            try:lines=p.read_text(errors='replace').splitlines()
+            except OSError:continue
+            found=[(i,l) for i,l in enumerate(lines) if 'PP_PY_GA_WORKERS_ENABLED' in l]
+            for i,line in found[:8]:
+              value=re.sub(r'[^a-zA-Z0-9_${}:-]','',line.strip())
+              print('WORKER_CONFIG',str(p.relative_to(root)),i+1,value[:100])
+          PY
