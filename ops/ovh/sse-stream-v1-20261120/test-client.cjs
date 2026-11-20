@@ -28,15 +28,26 @@ const fs=require("node:fs");
    };
    window.EventSource=class{
     constructor(url){this.url=url;this.listeners=new Map();this.closed=false;
-     window.__unit.sse=this;window.__unit.streams=(window.__unit.streams||0)+1}
+     this.readyState=0;
+     window.__unit.sse=this;window.__unit.streams=(window.__unit.streams||0)+1;
+     setTimeout(()=>{
+       if(this.closed)return;
+       if(window.__unit.streams===1){this.readyState=2;this.send("error",{});}
+       else{this.readyState=1;this.send("open",{});}
+     },5);
+    }
     addEventListener(name,fn){const v=this.listeners.get(name)||[];v.push(fn);this.listeners.set(name,v)}
-    close(){this.closed=true}
+    close(){this.closed=true;this.readyState=2}
     send(name,data){for(const fn of this.listeners.get(name)||[])
       fn({type:name,data:typeof data==="string"?data:JSON.stringify(data)})}
    };
   });
   await page.addScriptTag({content:fs.readFileSync(
    "ops/ovh/sse-stream-v1-20261120/frontend.js.txt","utf8")});
+  await page.waitForFunction(()=>window.__unit.streams>=2,null,{timeout:8000});
+  const ready=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state);
+  assert.equal(ready.connected,true,"Must reconnect after early HTTP 409 before GA job exists");
+  assert.ok(ready.reconnects>=1,"Startup 409 retry tested");
   const initial=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state);
   assert.equal(initial.percent,0);
   assert.equal(initial.lineVisible,true);
