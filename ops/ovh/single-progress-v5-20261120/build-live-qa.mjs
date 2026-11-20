@@ -49,7 +49,7 @@ between(
  '    console.log("GA_LOAD_SHED_REAL_BROWSER_SAMPLE"',
  [
  '  if(pageState?.v5?.running&&pageState.v5.lineVisible!==true)lineLost++;',
- '  if(pageState?.v5?.running&&pageState?.preview?.previews>0){',
+ '  if(pageState?.v5?.running&&pageState?.optimizerRunning===true&&pageState?.preview?.active===true&&pageState?.preview?.previews>0){',
  '   interimMax=Math.max(interimMax,pageState.bars||0);',
  '   previewPaintMax=Math.max(previewPaintMax,pageState.preview.maxPaintMs||0);',
  '   if(!interimDetailsChecked&&pageState?.v5?.interimDialogBlocked){',
