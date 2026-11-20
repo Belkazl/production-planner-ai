@@ -1,0 +1,23 @@
+name: Diagnose real GA best candidate setup arrays in read-only QA session
+on:
+  push:
+    branches: [diagnostics/sse-preview-sources-20261120]
+    paths:
+      - .github/workflows/liftorbit-raw-setup-previews-audit-20261120.yml
+      - ops/ovh/sse-preview-status-audit-20261120/**
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Observe six authenticated account-owned worker snapshots without deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+          node ops/ovh/sse-preview-status-audit-20261120/build.mjs
+          node --check ops/ovh/sse-stream-v1-20261120/_raw-preview-qa.mjs
+          node ops/ovh/sse-stream-v1-20261120/_raw-preview-qa.mjs
