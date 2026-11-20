@@ -1,0 +1,218 @@
+;(function ppLightweightLiveGanttV2(){
+"use strict";
+if(window.__PP_FOUR_SECOND_PREVIEW__?.version===2)return;
+try{window.__PP_FOUR_SECOND_PREVIEW__?.dispose?.()}catch(_){}
+const nativeFetch=window.fetch.bind(window);
+const statusPath="/api/plan-progress",snapshotPath="/api/ga-candidate-snapshot";
+const nurl=x=>{try{return new URL(typeof x==="string"?x:x?.url,location.href)}catch(_){return null}};
+const method=(x,y)=>String(y?.method||(x instanceof Request?x.method:"GET")).toUpperCase();
+const running=()=>!!document.getElementById("opt")?.classList.contains("pp-opt-running");
+const isRu=()=>window.__PP_LANGUAGE__?.current==="ru"||
+ /^ru/i.test(document.documentElement.lang||"");
+let disposed=false,wasRunning=false,previewPending=false,lightPending=false;
+let previews=0,activity=0,light=0,errors=0,skipped=0,slowResponses=0;
+let lastHash=null,lastPlan=null,lastJob=null,latestPercent=null;
+let startedAt=0,lastResponseAt=0,lastRenderedAt=0;
+let maxPreviewGap=0,maxPaintMs=0,drawScheduled=false,renderCount=0,lastSerial=0;
+let fogRows=[],hint=null;
+const css=document.createElement("style");
+css.id="ppLightweightLiveGanttV2Css";
+css.textContent=[
+ "#ganttScroll .pp-fog-v2-row{position:absolute;top:0;bottom:0;pointer-events:none;z-index:20;",
+ "background:linear-gradient(90deg,rgba(235,243,253,.2),rgba(238,244,252,.85) 22%,rgba(239,245,252,.98) 100%),",
+ "repeating-linear-gradient(118deg,rgba(170,189,213,.09) 0 12px,rgba(230,237,247,.25) 12px 24px);",
+ "animation:ppFogV2Pulse 3.7s ease-in-out infinite alternate}",
+ "@keyframes ppFogV2Pulse{from{opacity:.80}to{opacity:1}}",
+ ".pp-fog-v2-hint{margin-left:auto;white-space:nowrap;font-size:12px;color:var(--text-muted,#667b94);font-weight:500;}",
+ "@media(prefers-reduced-motion:reduce){#ganttScroll .pp-fog-v2-row{animation:none}}"
+].join("");
+(document.head||document.documentElement).appendChild(css);
+function clearFog(){
+ for(const f of fogRows)f.remove();
+ fogRows=[];
+}
+function clearHint(){hint?.remove();hint=null}
+function fog(){
+ clearFog();
+ if(!running())return;
+ const stage=document.getElementById("ppGanttToolV2");
+ if(!stage||window.__PP_UNIFIED_GANTT_V2__?.activeMode!==0)return;
+ const rows=[...stage.querySelectorAll(".pg2-row")].slice(0,14);
+ for(const row of rows){
+  const lane=row.querySelector(".pg2-lane");
+  if(!lane)continue;
+  let edge=0;
+  for(const bar of lane.querySelectorAll(".pg2-bar")){
+   // offsetLeft/offsetWidth are read before ANY DOM writes to each lane.
+   edge=Math.max(edge,bar.offsetLeft+bar.offsetWidth);
+  }
+  const width=Number.parseFloat(lane.style.width)||lane.scrollWidth||0;
+  if(edge>0&&width>edge+8){
+   const f=document.createElement("div");
+   f.className="pp-fog-v2-row";
+   f.style.left=Math.max(0,edge-6)+"px";
+   f.style.right="0px";
+   lane.appendChild(f);
+   fogRows.push(f);
+  }
+ }
+}
+function signature(p){
+ const ops=p?.operations;
+ if(!p||p.partial!==true||p._pp_preview_limited!==true||
+  !Array.isArray(ops)||ops.length<1||ops.length>140)return null;
+ return ops.map(x=>[
+   x.order,x.start_min,x.end_min,
+   x.equipment_ids?.join(",")||x.equipment_id||"",
+   x.employee_ids?.join(",")||"",x.is_setup===true?1:0
+ ].join("|")).join(";");
+}
+function renderSoon(){
+ if(drawScheduled||disposed||!lastPlan||!running())return;
+ if(window.__PP_UNIFIED_GANTT_V2__?.activeMode!==0)return;
+ drawScheduled=true;
+ requestAnimationFrame(()=>{
+  drawScheduled=false;
+  if(disposed||!running()||!lastPlan)return;
+  const stamp=performance.now();
+  try{
+   renderPlan(lastPlan);
+   previews++;renderCount++;
+   fog();
+  }catch(e){errors++;console.warn("PP_PREVIEW_LIGHT_RENDER_FAILED",String(e).slice(0,100))}
+  maxPaintMs=Math.max(maxPaintMs,performance.now()-stamp);
+  lastRenderedAt=Date.now();
+ });
+}
+function observeCandidate(p){
+ const sig=signature(p);
+ if(!sig)return;
+ if(sig===lastHash){skipped++;return}
+ lastHash=sig;lastPlan=p;
+ renderSoon();
+}
+function emit(p){
+ if(p?.running!==true)return;
+ const pct=Number(p.percent);
+ if(!Number.isFinite(pct))return;
+ latestPercent=Math.min(99,Math.max(0,Math.floor(pct)));
+ window.dispatchEvent(new CustomEvent("pp:ga-light-progress",{detail:{
+  percent:latestPercent,stage:p.stage||null,job_id:p.job_id||null
+ }}));
+ if(typeof p.stage==="string")
+  window.dispatchEvent(new CustomEvent("pp:ga-server-stage",{detail:p.stage}));
+}
+function updateHint(){
+ const on=running();
+ if(!on){
+  if(wasRunning){clearFog();clearHint();lastHash=null;lastPlan=null;lastJob=null}
+  wasRunning=false;
+  return;
+ }
+ if(!wasRunning){wasRunning=true;startedAt=Date.now();}
+ const header=document.querySelector("#planView .gantt-head");
+ if(header&&!hint){
+  hint=document.createElement("span");
+  hint.className="pp-fog-v2-hint";
+  hint.setAttribute("aria-live","off");
+  header.appendChild(hint);
+ }
+ const sec=Math.floor((Date.now()-startedAt)/1000);
+ const elapsed=String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");
+ const oldMs=lastResponseAt?Date.now()-lastResponseAt:Infinity;
+ if(hint)hint.textContent=(isRu()?"Проверка вариантов":"Checking variants")+
+  " · "+elapsed+(oldMs>9000?" · "+(isRu()?"ожидание данных":"awaiting data"):"");
+ const button=document.getElementById("opt");
+ const state=window.__PP_GA_PROGRESS_V4__?.state;
+ if(button?.classList.contains("pp-ga-v4-busy")&&state?.shown!=null&&state?.shown>1){
+  const label=(isRu()?"Оптимизация":"Optimization")+" "+state.shown+"% · "+
+   (isRu()?"расчёт идёт ":"working ")+elapsed;
+  if(button.getAttribute("data-pp-ga-v4-label")!==label)
+   button.setAttribute("data-pp-ga-v4-label",label);
+ }
+}
+async function getData(path,timeout){
+ const stamp=performance.now();
+ const r=await nativeFetch(path,{
+  method:"GET",cache:"no-store",credentials:"same-origin",
+  signal:AbortSignal.timeout(timeout),
+  headers:{"accept":"application/json"}
+ });
+ if(!r.ok)throw Error("snapshot_http_"+r.status);
+ if(performance.now()-stamp>4000)slowResponses++;
+ return r.json();
+}
+async function lightTick(){
+ if(disposed||lightPending||!running())return;
+ lightPending=true;light++;
+ try{
+  const p=await getData(snapshotPath+"?ppLight=1",5500);
+  if(disposed||!running())return;
+  lastResponseAt=Date.now();
+  emit(p);
+ }catch(_){errors++}
+ finally{lightPending=false}
+}
+async function previewTick(){
+ if(disposed||previewPending||!running())return;
+ previewPending=true;
+ const stamp=Date.now();
+ try{
+  const p=await getData(snapshotPath+"?ppPreview=1",6500);
+  if(disposed||!running())return;
+  activity++;lastResponseAt=Date.now();
+  if(p.job_id&&lastJob&&p.job_id!==lastJob){lastHash=null;clearFog()}
+  if(p.job_id)lastJob=p.job_id;
+  emit(p);
+  lastSerial=Math.max(lastSerial,Number(p.candidate_serial)||0);
+  if(p.candidate_preview)observeCandidate(p.candidate_preview);
+  maxPreviewGap=Math.max(maxPreviewGap,lastRenderedAt?stamp-lastRenderedAt:0);
+ }catch(_){errors++}
+ finally{previewPending=false}
+}
+window.fetch=function ppNativeFastProgressV2(input,init){
+ const url=nurl(input);
+ if(!disposed&&running()&&url?.origin===location.origin&&url.pathname===statusPath&&
+  method(input,init)==="GET"&&
+  !["ppNoCache","ppPreview","ppForce","ppLight","ppReconnect","ppStopConfirm",
+    "stop_snapshot"].some(k=>url.searchParams.has(k))){
+  url.pathname=snapshotPath;
+  url.searchParams.set("ppLight","1");
+  return nativeFetch(url.toString(),init);
+ }
+ return nativeFetch(input,init);
+};
+const heartbeat=setInterval(updateHint,1000);
+const samples=setInterval(previewTick,4000);
+const meta=setInterval(lightTick,1000);
+const observe=setInterval(()=>{
+ const active=running();
+ if(active&&!wasRunning){
+  wasRunning=true;startedAt=Date.now();
+  void previewTick();void lightTick();
+ }else if(!active&&wasRunning)updateHint();
+},250);
+window.addEventListener("pp:optimizer-started",()=>{
+ lastHash=null;lastPlan=null;lastJob=null;latestPercent=null;
+ clearFog();clearHint();startedAt=Date.now();
+ void nativeFetch(snapshotPath+"?ppLight=1&ppFresh=1",{
+  method:"GET",credentials:"same-origin",cache:"no-store",
+  signal:AbortSignal.timeout(2000)
+ }).catch(()=>{});
+});
+window.__PP_FOUR_SECOND_PREVIEW__={
+ installed:true,version:2,intervalMs:4000,rows:14,perRow:10,
+ get state(){return{
+  previews,activity,light,errors,skipped,renderCount,lastSerial,lastJob,
+  maxPaintMs,maxPreviewGap,slowResponses,
+  lastResponseAt,lastRenderedAt,latestPercent,
+  active:running(),fogRows:fogRows.length
+ }},
+ refresh:previewTick,
+ dispose(){
+  disposed=true;clearInterval(heartbeat);clearInterval(samples);
+  clearInterval(meta);clearInterval(observe);
+  clearFog();clearHint();css.remove();window.fetch=nativeFetch;
+ }
+};
+})();
