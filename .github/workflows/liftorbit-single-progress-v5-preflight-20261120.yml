@@ -1,4 +1,5 @@
 name: LiftOrbit single server progress V5 preflight
+# verify retained four-second preview IIFE after pruning legacy load-shed
 on:
   push:
     branches: [main]
