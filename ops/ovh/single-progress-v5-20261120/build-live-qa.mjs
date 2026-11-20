@@ -1,5 +1,19 @@
 import {readFileSync,writeFileSync} from "node:fs";
 let s=readFileSync("ops/ovh/ga-start-recover-20261119/live-regression.mjs","utf8");
+const deployedGuard=[
+ ' if(process.env.FREEZE_TEST_MODE==="deployed"){',
+ '  const single=await page.evaluate(()=>window.__PP_SINGLE_GA_PROGRESS_RENDERER_V1__);',
+ '  if(!single?.installed||!single.legacyObserverStopped)throw Error("DEPLOYED_SINGLE_PROGRESS_MISSING");',
+ '  console.log("LIVE_FREEZE_DEPLOYED_SINGLE_PROGRESS",JSON.stringify(single));',
+ ' }'
+].join("\n");
+const v5Guard=[
+ ' if(process.env.FREEZE_TEST_MODE==="deployed"){',
+ '  const single=await page.evaluate(()=>window.__PP_GA_PROGRESS_V5__?.installed);',
+ '  if(single!==true)throw Error("DEPLOYED_V5_SINGLE_PROGRESS_MISSING");',
+ '  console.log("LIVE_FREEZE_DEPLOYED_V5_SINGLE_PROGRESS",single);',
+ ' }'
+].join("\n");
 const one=(a,b,n)=>{
  if(s.split(a).length!==2)throw Error("V5_QA_ANCHOR_"+n+"_"+(s.split(a).length-1));
  s=s.replace(a,b);
@@ -9,6 +23,7 @@ const between=(a,b,lines,n)=>{
  if(i<0||j<=i||s.indexOf(a,i+1)>=0)throw Error("V5_QA_RANGE_"+n);
  s=s.slice(0,i)+lines.join("\n")+"\n"+s.slice(j);
 };
+one(deployedGuard,v5Guard,"deployed_guard");
 between(
  " const guard=await page.evaluate(()=>({v4:window.__PP_GA_PROGRESS_V4__?.installed===true",
  " let suppressedUiProgressRequests=0;",
