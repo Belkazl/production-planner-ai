@@ -29,7 +29,20 @@ between(' const guard=await page.evaluate(()=>({v4:',
  ' if(!guard.sse||guard.old)throw Error("SSE_EXCLUSIVE_CLIENT_NOT_ACTIVE_"+JSON.stringify(guard));',
  ' console.log("SSE_LIVE_GUARDS",JSON.stringify(guard));'
  ],"sse_guard");
-one(' const epochs=Date.now();',' let lostLine=0,interimMax=0,previewSamples=0,progressDuringRun=0;\n const epochs=Date.now();',"measure");
+one(' const epochs=Date.now();',[
+ ' let initialSse=null;',
+ ' try{',
+ '  await page.waitForFunction(()=>{const s=window.__PP_SSE_PROGRESS_V1__?.state;',
+ '   return s&&(s.events>0||s.completed)},null,{timeout:35000,polling:200});',
+ '  initialSse=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__?.state);',
+ '  console.log("SSE_FIRST_REAL_WORKER_EVENT",JSON.stringify(initialSse));',
+ ' }catch(e){',
+ '  const state=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__?.state||null);',
+ '  throw Error("SSE_INITIAL_CONNECTION_NOT_ESTABLISHED_"+JSON.stringify(state));',
+ ' }',
+ ' let lostLine=0,interimMax=0,previewSamples=0,progressDuringRun=0;',
+ ' const epochs=Date.now();'
+ ].join("\\n"),"first_real_event_before_QA_loop");
 const oldState='nativeSmoothTarget:window.__PP_TRUTHFUL_SMOOTH_GA_PERCENT_V1__?.confirmedTarget,shed:window.__PP_GA_PROGRESS_LOAD_SHED_V1__?.state,v4:window.__PP_GA_PROGRESS_V4__?.state';
 one(oldState,'sse:window.__PP_SSE_PROGRESS_V1__?.state',"status_bind");
 between(
