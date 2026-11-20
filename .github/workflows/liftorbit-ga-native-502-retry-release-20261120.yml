@@ -1,0 +1,144 @@
+name: LiftOrbit recover native 502 continuation with bounded same-account retry
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-ga-native-502-retry-release-20261120.yml]
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify deployed source and patch + unit browser scenarios
+        id: preflight
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/async-plan-transport.js" old/async-plan-transport.js
+          cp old/async-plan-transport.js new/async-plan-transport.js
+          node ops/ovh/ga-start-recover-20261119/patch.mjs new
+          node --check new/async-plan-transport.js
+          sha256sum old/async-plan-transport.js | cut -d' ' -f1 > "$RUNNER_TEMP/old.sha"
+          sha256sum new/async-plan-transport.js | cut -d' ' -f1 > "$RUNNER_TEMP/new.sha"
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-start-recover-20261119/browser.cjs new/async-plan-transport.js
+          echo GA_502_RETRY_PREFLIGHT_PASS
+      - name: Deploy guarded client retry with exact backup and recovery
+        id: rollout
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration
+          scp -q "${opts[@]}" new/async-plan-transport.js "$USER@$HOST:$root/sources/ovh-app/async-plan-transport.ga502retry.next"
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- "$(cat "$RUNNER_TEMP/old.sha")" "$(cat "$RUNNER_TEMP/new.sha")" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          base="$root/sources/ovh-app"
+          backup="$root/patch-backups/ga502retry-20261120"
+          live="$base/current/async-plan-transport.js"
+          stage="$base/async-plan-transport.ga502retry.next"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test "$(sha "$live")" = "$1"
+          test "$(sha "$stage")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$live" "$backup/async-plan-transport.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/async-plan-transport.js" "$live" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_502_RETRY_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for i in $(seq 1 25); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$live")" = "$2"
+          trap - ERR
+          echo GA_502_RETRY_ROLLOUT_SUCCESS
+          REMOTE
+      - name: Verify public endpoint and account isolation
+        id: health
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 15); do
+            h=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/__bridge_health || true)
+            a=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$h" = 200 && "$a" = 401 ]]; then echo GA_502_RETRY_PUBLIC_PASS; exit 0; fi
+            sleep 4
+          done
+          exit 1
+      - name: Verify two authentic optimizations with actual UI Continue and visible 100
+        id: live
+        shell: bash
+        env:
+          FREEZE_TEST_MODE: deployed
+        run: |
+          set -euo pipefail
+          node ops/ovh/ga-start-recover-20261119/live-regression.mjs
+          echo GA_502_RETRY_REAL_BROWSER_E2E_PASS
+      - name: Revert to exact previous transport if live QA fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          base="$HOME/liftorbit-migration"
+          backup="$base/patch-backups/ga502retry-20261120/async-plan-transport.js"
+          live="$base/sources/ovh-app/current/async-plan-transport.js"
+          test -f "$backup"
+          cp -p "$backup" "$live"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$base/patch-backups/ga502retry-20261120/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo GA_502_RETRY_ROLLBACK_VERIFIED
+          REMOTE
+      - name: Print final outcome
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.live.outcome }}
+        run: echo "GA_502_RETRY preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
