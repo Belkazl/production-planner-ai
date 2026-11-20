@@ -1,12 +1,15 @@
 import {readFileSync,writeFileSync} from "node:fs";
 let s=readFileSync("ops/ovh/ga-start-recover-20261119/live-regression.mjs","utf8");
 const one=(a,b,label)=>{
- if(s.split(a).length!==2)throw Error("SSE_LIVE_QA_ANCHOR_"+label+"_"+(s.split(a).length-1));
- s=s.replace(a,b);
+ const needle=s.split(a).length===2?a:a.trimStart();
+ if(s.split(needle).length!==2)throw Error("SSE_LIVE_QA_ANCHOR_"+label+"_"+(s.split(needle).length-1));
+ s=s.replace(needle,b);
 };
 const between=(a,b,lines,label)=>{
- const i=s.indexOf(a),j=s.indexOf(b,i);
- if(i<0||j<=i||s.indexOf(a,i+1)>=0)throw Error("SSE_LIVE_QA_RANGE_"+label);
+ const left=s.indexOf(a)>=0?a:a.trimStart();
+ const right=s.indexOf(b,s.indexOf(left))>=0?b:b.trimStart();
+ const i=s.indexOf(left),j=s.indexOf(right,i);
+ if(i<0||j<=i||s.indexOf(left,i+1)>=0)throw Error("SSE_LIVE_QA_RANGE_"+label);
  s=s.slice(0,i)+lines.join("\n")+"\n"+s.slice(j);
 };
 one(' const firstStageResponseHeaders=[],firstStageVisibleSamples=[];',
