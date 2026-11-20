@@ -1,0 +1,43 @@
+name: LiftOrbit candidate manager contract audit
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-candidate-manager-contract-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect message and status contract for transient candidates
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p inspect
+          scp -q "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers/manager.py" inspect/manager.py
+          scp -q "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers/full_runtime_adapter.py" inspect/adapter.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for fn,spans in [('manager.py',[(50,90),(165,207),(250,287)]),('adapter.py',[(85,153)])]:
+            lines=(Path('inspect')/fn).read_text().splitlines()
+            for a,b in spans:
+              print('SPAN',fn,a,b)
+              for i in range(a-1,min(b,len(lines))):
+                s=lines[i]
+                if re.search('(?i)(password|secret|private.key|credential|cookie|authorization|process.env)',s):s='[redacted]'
+                print('SRC',fn,i+1,s[:215])
+          PY
