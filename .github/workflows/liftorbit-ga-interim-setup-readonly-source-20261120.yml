@@ -46,6 +46,26 @@ jobs:
               for j in range(a,b):
                 print('GA_SOURCE',j+1,lines[j][:215])
           PY
+          echo "=== OVH DEPLOY PRECHECK READONLY ==="
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set +e
+          root="$HOME/liftorbit-migration"
+          base="$root/sources/ovh-app"
+          echo DIAG_CURRENT_SHA
+          sha256sum "$base/current/python-ga-upstream.mjs" | cut -d' ' -f1
+          echo DIAG_STAGE_EXISTS
+          for f in "$base/first-ten-visibility-20261120.next" "$base/sse-first-ten-ops-20261120-python-ga-upstream.mjs.next" "$base/sse-detached-setups-20261120-python-ga-upstream.mjs.next";do
+            if test -r "$f";then echo "exists $(basename "$f")";else echo "missing $(basename "$f")";fi
+          done
+          echo DIAG_WRITABLE_ROOT "$([[ -w "$base" ]] && echo yes || echo no)"
+          echo DIAG_WRITABLE_CURRENT "$([[ -w "$base/current/python-ga-upstream.mjs" ]] && echo yes || echo no)"
+          echo DIAG_LIFTORBIT_OPS_SMOKE
+          sudo -n /usr/local/sbin/liftorbit-ops smoke > /dev/null 2>&1
+          echo DIAG_SMOKE_EXIT "$?"
+          echo DIAG_SUDO_LIFTORBIT_OPS
+          sudo -n -l /usr/local/sbin/liftorbit-ops >/dev/null 2>&1
+          echo DIAG_SUDO_OPS_EXIT "$?"
+          REMOTE
           echo "=== GANTT RENDERER CHANGEOVER CODE ==="
           ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
           from pathlib import Path
