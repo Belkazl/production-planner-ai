@@ -41,6 +41,10 @@ jobs:
               grep -Ei 'error|failed|exit|healthy|timeout|permission|refuse|404|409|502' "$f" | tail -n 12 | cut -c1-150 || true
             fi
           done
+          echo "UPSTREAM_SOURCE_SYMBOLS"
+          grep -nE "async function (account|readAccountModel|currentJob|progress|start)|const (hashModel|currentJob|readAccountModel)|sse_|modelKey|job\.state|__pp_async_start" "$base/python-ga-upstream.mjs" | head -n 95 | cut -c1-180 || true
+          echo "NATIVE_UI_START_EVENTS"
+          grep -nE "optimizer-started|optimizer-reconnect-pending|/api/plan-events|__pp_async_start|/api/plan|optimizer-stopped|pp-opt-running" "$base/restart-optimizer-ui.js" | head -n 80 | cut -c1-160 || true
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1
           echo "LIVE_SMOKE_PASS"
           REMOTE
