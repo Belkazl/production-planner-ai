@@ -1,0 +1,65 @@
+name: LiftOrbit audit owners of progress line and interim operation dialogs
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-single-progress-dialog-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read live progress UI, native Gantt and popup sources safely
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          scp -q "${opts[@]}" "$USER@$HOST:$base/restart-optimizer-ui.js" "$RUNNER_TEMP/live-ui.js"
+          ssh "${opts[@]}" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration/sources/ovh-app/current'
+          needle=re.compile(r'(?i)(function renderPlan\b|function showOperation|operation detail|operation modal|operation popup|production operation|pp-opt-progress-line|pp-opt-running|renderPlan\(|gantt-card|showOperationDetails)')
+          sensitive=re.compile(r'(?i)(password|secret|token|cookie|authorization|process.env|private.key|api.key|credential)')
+          for p in root.iterdir():
+            if not p.is_file() or p.suffix not in ('.js','.mjs','.ts','.cjs','.html'):continue
+            try:t=p.read_text(errors='replace')
+            except OSError:continue
+            lines=t.splitlines()
+            hits=[i for i,l in enumerate(lines) if needle.search(l)]
+            if not hits:continue
+            print('COMPONENT_FILE',p.name,'MATCHES',[i+1 for i in hits[:35]],'SIZE',len(lines))
+            if p.name!='restart-optimizer-ui.js':
+              indices=set()
+              for i in hits[:6]:indices.update(range(max(0,i-4),min(len(lines),i+9)))
+              for i in sorted(indices)[:110]:
+                s=lines[i];s='[redacted]' if sensitive.search(s) else s[:180]
+                print('COMPONENT_SOURCE',p.name,i+1,s)
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=(Path(__import__('os').environ['RUNNER_TEMP'])/'live-ui.js').read_text().splitlines()
+          spans=[(1,175),(600,755),(840,975),(1050,1142),(1280,1340),
+                 (1350,1475),(1475,1660),(1660,1750),(1750,1850),(1910,2050),
+                 (2100,2260)]
+          red=re.compile(r'(?i)(password|secret|token|cookie|authorization|process.env|private.key|api.key|credential)')
+          print('UI_TOTAL',len(lines))
+          for a,b in spans:
+            print('UI_SPAN',a,b)
+            for i in range(a-1,min(b,len(lines))):
+              s=lines[i];s='[redacted]' if red.search(s) else s[:240]
+              print('UI_CODE',i+1,s)
+          PY
