@@ -1,0 +1,46 @@
+name: Diagnose setup-aware candidate versus best previews read only
+on:
+  push:
+    branches: [diagnostics/sse-preview-sources-20261120]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect real GA adapter preview generation without modifying OVH
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers')
+          for name,needles in {
+            'full_runtime_adapter.py':['_live_scheduler_preview','_pp_setup_generic_apply','captured_progress_candidate','captured_progress_best','state[\'best_preview\']'],
+            'manager.py':['candidate_preview','best_preview','verified_checkpoint']
+          }.items():
+            path=root/name
+            source=path.read_text().splitlines()
+            print('FILE',name,'LINES',len(source))
+            seen=set()
+            for word in needles:
+              hits=[i for i,x in enumerate(source) if word in x]
+              print('NEEDLE',repr(word),'HITS',[i+1 for i in hits][:30])
+              for index in hits[:3]:
+                lo=max(0,index-11);hi=min(len(source),index+28)
+                if any(j in seen for j in range(lo,hi)):continue
+                seen.update(range(lo,hi))
+                print('EXCERPT',name,lo+1,hi)
+                for j in range(lo,hi):
+                  print(f'{j+1}: {source[j][:290]}')
+          PY
