@@ -1,5 +1,5 @@
 name: LiftOrbit SSE end-to-end protocol and UI tests
-# verify actual chunked worker SSE, native progress and browser no-poll transport
+# verify 2-run E2E script with corrected native Continue state anchors
 on:
   push:
     branches: [main]
