@@ -47,7 +47,7 @@ function fog(){
    edge=Math.max(edge,bar.offsetLeft+bar.offsetWidth);
   }
   const width=Number.parseFloat(lane.style.width)||lane.scrollWidth||0;
-  if(edge>0&&width>edge+8){
+  if(width>edge+8){
    const f=document.createElement("div");
    f.className="pp-fog-v2-row";
    f.style.left=Math.max(0,edge-6)+"px";
@@ -203,7 +203,7 @@ window.addEventListener("pp:optimizer-started",()=>{
 window.__PP_FOUR_SECOND_PREVIEW__={
  installed:true,version:2,intervalMs:4000,rows:14,perRow:10,
  get state(){return{
-  previews,activity,light,errors,skipped,renderCount,lastSerial,lastJob,
+  version:2,previews,activity,light,errors,skipped,renderCount,lastSerial,lastJob,
   maxPaintMs,maxPreviewGap,slowResponses,
   lastResponseAt,lastRenderedAt,lastSampleAge,latestPercent,
   active:running(),fogRows:fogRows.length
