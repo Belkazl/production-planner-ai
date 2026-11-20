@@ -3,6 +3,7 @@
 if(window.__PP_FOUR_SECOND_PREVIEW__?.installed)return;
 const oldFetch=window.fetch.bind(window);
 const statusPath="/api/plan-progress";
+const directSnapshotPath="/api/ga-candidate-snapshot";
 const everyMs=4000;
 const isRunning=()=>!!document.getElementById("opt")?.classList.contains("pp-opt-running");
 const canonical=input=>{
@@ -96,6 +97,7 @@ window.fetch=function ppLeanPlanProgress(input,init){
   method(input,init)!=="GET"||!isRunning()||u.searchParams.has("ppNoCache")||
   u.searchParams.has("ppPreview")||u.searchParams.has("ppForce")||
   u.searchParams.has("ppLight"))return oldFetch(input,init);
+ u.pathname=directSnapshotPath;
  u.searchParams.set("ppLight","1");
  u.searchParams.set("ppNoCache","1");
  light++;
@@ -116,7 +118,7 @@ async function snapshot(){
  if(closed||pending||!isRunning())return;
  pending=true;
  try{
-  const r=await oldFetch(statusPath+"?ppPreview=1&ppNoCache=1",{
+  const r=await oldFetch(directSnapshotPath+"?ppPreview=1&ppNoCache=1",{
    method:"GET",cache:"no-store",credentials:"same-origin",
    signal:AbortSignal.timeout(9000),headers:{"accept":"application/json"}
   });
@@ -140,7 +142,7 @@ async function heartbeat(){
  if(closed||progressPending||!isRunning())return;
  progressPending=true;
  try{
-  const r=await oldFetch(statusPath+"?ppLight=1&ppNoCache=1",{
+  const r=await oldFetch(directSnapshotPath+"?ppLight=1&ppNoCache=1",{
    method:"GET",cache:"no-store",credentials:"same-origin",
    signal:AbortSignal.timeout(4500),headers:{"accept":"application/json"}
   });
