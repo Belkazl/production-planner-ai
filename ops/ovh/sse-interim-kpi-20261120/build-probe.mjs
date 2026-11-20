@@ -1,6 +1,6 @@
 import {readFileSync,writeFileSync} from "node:fs";
 let s=readFileSync("ops/ovh/ga-start-recover-20261119/live-regression.mjs","utf8");
-const anchor=' const noIntermediate=process.env.FREEZE_TEST_MODE==="no-intermediate";';
+const anchor=' const noIntermediate=false;';
 if(s.split(anchor).length!==2)throw Error("KPI_PROBE_LIVE_SOURCE_DRIFT");
 const before=s.split(anchor)[0];
 const probe=[
