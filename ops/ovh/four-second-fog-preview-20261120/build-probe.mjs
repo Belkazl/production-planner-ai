@@ -4,7 +4,7 @@ const target=" const epochs=Date.now();";
 if(source.split(target).length!==2)throw Error("FOG_PROBE_ANCHOR_DRIFT");
 const added=String.raw`
  await page.waitForTimeout(29000);
- const direct=await ctx.request.get(base+"/api/plan-progress?ppPreview=1&ppNoCache=1",{timeout:20000});
+ const direct=await ctx.request.get(base+"/api/ga-candidate-snapshot?ppPreview=1&ppNoCache=1",{timeout:20000});
  const dp=await direct.json().catch(()=>({}));
  console.log("FOG_PREVIEW_DIRECT_CONTRACT",JSON.stringify({status:direct.status(),keys:Object.keys(dp).sort(),
   previewOps:dp.candidate_preview?.operations?.length||0,
