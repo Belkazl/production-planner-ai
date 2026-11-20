@@ -71,7 +71,7 @@ const fakeFetch=async(url,opt)=>{
 };
 const store=new Map();
 const upstream=createPythonGAUpstream({
- enabled:true,origin:"http://ga-worker.mock.local:8080",token:"x".repeat(80),
+ enabled:true,origin:"http://ga-worker.ovh.internal:8080",token:"x".repeat(80),
  upstreamUrl:req=>req.url,sessionKey:async()=>principal,
  verifyLogin:async()=>true,readAccountModel:async()=>model,
  hashModel:()=> "model-hash-1",checkPlan:()=>true,
