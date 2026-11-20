@@ -1,0 +1,50 @@
+    # Read-only, disposable current-candidate preview. This must never alter
+    # the optimizer's incumbent, constraints, locks, or final full schedule.
+    preview_slot={'serial':0,'last_at':0.0,'plan':None}
+    schedule=ga.get('_pp_schedule_sequence')
+    if callable(schedule):
+        first_eq=[str(r.get('id')) for r in
+                  (normalized.get('equipment') or normalized.get('autoclaves') or [])[:14]
+                  if isinstance(r,dict)]
+        allowed=set(first_eq)
+        own_orders={str(o.get('id')) for o in normalized.get('orders') or []
+                    if isinstance(o,dict)}
+        def live_schedule(*args,**kwargs):
+            result=schedule(*args,**kwargs)
+            stamp=time.monotonic()
+            if stamp-preview_slot['last_at'] < 3.7 or not isinstance(result,dict):
+                return result
+            rows=result.get('generic_operations') or result.get('operations') or []
+            if not isinstance(rows,list) or not rows or not allowed or result.get('valid') is False:
+                return result
+            try:
+                counts={key:0 for key in first_eq}
+                selected=[]
+                ordered=sorted(rows,key=lambda op:(float(op.get('start_min',0)),
+                            float(op.get('end_min',0))))
+                for op in ordered:
+                    if not isinstance(op,dict) or str(op.get('order')) not in own_orders:
+                        continue
+                    ids=op.get('equipment_ids') or ([op.get('equipment_id')]
+                         if op.get('equipment_id') is not None else [])
+                    ids=list(dict.fromkeys(str(i) for i in ids if i is not None))
+                    targets=[i for i in ids if i in allowed]
+                    if not targets or any(counts[i]>=10 for i in targets):
+                        continue
+                    selected.append(copy.deepcopy(op))
+                    for key in targets: counts[key]+=1
+                    if len(selected)>=140:break
+                if selected:
+                    preview_slot['plan']={'operations':selected,
+                         'generic_operations':selected,'batches':[],
+                         'valid':True,'ok':True,'partial':True,
+                         '_pp_preview_limited':True,'_pp_preview_rows':14,
+                         '_pp_preview_per_row':10,
+                         'duration_minutes':result.get('duration_minutes',0),
+                         'start':result.get('start') or normalized.get('start')}
+                    preview_slot['serial']+=1
+                    preview_slot['last_at']=stamp
+            except (ValueError,TypeError,OverflowError):
+                pass  # A bad preview must never interrupt GA evaluation.
+            return result
+        ga['_pp_schedule_sequence']=live_schedule
