@@ -69,7 +69,6 @@
             if(!res.ok)return;
             const data=await res.json();
             if(closed||!data?.running)return;
-            if(job.id!==lastJob||false)return;
             const candidate=boundedPreview(data.candidate_preview||data.best_preview,model);
             if(candidate){
               const identity=candidate.operations.map(x=>[x.order,x.start_min,x.end_min,
@@ -110,7 +109,7 @@
             for(;;){
               const part=await reader.read();
               if(part.done)break;
-              buffer+=decoder.decode(part.value,{stream:true});
+              buffer+=decoder.decode(part.value,{stream:true}).replaceAll("\r","");
               if(buffer.length>32000)throw Error("worker_sse_frame_too_large");
               let at;
               while((at=buffer.indexOf("\n\n"))>=0){
