@@ -1,4 +1,5 @@
 name: LiftOrbit SSE end-to-end protocol and UI tests
+# verified worker native push and browser-origin-corrected one-connection QA
 on:
   push:
     branches: [main]
