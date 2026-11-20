@@ -1,0 +1,51 @@
+name: LiftOrbit actual OVH GA worker source branch validation
+# assert actual EventSource open after simulated initial HTTP 409 before releasing
+on:
+  push:
+    branches: [fix/sse-worker-active-source-20261120]
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify worker Condition push, Bun stream and browser EventSource
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          ga_root=/home/liftorbit-ci/liftorbit-migration/sources/current/ga
+          mkdir -p old/ga_python_workers/ga_workers new
+          for f in python-ga-upstream.mjs restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/$f" "old/$f"
+          done
+          for f in manager.py server.py; do
+            scp -q "${opts[@]}" "$USER@$HOST:$ga_root/ga_workers/$f" "old/ga_python_workers/ga_workers/$f"
+          done
+          cp -a old/. new/
+          node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new
+          node ops/ovh/sse-stream-v1-20261120/patch-backend.mjs new
+          node ops/ovh/sse-stream-v1-20261120/patch-frontend.mjs new
+          node --check new/python-ga-upstream.mjs
+          node --check new/restart-optimizer-ui.js
+          python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/server.py
+          python3 ops/ovh/sse-stream-v1-20261120/test-worker.py
+          python3 ops/ovh/sse-stream-v1-20261120/test-worker-http.py
+          node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+          node ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+          node --check ops/ovh/sse-stream-v1-20261120/_live-qa.mjs
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/sse-stream-v1-20261120/test-client.cjs
+          echo SSE_NO_BROWSER_POLL_WORKER_PUSH_ALL_PROTOCOL_TESTS_PASS
