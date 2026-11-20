@@ -25,6 +25,8 @@ cdp.on('Network.requestWillBeSent',event=>{
   }));
  }catch(error){console.log('NATIVE_STATUS_TRACE_ERROR',String(error))}
 });`,"cdp");
+replaceOne('if(!guard.v4||!guard.shed)throw Error("LIVE_ADAPTIVE_GA_PROGRESS_NOT_INSTALLED_"+JSON.stringify(guard));',
+ 'if(!guard.v4)throw Error("LIVE_ADAPTIVE_GA_PROGRESS_NOT_INSTALLED_"+JSON.stringify(guard));',"compat_guard");
 replaceOne("for(let i=0;i<48;i++){","for(let i=0;i<5;i++){","short_run");
 replaceOne(" const afterModel=await page.evaluate(async()=>{",
 " console.log('NATIVE_STATUS_TRACE_TOTAL',networkPolls);\n throw Error('NETWORK_PROBE_FINISHED');\n const afterModel=await page.evaluate(async()=>{","early_exit");
