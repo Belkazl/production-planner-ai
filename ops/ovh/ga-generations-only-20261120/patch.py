@@ -12,6 +12,10 @@ def one(s,a,b,label):
     if n!=1: raise RuntimeError("GA_GENERATIONS_SOURCE_DRIFT_"+label+"_"+str(n))
     return s.replace(a,b)
 source=one(source,
+    '    def __init__(self, *, capacity=4, timeout_s=300, max_jobs=200,',
+    '    def __init__(self, *, capacity=4, timeout_s=0, max_jobs=200,',
+    'default_no_timeout')
+source=one(source,
     '        if not 1 <= float(timeout_s) <= 3600:\n            raise ValueError("timeout_s must be 1..3600")',
     '        if not 0 <= float(timeout_s) <= 3600:\n            raise ValueError("timeout_s must be 0..3600 (0 disables deadline)")',
     "optional_zero_deadline")
