@@ -9,6 +9,48 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+      - name: Build and inspect read-only live Chrome request origin diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node <<'NODE'
+          const fs=require('fs');
+          let s=fs.readFileSync('ops/ovh/ga-start-recover-20261119/live-regression.mjs','utf8');
+          const once=(a,b)=>{if(s.split(a).length!==2)throw Error('DRIFT '+a);s=s.replace(a,b)}
+          once('const page=await ctx.newPage();',`const page=await ctx.newPage();
+          const cdp=await ctx.newCDPSession(page);
+          await cdp.send("Network.enable");
+          let diagCount=0;
+          cdp.on("Network.requestWillBeSent",e=>{
+           try{
+            const u=new URL(e.request.url);
+            if(u.pathname==="/api/plan-progress"&&e.request.method==="GET"){
+             const frames=e.initiator?.stack?.callFrames?.slice(0,7).map(f=>({
+              file:f.url?.split("/").pop()?.split("?")[0],fn:f.functionName,line:f.lineNumber+1,col:f.columnNumber+1
+             }));
+             console.log("NATIVE_POLL_STACK",JSON.stringify({n:++diagCount,params:[...u.searchParams.keys()],via:e.initiator.type,frames}));
+            }
+           }catch{}
+          });`);
+          once('if(!guard.v4||!guard.shed)throw Error("LIVE_ADAPTIVE_GA_PROGRESS_NOT_INSTALLED_"+JSON.stringify(guard));',
+              'console.log("NATIVE_DIAG_GUARD_OBSERVED",JSON.stringify(guard));');
+          const start=' const safeAudit=plan=>{',end='} catch(e){';
+          const i=s.indexOf(start),j=s.lastIndexOf(end);
+          if(i<0||j<=i)throw Error('DIAG_SOURCE_RANGE_DRIFT');
+          s=s.slice(0,i)+` for(let i=0;i<12;i++){
+            await page.waitForTimeout(2500);
+            const active=await page.evaluate(()=>({running:window.__PP_STOP_DEBUG__?.()?.running,
+             phase:window.__PP_STOP_DEBUG__?.()?.remotePhase, percent:window.__PP_GA_PROGRESS_V5__?.state?.shown,
+             progress:window.__PP_SSE_PROGRESS_V1__?.state?.percent}));
+            console.log("NATIVE_DIAG_SAMPLE",i,JSON.stringify(active));
+            if(!active.running&&i>4)break;
+          }
+          console.log("NATIVE_DIAG_TOTAL",diagCount);
+          `+s.slice(j);
+          fs.writeFileSync('ops/ovh/ga-start-recover-20261119/_native-poll-diagnostic.mjs',s);
+          NODE
+          node ops/ovh/ga-start-recover-20261119/_native-poll-diagnostic.mjs
       - name: Inspect protected OVH client source read-only
         shell: bash
         env:
