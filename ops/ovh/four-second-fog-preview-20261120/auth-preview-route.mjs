@@ -3,7 +3,7 @@ import {resolve} from "node:path";
 const dir=process.argv[2];if(!dir)throw Error("FOG_AUTH_PATCH_DIR_REQUIRED");
 const file=resolve(dir,"auth-runtime.js");
 let s=readFileSync(file,"utf8");
-const anchor='  if(req.method==="GET"&&path==="/"){';
+const anchor='if(req.method==="GET"&&path==="/"){';
 const snippet=[
  '  // An authenticated read-only GA endpoint bypasses legacy APS Gantt/status',
  '  // decorators. It never writes, commits, or modifies the best plan.',
