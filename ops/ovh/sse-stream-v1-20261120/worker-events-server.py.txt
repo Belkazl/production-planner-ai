@@ -1,0 +1,35 @@
+        def stream_events(self, principal, job_id):
+            # Check private account ownership before writing streaming headers.
+            manager.get(principal, job_id, include_plan=False)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-transform")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+
+            def chunk(value):
+                payload=value.encode("utf-8")
+                self.wfile.write(("%x\r\n" % len(payload)).encode("ascii"))
+                self.wfile.write(payload)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+
+            last=-1
+            try:
+                while True:
+                    state=manager.stream_wait(principal,job_id,last,timeout=15)
+                    if state["seq"] != last:
+                        last=state["seq"]
+                        compact=json.dumps(state,separators=(",", ":"),ensure_ascii=False)
+                        chunk("id: "+str(last)+"\nevent: progress\ndata: "+compact+"\n\n")
+                    else:
+                        chunk(": heartbeat\n\n")
+                    if state["status"] in ("completed","cancelled","failed","timed_out"):
+                        break
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except (BrokenPipeError,ConnectionResetError,OSError):
+                return
+
