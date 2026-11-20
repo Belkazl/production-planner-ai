@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 23
     steps:
       - uses: actions/checkout@v4
-      - name: Pin all four production sources and unit-test the exact patch without live edits
+      - name: Pin all five production sources and unit-test the exact patch without live edits
         id: preflight
         shell: bash
         env:
@@ -33,7 +33,7 @@ jobs:
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
           mkdir -p old/ga_python_workers/ga_workers new
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js auth-runtime.js; do
             scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "old/$file"
           done
           for file in manager.py full_runtime_adapter.py; do
@@ -43,10 +43,11 @@ jobs:
           node ops/ovh/four-second-fog-preview-20261120/patch.mjs new
           node --check new/python-ga-upstream.mjs
           node --check new/restart-optimizer-ui.js
+          node --check new/auth-runtime.js
           python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/full_runtime_adapter.py
           node ops/ovh/four-second-fog-preview-20261120/build-probe.mjs
           node --check ops/ovh/four-second-fog-preview-20261120/_probe.mjs
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js auth-runtime.js; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$file.sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
           done
@@ -73,47 +74,49 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           root=/home/liftorbit-ci/liftorbit-migration
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js auth-runtime.js; do
             scp -q "${opts[@]}" "new/$file" "$USER@$HOST:$root/sources/ovh-app/pp-fog-$file.next"
           done
           for file in manager.py full_runtime_adapter.py; do
             scp -q "${opts[@]}" "new/ga_python_workers/ga_workers/$file" "$USER@$HOST:$root/sources/ovh-app/pp-fog-$file.next"
           done
-          ssh "${opts[@]}" "$USER@$HOST" bash -s --             "$(cat "$RUNNER_TEMP/old-python-ga-upstream.mjs.sha")" "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")"             "$(cat "$RUNNER_TEMP/old-restart-optimizer-ui.js.sha")" "$(cat "$RUNNER_TEMP/new-restart-optimizer-ui.js.sha")"             "$(cat "$RUNNER_TEMP/old-manager.py.sha")" "$(cat "$RUNNER_TEMP/new-manager.py.sha")"             "$(cat "$RUNNER_TEMP/old-full_runtime_adapter.py.sha")" "$(cat "$RUNNER_TEMP/new-full_runtime_adapter.py.sha")" <<'REMOTE'
+          ssh "${opts[@]}" "$USER@$HOST" bash -s --             "$(cat "$RUNNER_TEMP/old-python-ga-upstream.mjs.sha")" "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")"             "$(cat "$RUNNER_TEMP/old-restart-optimizer-ui.js.sha")" "$(cat "$RUNNER_TEMP/new-restart-optimizer-ui.js.sha")"             "$(cat "$RUNNER_TEMP/old-manager.py.sha")" "$(cat "$RUNNER_TEMP/new-manager.py.sha")"             "$(cat "$RUNNER_TEMP/old-full_runtime_adapter.py.sha")" "$(cat "$RUNNER_TEMP/new-full_runtime_adapter.py.sha")" "$(cat "$RUNNER_TEMP/old-auth-runtime.js.sha")" "$(cat "$RUNNER_TEMP/new-auth-runtime.js.sha")" <<'REMOTE'
           set -euo pipefail
           root="$HOME/liftorbit-migration"
           base="$root/sources/ovh-app"
           backup="$root/patch-backups/four-second-fog-preview-20261120"
-          names=(python-ga-upstream.mjs restart-optimizer-ui.js manager.py full_runtime_adapter.py)
+          names=(python-ga-upstream.mjs restart-optimizer-ui.js manager.py full_runtime_adapter.py auth-runtime.js)
           files=("$base/current/python-ga-upstream.mjs"
                  "$base/current/restart-optimizer-ui.js"
                  "$base/current/ga_python_workers/ga_workers/manager.py"
-                 "$base/current/ga_python_workers/ga_workers/full_runtime_adapter.py")
+                 "$base/current/ga_python_workers/ga_workers/full_runtime_adapter.py"
+                 "$base/current/auth-runtime.js")
           staged=("$base/pp-fog-python-ga-upstream.mjs.next"
                   "$base/pp-fog-restart-optimizer-ui.js.next"
                   "$base/pp-fog-manager.py.next"
-                  "$base/pp-fog-full_runtime_adapter.py.next")
+                  "$base/pp-fog-full_runtime_adapter.py.next"
+                  "$base/pp-fog-auth-runtime.js.next")
           expected=("$@")
-          test "${#expected[@]}" -eq 8
+          test "${#expected[@]}" -eq 10
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
-          for i in 0 1 2 3; do
+          for i in 0 1 2 3 4; do
             test "$(sha "${files[$i]}")" = "${expected[$((2*i))]}"
             test "$(sha "${staged[$i]}")" = "${expected[$((2*i+1))]}"
           done
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
           mkdir -p "$backup"
-          for i in 0 1 2 3; do
+          for i in 0 1 2 3 4; do
             cp -p "${files[$i]}" "$backup/${names[$i]}"
             test "$(sha "$backup/${names[$i]}")" = "${expected[$((2*i))]}"
           done
           rollback(){
             trap - ERR
-            for i in 0 1 2 3; do cp -p "$backup/${names[$i]}" "${files[$i]}" || true; done
+            for i in 0 1 2 3 4; do cp -p "$backup/${names[$i]}" "${files[$i]}" || true; done
             sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
             echo FOG_ROLLBACK_ATTEMPTED
           }
           trap rollback ERR
-          for i in 0 1 2 3; do mv "${staged[$i]}" "${files[$i]}"; done
+          for i in 0 1 2 3 4; do mv "${staged[$i]}" "${files[$i]}"; done
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
           healthy=no
           for attempt in $(seq 1 26); do
@@ -121,7 +124,7 @@ jobs:
             sleep 5
           done
           test "$healthy" = yes
-          for i in 0 1 2 3; do test "$(sha "${files[$i]}")" = "${expected[$((2*i+1))]}"; done
+          for i in 0 1 2 3 4; do test "$(sha "${files[$i]}")" = "${expected[$((2*i+1))]}"; done
           trap - ERR
           echo FOG_140_PRODUCTION_DEPLOYED
           REMOTE
@@ -146,7 +149,7 @@ jobs:
           set -euo pipefail
           node ops/ovh/four-second-fog-preview-20261120/_probe.mjs
           echo FOG_140_TWO_RUN_LIVE_ACCEPTANCE_PASS
-      - name: Restore four exact previous sources if real browser acceptance fails
+      - name: Restore five exact previous sources if real browser acceptance fails
         if: ${{ failure() && steps.rollout.outcome == 'success' }}
         shell: bash
         env:
@@ -165,11 +168,12 @@ jobs:
           root="$HOME/liftorbit-migration"
           base="$root/sources/ovh-app/current"
           backup="$root/patch-backups/four-second-fog-preview-20261120"
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js manager.py full_runtime_adapter.py; do test -r "$backup/$file"; done
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js manager.py full_runtime_adapter.py auth-runtime.js; do test -r "$backup/$file"; done
           cp -p "$backup/python-ga-upstream.mjs" "$base/python-ga-upstream.mjs"
           cp -p "$backup/restart-optimizer-ui.js" "$base/restart-optimizer-ui.js"
           cp -p "$backup/manager.py" "$base/ga_python_workers/ga_workers/manager.py"
           cp -p "$backup/full_runtime_adapter.py" "$base/ga_python_workers/ga_workers/full_runtime_adapter.py"
+          cp -p "$backup/auth-runtime.js" "$base/auth-runtime.js"
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
           echo FOG_140_ROLLBACK_VERIFIED
