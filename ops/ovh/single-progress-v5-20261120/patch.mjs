@@ -24,10 +24,13 @@ for(const [module,marker] of modules){
  if(at<0||source.indexOf(startMarker,at+1)>=0)throw Error("PP_V5_MODULE_NOT_UNIQUE_"+module);
  let next=source.indexOf("\n;(function ",at+startMarker.length);
  if(next<0)next=source.length;
- const close=source.lastIndexOf("\n})();",next);
+ const close=module==="ppLargeGaProgressLoadShedV1"?
+  source.indexOf("\n})();",at):source.lastIndexOf("\n})();",next);
  if(close<=at||close-at>35000)throw Error("PP_V5_MODULE_CLOSING_DRIFT_"+module);
  const removed=source.slice(at,close+6);
  if(!removed.includes(marker))throw Error("PP_V5_MODULE_ID_MISMATCH_"+module);
+ if(module==="ppLargeGaProgressLoadShedV1"&&removed.length>4500)
+  throw Error("PP_V5_STATUS_SHED_CLOSURE_TOO_LONG");
  source=source.slice(0,at)+source.slice(close+6);
  console.log("RETIRED_PROGRESS_OR_PREVIEW_OWNER",module,removed.length);
 }
