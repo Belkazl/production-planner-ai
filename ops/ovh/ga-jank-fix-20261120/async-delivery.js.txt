@@ -30,6 +30,8 @@
      if(r.status!==200)return;
      const data=await r.json();
      if(slot.version!==version||data?.ok!==true)return;
+     if(slot.awaitJob&&data.job_id===slot.awaitJob&&data.running!==true)return;
+     if(data.job_id&&data.job_id!==slot.awaitJob)slot.awaitJob=null;
      // Never persist a full schedule in the fast endpoint.
      if(data.running===true){
        slot.data={...data,best_preview:null,result:null};
@@ -55,10 +57,11 @@
    const key=ppSecureSessionKey(req),now=Date.now();
    let slot=slots.get(key);
    if(!slot){
-     slot={data:null,at:0,lastStart:0,refresh:null,version:0,needFull:false,error:null};
+     slot={data:null,at:0,lastStart:0,refresh:null,version:0,needFull:false,error:null,awaitJob:null};
      slots.set(key,slot);
    }
    if(url.searchParams.has("ppFresh")){
+     slot.awaitJob=slot.data?.job_id||null;
      slot.version++;slot.data=null;slot.at=0;slot.lastStart=0;slot.needFull=false;
    }
    if(slots.size>128){const first=slots.keys().next().value;slots.delete(first)}
