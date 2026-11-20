@@ -12,7 +12,7 @@ const isRu=()=>window.__PP_LANGUAGE__?.current==="ru"||
 let disposed=false,wasRunning=false,previewPending=false,lightPending=false;
 let previews=0,activity=0,light=0,errors=0,skipped=0,slowResponses=0;
 let lastHash=null,lastPlan=null,lastJob=null,latestPercent=null;
-let startedAt=0,lastResponseAt=0,lastRenderedAt=0;
+let startedAt=0,lastResponseAt=0,lastRenderedAt=0,lastSampleAge=null;
 let maxPreviewGap=0,maxPaintMs=0,drawScheduled=false,renderCount=0,lastSerial=0;
 let fogRows=[],hint=null;
 const css=document.createElement("style");
@@ -119,7 +119,7 @@ function updateHint(){
  }
  const sec=Math.floor((Date.now()-startedAt)/1000);
  const elapsed=String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");
- const oldMs=lastResponseAt?Date.now()-lastResponseAt:Infinity;
+ const oldMs=lastSampleAge==null?(lastResponseAt?Date.now()-lastResponseAt:Infinity):lastSampleAge;
  if(hint)hint.textContent=(isRu()?"Проверка вариантов":"Checking variants")+
   " · "+elapsed+(oldMs>9000?" · "+(isRu()?"ожидание данных":"awaiting data"):"");
  const button=document.getElementById("opt");
@@ -148,7 +148,7 @@ async function lightTick(){
  try{
   const p=await getData(snapshotPath+"?ppLight=1",5500);
   if(disposed||!running())return;
-  lastResponseAt=Date.now();
+  lastResponseAt=Date.now();lastSampleAge=p.snapshot_age_ms??null;
   emit(p);
  }catch(_){errors++}
  finally{lightPending=false}
@@ -160,7 +160,7 @@ async function previewTick(){
  try{
   const p=await getData(snapshotPath+"?ppPreview=1",6500);
   if(disposed||!running())return;
-  activity++;lastResponseAt=Date.now();
+  activity++;lastResponseAt=Date.now();lastSampleAge=p.snapshot_age_ms??null;
   if(p.job_id&&lastJob&&p.job_id!==lastJob){lastHash=null;clearFog()}
   if(p.job_id)lastJob=p.job_id;
   emit(p);
@@ -205,7 +205,7 @@ window.__PP_FOUR_SECOND_PREVIEW__={
  get state(){return{
   previews,activity,light,errors,skipped,renderCount,lastSerial,lastJob,
   maxPaintMs,maxPreviewGap,slowResponses,
-  lastResponseAt,lastRenderedAt,latestPercent,
+  lastResponseAt,lastRenderedAt,lastSampleAge,latestPercent,
   active:running(),fogRows:fogRows.length
  }},
  refresh:previewTick,
