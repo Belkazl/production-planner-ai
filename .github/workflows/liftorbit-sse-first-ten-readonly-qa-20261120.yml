@@ -1,0 +1,44 @@
+name: Verify first ten Gantt operations and changeovers on running OVH production
+on:
+  push:
+    branches: [diagnostics/sse-first-ten-setup-live-qa-20261120]
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact deployed backend source and run two actual 886-operation GA sessions
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          scp -q "${opts[@]}" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs" "$RUNNER_TEMP/actual.mjs"
+          actual=$(sha256sum "$RUNNER_TEMP/actual.mjs" | cut -d' ' -f1)
+          echo "SSE_PRODUCTION_BACKEND_SHA=$actual"
+          test "$actual" = "c25a7675624813aa4019790dd6df97d0b50ab76794d8b24d697f1e4f493942cb"
+          ssh "${opts[@]}" "$USER@$HOST" sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo SSE_PRODUCTION_BACKEND_SOURCE_AND_SMOKE_PASS
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+          SSE_TEST_CANDIDATE_WITHOUT_SETUPS=1 node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+          node ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+          node --check ops/ovh/sse-stream-v1-20261120/_live-qa.mjs
+          node ops/ovh/sse-stream-v1-20261120/_live-qa.mjs > "$RUNNER_TEMP/liveqa.log" 2>&1 || { tail -n 80 "$RUNNER_TEMP/liveqa.log"; exit 1; }
+          grep 'SSE_LIVE_PROGRESS_AND_PREVIEW_SUMMARY' "$RUNNER_TEMP/liveqa.log"
+          grep 'SSE_VISIBLE_FULL_100_VERIFIED' "$RUNNER_TEMP/liveqa.log"
+          grep 'CERAMIC_DURABLE_PLAN_VERIFIED' "$RUNNER_TEMP/liveqa.log"
+          grep 'GA_START_502_HTML_ON_REAL_886_OP_CONTINUE_NO_DUPLICATE_PASS' "$RUNNER_TEMP/liveqa.log"
+          scp -q "${opts[@]}" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/python-ga-upstream.mjs" "$RUNNER_TEMP/after.mjs"
+          test "$(sha256sum "$RUNNER_TEMP/after.mjs" | cut -d' ' -f1)" = "$actual"
+          echo SSE_FIRST_TEN_OPS_AND_CHANGEOVER_OVH_FULL_REGRESSION_PASS
