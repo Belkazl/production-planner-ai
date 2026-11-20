@@ -91,7 +91,7 @@ between(' await page.waitForFunction(()=>window.__PP_GA_PROGRESS_V4__',
  ' await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__?.state?.completed===true&&',
  '   window.__PP_SSE_PROGRESS_V1__?.state?.percent===100,null,{timeout:175000,polling:700});'
  ],"second_100");
-one('   v4:window.__PP_GA_PROGRESS_V4__?.state,\n   text:document.getElementById("opt")?.getAttribute("data-pp-ga-v4-label"),',
+one('  v4:window.__PP_GA_PROGRESS_V4__?.state,\n  text:document.getElementById("opt")?.getAttribute("data-pp-ga-v4-label"),',
  '   sse:window.__PP_SSE_PROGRESS_V1__?.state,\n   text:document.querySelector("#opt .pp-sse-label")?.textContent,',
  "second_state");
 one('     !secondUi.v4?.finalDone||!secondUi.text?.includes("100%")||',
