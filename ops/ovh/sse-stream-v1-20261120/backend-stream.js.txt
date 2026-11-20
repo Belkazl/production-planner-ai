@@ -165,8 +165,15 @@
             }
             if(!closed)throw Error("worker_events_disconnected");
           }catch(error){
-            if(!closed)emit("error",{job_id:job.id,reason:
-              aborter?.signal.aborted?"sse_aborted":"sse_connection_lost"});
+            if(!closed){
+              const message=String(error?.message||"");
+              const reason=aborter?.signal.aborted?"sse_aborted":
+                /^worker_events_http_[0-9]{3}$/.test(message)?message:
+                message==="worker_events_disconnected"?"worker_disconnected":
+                error?.name==="TypeError"?"worker_fetch_type_error":
+                "worker_event_stream_failed";
+              emit("problem",{job_id:job?.id||null,reason});
+            }
           }finally{close()}
         })();
         void task;
