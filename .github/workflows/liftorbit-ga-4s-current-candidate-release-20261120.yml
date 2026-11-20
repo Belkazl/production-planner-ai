@@ -1,5 +1,5 @@
 name: LiftOrbit eliminate progress and Gantt freezes on large plans
-# acceptance separates ongoing optimization freezes from full terminal Gantt rendering
+# preflight-verified guard measures active freeze and separately reports final rendering
 on:
   push:
     branches: [main]
