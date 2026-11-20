@@ -1,4 +1,5 @@
 name: LiftOrbit release four-second 140-op candidate fog preview
+# direct current candidate response-key diagnostic
 on:
   push:
     branches: [main]
