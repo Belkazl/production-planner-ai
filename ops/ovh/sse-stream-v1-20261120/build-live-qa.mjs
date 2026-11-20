@@ -94,6 +94,8 @@ between(
  ' if(sse.previews<1||sse.previewRows!==14||',
  '    sse.previewJobCount+sse.previewSetupCount>140)',
  '  throw Error("SSE_INTERIM_FIRST_TEN_OPERATIONS_PER_ROW_INVALID_"+JSON.stringify(sse));',
+ ' if(sse.previewSetupCount<1)',
+ '  throw Error("SSE_REAL_DEMO_CHANGEOVER_MISSING_IN_INTERIM_GANTT_"+JSON.stringify(sse));',
  ' console.log("SSE_REAL_FIRST_TEN_OPS_INCLUDING_SETUPS_SAMPLE",JSON.stringify({',
  '  rows:sse.previewRows,jobs:sse.previewJobCount,setups:sse.previewSetupCount}));',
  ' const periodicRequests=progressRequests.filter(t=>t>=epochs&&t<Date.now()-10000);',

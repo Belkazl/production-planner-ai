@@ -1,6 +1,7 @@
 import {createPythonGAUpstream} from "../../../new/python-ga-upstream.mjs";
 import assert from "node:assert/strict";
 const jobId="a".repeat(32),principal="one-account";
+const simulateMissing=process.env.SSE_TEST_CANDIDATE_WITHOUT_SETUPS==="1";
 const model={
  orders:[{id:"A"}],
  equipment:Array.from({length:14},(_,i)=>({id:"E"+i})),
@@ -23,10 +24,15 @@ const setups=model.equipment.flatMap(eq=>Array.from({length:12},(_,i)=>({
 })));
 const genericOperations=[...setups,...operations].sort((a,b)=>a.start_min-b.start_min);
 const plan={ok:true,valid:true,partial:false,operations,
- generic_operations:genericOperations,setup_operation_count:setups.length,
+ generic_operations:genericOperations,setup_operations:setups,
+ setup_operation_count:setups.length,
  order_sequence:["A"],duration_minutes:270,
  batch_count:7,operator_wait_minutes:1200,machine_idle_minutes:1400,
  resume_state:{version:0,order_sequence:["A"]}};
+// Match the real GA worker: interim `candidate_preview` has separate
+// setup_operations, while operations/generic_operations contain only jobs.
+const liveCandidate={...plan,operations,generic_operations:operations,
+ setup_operations:simulateMissing?[]:setups};
 let state="queued", seq=0,controller=null,readStatus=0,starts=0;
 const send=(phase,pct)=>{
  if(!controller)return;
@@ -57,7 +63,8 @@ const fakeFetch=async(url,opt)=>{
   return Response.json({
    job_id:jobId,status:state,progress:state==="completed"?100:state==="queued"?0:73,
    stage:state==="completed"?"completed":"optimizing",
-   best_preview:plan,result:state==="completed"?plan:undefined,error:null
+   best_preview:plan,candidate_preview:state==="running"?liveCandidate:null,
+   result:state==="completed"?plan:undefined,error:null
   });
  }
  throw Error("UNEXPECTED_FAKE_WORKER_ROUTE_"+u.pathname);
@@ -115,6 +122,10 @@ assert.ok(previews.length>0);
 for(const preview of previews){
  assert.equal(preview.partial,true);
  assert.equal(preview._pp_preview_setups_included,true);
+ assert.equal(preview._pp_preview_detached_setups,simulateMissing?0:168,
+  "Detached setup restoration must work; verified best fallback must avoid duplicates");
+ assert.equal(preview._pp_preview_origin,simulateMissing?"best":"candidate",
+  "Choose verified setup-aware best only when the tentative candidate has no setup schedule");
  assert.equal(preview._pp_preview_per_row,10);
  assert.equal(preview._pp_preview_production_count,70);
  assert.equal(preview._pp_preview_setup_count,70);
