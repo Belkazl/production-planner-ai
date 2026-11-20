@@ -1,0 +1,49 @@
+name: LiftOrbit legacy browser progress poll source inspection
+on:
+  push:
+    branches: [fix/sse-zero-rest-progress-poll-20261120]
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-source-inspect-no-deploy
+  cancel-in-progress: true
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read native UI modules and list all progress polling owners
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST:$HOME/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" "$RUNNER_TEMP/native-ui.js"
+          echo "=== ALL_PROGRESS_REFS ==="
+          grep -n -C 3 'plan-progress' "$RUNNER_TEMP/native-ui.js" | head -n 300 | cut -c1-200 || true
+          echo "=== MODULE_OWNERS ==="
+          UI="$RUNNER_TEMP/native-ui.js" node - <<'JS'
+          const fs=require('node:fs'),s=fs.readFileSync(process.env.UI,'utf8');
+          const blocks=[...s.matchAll(/;\(function\s+([a-zA-Z0-9_$]+)\s*\(\)\s*\{/g)];
+          const rows=[];
+          for(let i=0;i<blocks.length;i++){
+           const a=blocks[i].index,b=i+1<blocks.length?blocks[i+1].index:s.length;
+           const src=s.slice(a,b),name=blocks[i][1];
+           if(/plan-progress|setInterval|setTimeout|__PP_.*PROGRESS|optimizer-started/.test(src)){
+             rows.push({name,lines:src.split('\n').length,progress:(src.match(/plan-progress/g)||[]).length,
+              intervals:(src.match(/setInterval/g)||[]).length,timers:(src.match(/setTimeout/g)||[]).length,
+              hasDispose:/dispose\s*\(/.test(src),hasStop:/stop\s*\(/.test(src),
+              nativeFetch:/originalFetch|nativeFetch|fetch\.bind|\.fetch\.bind/.test(src)});
+           }
+          }
+          console.log(JSON.stringify(rows,null,2));
+          const xs=[...s.matchAll(/.{0,110}\/api\/plan-progress.{0,170}/g)].slice(0,35);
+          console.log('PROGRESS_CALL_CONTEXTS',xs.map(x=>x[0].trim()).join('\n'));
+          JS
