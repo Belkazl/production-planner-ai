@@ -8,7 +8,7 @@ let active=false,completed=false,disposed=false,connected=false,manuallyStopped=
 let stream=null,retryTimer=null,jobId=null,percent=0,phase="idle",fullData=null,fullPending=false;
 let targetPercent=0,animationTimer=null,verifiedTerminal=false,finalRetryTimer=null,finalRetries=0;
 let barButton=null,label=null,track=null,fill=null,observer=null;
-let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0;
+let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0,lastStreamIssue=null;
 let lastPreviewSignature="",lastPlan=null,lastPaint=0,renderScheduled=false;
 let fogRows=[];
 const css=document.createElement("style");
@@ -217,7 +217,7 @@ function connect(){
   void finish();
  });
  stream.addEventListener("stopped",()=>{stop()});
- stream.addEventListener("problem",()=>{errors++});
+ stream.addEventListener("problem",e=>{errors++;try{lastStreamIssue=JSON.parse(e.data)?.reason||"unknown"}catch{lastStreamIssue="unreadable_event"}});
  stream.addEventListener("error",()=>{
   connected=false;reconnects++;
   if(!active||disposed)return;
@@ -288,7 +288,7 @@ if(document.readyState==="loading")
 window.__PP_SSE_PROGRESS_V1__={
  installed:true,mode:"one-native-ga-sse-no-client-status-poll",
  get state(){return{active,completed,connected,percent,phase,events,previews,
-   networkFinalGets,blockedDialogs,errors,reconnects,retryScheduled:!!retryTimer,jobId,lastPaint,
+   networkFinalGets,blockedDialogs,errors,reconnects,lastStreamIssue,retryScheduled:!!retryTimer,jobId,lastPaint,
    lineVisible:!!track?.isConnected}},
  start,stop,
  dispose(){
