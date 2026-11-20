@@ -19,6 +19,7 @@ css.textContent=[
  "#opt.pp-sse-active{position:relative!important;isolation:isolate!important;",
  "overflow:hidden!important;color:transparent!important}",
  "#opt.pp-sse-active .pp-opt-progress-line{display:none!important}",
+ "#opt.pp-sse-active:not(.pp-sse-done){pointer-events:none!important}",
  "#opt.pp-sse-active .pp-sse-label{position:absolute!important;z-index:21!important;inset:0!important;",
  "display:flex!important;align-items:center!important;justify-content:center!important;",
  "font:600 12px/1.2 Inter,system-ui,Arial,sans-serif!important;",
@@ -37,7 +38,7 @@ css.textContent=[
 (document.head||document.documentElement).appendChild(css);
 const button=()=>document.getElementById("opt");
 function detachMeter(){
- barButton?.classList.remove("pp-sse-active");
+ barButton?.classList.remove("pp-sse-active","pp-sse-done");
  barButton?.removeAttribute("aria-valuenow");
  label?.remove();track?.remove();label=track=fill=null;
 }
@@ -61,6 +62,7 @@ function ensureMeter(){
   fill=document.createElement("span");fill.className="pp-sse-fill";track.appendChild(fill);btn.appendChild(track);
  }
  if(!btn.classList.contains("pp-sse-active"))btn.classList.add("pp-sse-active");
+ btn.classList.toggle("pp-sse-done",completed);
  const doneText=(/^ru/i.test(document.documentElement.lang||"")||
    window.__PP_LANGUAGE__?.current==="ru")?"Продолжить · 100%":"Continue · 100%";
  const shownText=completed?doneText:percent+"%";
