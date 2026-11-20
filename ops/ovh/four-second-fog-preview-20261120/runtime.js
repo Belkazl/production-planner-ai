@@ -81,6 +81,8 @@ function paintFog(){
  }
 }
 const emitMeta=p=>{
+ if(typeof p?.stage==="string")
+  window.dispatchEvent(new CustomEvent("pp:ga-server-stage",{detail:p.stage}));
  if(p?.running===true&&Number.isFinite(Number(p.percent))){
   lastPercent=Math.max(0,Math.min(99,Math.floor(Number(p.percent))));
   window.dispatchEvent(new CustomEvent("pp:ga-light-progress",{detail:{
