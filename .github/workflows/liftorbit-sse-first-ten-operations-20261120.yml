@@ -1,0 +1,36 @@
+name: LiftOrbit first 10 operations per equipment incl setup SSE release
+on:
+  push:
+    branches: [main, fix/sse-first-ten-jobs-with-setups-20261120]
+    paths:
+      - .github/workflows/liftorbit-sse-first-ten-operations-20261120.yml
+      - ops/ovh/sse-first-ten-ops-20261120/**
+      - ops/ovh/sse-stream-v1-20261120/backend-stream.js.txt
+      - ops/ovh/sse-stream-v1-20261120/frontend.js.txt
+      - ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+      - ops/ovh/sse-stream-v1-20261120/test-client.cjs
+      - ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-sse-first-ten-ops-release
+  cancel-in-progress: false
+jobs:
+  verify_and_release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight source and browser tests; deploy to OVH only on main; verify two GA runs
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            bash ops/ovh/sse-first-ten-ops-20261120/deploy.sh
+          else
+            FIRST_TEN_PREFLIGHT_ONLY=yes bash ops/ovh/sse-first-ten-ops-20261120/deploy.sh
+          fi
