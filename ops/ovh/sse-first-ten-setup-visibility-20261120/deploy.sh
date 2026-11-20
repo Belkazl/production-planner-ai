@@ -24,6 +24,7 @@ node ops/ovh/sse-first-ten-setup-visibility-20261120/patch.mjs "$tmp/old.mjs" ne
 node --check new/python-ga-upstream.mjs
 npm install --no-save --no-package-lock playwright-core@1.57.0
 node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+SSE_TEST_CANDIDATE_WITHOUT_SETUPS=1 node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
 node ops/ovh/sse-stream-v1-20261120/test-client.cjs
 node ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
 node --check ops/ovh/sse-stream-v1-20261120/_live-qa.mjs
