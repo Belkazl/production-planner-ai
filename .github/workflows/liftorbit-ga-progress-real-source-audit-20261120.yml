@@ -31,6 +31,16 @@ jobs:
           echo GA_SOURCE_ROOT_EXISTS
           test -d "$root"
           find -L "$root" -maxdepth 4 -type f \( -name '*.py' -o -name '*.mjs' -o -name '*.js' \) -not -path '*/node_modules/*' -not -path '*/__pycache__/*' | head -n 100 | sed "s@^$root/@@"
+          echo GA_MANAGER_RUN_BUDGET_START
+          sed -n '1,135p' "$root/ga_workers/manager.py" | cut -c1-270
+          echo GA_MANAGER_RUN_BUDGET_BODY
+          sed -n '245,365p' "$root/ga_workers/manager.py" | cut -c1-270
+          echo GA_SERVER_MANAGER_CONFIGURATION
+          grep -En -C 8 'ProcessJobManager|timeout_s|job_timeout|GA_.*TIME|MAX_.*TIME|WORKER.*TIME|capacity=' "$root/ga_workers/server.py" | head -n 135 | cut -c1-270 || true
+          echo GA_ADAPTER_EXECUTION_PROGRESS
+          sed -n '446,516p' "$root/ga_workers/full_runtime_adapter.py" | cut -c1-270
+          echo GA_COMPILER_PROGRESS_HOOKS
+          grep -Ein -C 4 'generation|progress|stagnation|early.stop|time_limit|time_budget' "$root/ga_workers/compile_legacy_ga.py" | head -n 130 | cut -c1-270 || true
           echo GA_PROGRESS_REFERENCES
           find -L "$root" -maxdepth 4 -type f \( -name '*.py' -o -name '*.mjs' \) -not -path '*/__pycache__/*' | while IFS= read -r file; do
             count=$(grep -Eic "early_stop|early.stop|stagnation|plateau|progress|generation" "$file" 2>/dev/null || true)
