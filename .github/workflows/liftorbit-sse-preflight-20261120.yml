@@ -1,0 +1,62 @@
+name: LiftOrbit SSE push transport preflight
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-sse-preflight-20261120.yml]
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact worker and client sources, patch syntax and status isolation
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old/ga_python_workers/ga_workers new
+          for f in python-ga-upstream.mjs restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/$f" "old/$f"
+          done
+          for f in manager.py server.py; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers/$f" "old/ga_python_workers/ga_workers/$f"
+          done
+          cp -a old/. new/
+          node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new
+          node ops/ovh/sse-stream-v1-20261120/patch-backend.mjs new
+          node ops/ovh/sse-stream-v1-20261120/patch-frontend.mjs new
+          node --check new/python-ga-upstream.mjs
+          node --check new/restart-optimizer-ui.js
+          python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/server.py
+          python3 - <<'PY'
+          from pathlib import Path
+          w=(Path("new/ga_python_workers/ga_workers/manager.py")).read_text()
+          s=(Path("new/ga_python_workers/ga_workers/server.py")).read_text()
+          b=(Path("new/python-ga-upstream.mjs")).read_text()
+          f=(Path("new/restart-optimizer-ui.js")).read_text()
+          assert "def stream_wait" in w and "job.event_seq += 1" in w
+          assert "/internal/jobs" not in s or "stream_events" in s
+          assert "event: progress" in s
+          assert "if(path==='/api/plan-events'" in b
+          assert "ppOneSseProgressAndGantt" in f
+          assert "ppLightweightLiveGanttV2" not in f
+          assert "ppSingleServerProgressV5" not in f
+          assert "setInterval(previewTick" not in f
+          assert "setInterval(lightTick" not in f
+          assert "ppUnifiedGanttV2" in f
+          assert "__PP_STOP_DEBUG__" in f
+          print("SSE_NATIVE_PUSH_NO_LEGACY_POLLING_SOURCE_VERIFIED")
+          PY
+          echo SSE_PREFLIGHT_PASS
