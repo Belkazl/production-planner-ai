@@ -1,0 +1,47 @@
+name: LiftOrbit read-only V5 rollback integrity check
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-v5-rollback-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare live UI with exact backup and check service without changes
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path.home()/'liftorbit-migration'
+          live=root/'sources/ovh-app/current/restart-optimizer-ui.js'
+          backup=root/'patch-backups/single-progress-v5-20261120/restart-optimizer-ui.js'
+          for name,p in [('live',live),('backup',backup)]:
+            if not p.exists():print('FILE_MISSING',name);continue
+            s=p.read_bytes()
+            print('V5_AUDIT',name,hashlib.sha256(s).hexdigest(),
+                'has_new','ppSingleServerProgressV5' in s.decode(errors='replace'),
+                'has_old','ppNativeOneOwnerProgressV4' in s.decode(errors='replace'))
+          print('V5_EXACT_PREVIOUS_RESTORED',live.exists() and backup.exists() and live.read_bytes()==backup.read_bytes())
+          path=root/'patch-backups/single-progress-v5-20261120/e2e-rollback-private.log'
+          if path.exists():
+             print('V5_ROLLBACK_LOG_LENGTH',len(path.read_text(errors='replace').splitlines()))
+          PY
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo V5_ROLLBACK_SERVER_SMOKE_HEALTHY
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health)
+          test "$status" = 200
+          echo V5_PUBLIC_HEALTH_CONFIRMED
