@@ -127,6 +127,12 @@ for(const preview of previews){
  assert.equal(preview._pp_preview_origin,simulateMissing?"best":"candidate",
   "Choose verified setup-aware best only when the tentative candidate has no setup schedule");
  assert.equal(preview._pp_preview_per_row,10);
+ assert.equal(preview.duration_minutes,99,
+  "Use first-ten-operation visible time window for legible short changeovers");
+ assert.equal(preview._pp_preview_full_duration_minutes,270,
+  "Keep real full-plan duration separately for KPI integrity");
+ assert.equal(preview._pp_preview_kpis.duration_minutes,270,
+  "Never show preview time window as a full-plan KPI");
  assert.equal(preview._pp_preview_production_count,70);
  assert.equal(preview._pp_preview_setup_count,70);
  assert.equal(preview.operations.length,140,
