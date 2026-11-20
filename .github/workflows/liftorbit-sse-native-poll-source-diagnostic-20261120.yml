@@ -1,0 +1,45 @@
+name: Diagnose LiftOrbit native GA polling without production mutation
+on:
+  push:
+    branches: [diagnostics/sse-native-poll-20261120]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect protected OVH client source read-only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" "$RUNNER_TEMP/ui.js"
+          UI_PATH="$RUNNER_TEMP/ui.js" node <<'NODE'
+          const fs=require('fs');
+          const src=fs.readFileSync(process.env.UI_PATH,'utf8');
+          const lines=src.split('\n');
+          const terms=['/api/plan-progress','plan-progress?','ppNoCache','ppReconnect','ppStopConfirm','setInterval(','ppLightweightLiveGanttV2','ppSingleServerProgressV5'];
+          for(const term of terms){
+            const hits=[];
+            for(let i=0;i<lines.length;i++)if(lines[i].includes(term))hits.push(i+1);
+            console.log('AUDIT_TERM',term,'COUNT',hits.length,'LINES',hits.slice(0,100).join(','));
+            if(term.includes('progress')||term.startsWith('pp')){
+              for(const n of hits.slice(0,40)){
+                // Source snippets are local code, never runtime tokens or model contents.
+                let snippet=lines.slice(Math.max(0,n-2),Math.min(lines.length,n+2)).join(' ').trim().slice(0,450);
+                snippet=snippet.replace(/[\x00-\x1f]/g,' ').replace(/Bearer\s+[^\s'"]+/ig,'Bearer [redacted]');
+                console.log('AUDIT_SNIPPET_LINE',n,snippet);
+              }
+            }
+          }
+          console.log('AUDIT_SOURCE_LENGTH',src.length);
+          NODE
