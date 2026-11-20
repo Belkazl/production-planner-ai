@@ -84,6 +84,11 @@
       Number(a.end_min)-Number(b.end_min));
     const productionCount=selected.filter(op=>!isSetup(op)).length;
     const setupCount=selected.length-productionCount;
+    // Use the VISIBLE first-ten-operation window for the interim time axis.
+    // Keeping the complete optimization duration here compresses every real
+    // changeover into a near-invisible sliver at the far left of the Gantt.
+    // Full-candidate metrics still arrive separately in _pp_preview_kpis.
+    const visibleEnd=Math.max(1,Math.ceil(Math.max(...selected.map(op=>Number(op.end_min)))));
     // At most 10 actual operations per lane, including setups. 14 equipment
     // lanes mean a maximum of 140 unique preview operations, not more.
     if(selected.length>equipment.length*10)
@@ -104,7 +109,8 @@
       _pp_preview_setup_count:setupCount,
       operations:selected,generic_operations:selected,batches:[],
       start:plan.start||model.start||null,
-      duration_minutes:plan.duration_minutes||null,
+      duration_minutes:visibleEnd,
+      _pp_preview_full_duration_minutes:plan.duration_minutes||null,
       _pp_preview_kpis:metrics
     };
   };
