@@ -43,8 +43,8 @@ jobs:
           node --check new/python-ga-upstream.mjs
           node --check new/restart-optimizer-ui.js
           python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/full_runtime_adapter.py
-          node ops/ovh/four-second-fog-preview-20261120/build-live-qa.mjs
-          node --check ops/ovh/four-second-fog-preview-20261120/_live-qa.mjs
+          node ops/ovh/four-second-fog-preview-20261120/build-probe.mjs
+          node --check ops/ovh/four-second-fog-preview-20261120/_probe.mjs
           for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/old-$file.sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
@@ -143,7 +143,7 @@ jobs:
           FREEZE_TEST_MODE: deployed
         run: |
           set -euo pipefail
-          node ops/ovh/four-second-fog-preview-20261120/_live-qa.mjs
+          node ops/ovh/four-second-fog-preview-20261120/_probe.mjs
           echo FOG_140_TWO_RUN_LIVE_ACCEPTANCE_PASS
       - name: Restore four exact previous sources if real browser acceptance fails
         if: ${{ failure() && steps.rollout.outcome == 'success' }}
