@@ -1,0 +1,15 @@
+  // A bounded, authenticated worker candidate can be displayed, but cannot
+  // be promoted to the saved incumbent or final verified plan.
+  const ownedCandidatePreview=(p,model)=>{
+    if(!p||p._pp_preview_limited!==true)return owned(p,model);
+    const rows=p.generic_operations?.length?p.generic_operations:p.operations;
+    if(!Array.isArray(rows)||!rows.length||rows.length>140||p.partial!==true)return false;
+    const orders=new Set((model.orders||[]).map(o=>String(o.id)));
+    const eq=new Set((model.equipment||model.autoclaves||[]).map(o=>String(o.id)));
+    const staff=new Set((model.employees||[]).map(o=>String(o.id)));
+    const materials=new Set((model.materials||[]).map(o=>String(o.id)));
+    return rows.every(op=>op&&orders.has(String(op.order))&&
+      (op.equipment_ids||[]).every(x=>eq.has(String(x)))&&
+      (op.employee_ids||[]).every(x=>staff.has(String(x)))&&
+      (op.material_ids||[]).every(x=>materials.has(String(x))));
+  };
