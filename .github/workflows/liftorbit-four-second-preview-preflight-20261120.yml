@@ -1,0 +1,61 @@
+name: LiftOrbit four-second Gantt candidate fog preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/liftorbit-four-second-preview-preflight-20261120.yml
+      - ops/ovh/four-second-fog-preview-20261120/**
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin production source and verify bounded preview patch without modifying service
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old/ga_python_workers/ga_workers new
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "old/$file"
+          done
+          for file in manager.py full_runtime_adapter.py; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/ga_python_workers/ga_workers/$file" "old/ga_python_workers/ga_workers/$file"
+          done
+          cp -a old/. new/
+          node ops/ovh/four-second-fog-preview-20261120/patch.mjs new
+          node --check new/python-ga-upstream.mjs
+          node --check new/restart-optimizer-ui.js
+          python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/full_runtime_adapter.py
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path("new")
+          m=(root/"ga_python_workers/ga_workers/manager.py").read_text()
+          b=(root/"python-ga-upstream.mjs").read_text()
+          w=(root/"ga_python_workers/ga_workers/full_runtime_adapter.py").read_text()
+          f=(root/"restart-optimizer-ui.js").read_text()
+          assert 'candidate_serial' in m
+          assert '_pp_preview_limited' in w and 'len(selected)>=140' in w
+          assert 'ownedCandidatePreview' in b
+          assert 'query.has("ppLight")' in b
+          assert 'query.has("ppPreview")' in b
+          assert 'ppFourSecondFogPreviewV1' in f
+          assert 'everyMs=4000' in f and '100-n' in f
+          assert 'window.__PP_GA_PROGRESS_V4__' in f
+          print('GA_PREVIEW_140_SAFE_UNIT_SOURCE_GUARDS_PASS')
+          PY
+          echo FOUR_SECOND_FOG_PREFLIGHT_PASS
