@@ -148,7 +148,7 @@ const virtualStatus=()=>({
 });
 window.fetch=function ppSseNativeProgressNoPoll(input,init){
  const u=nurl(input);
- if(!disposed&&(active||completed)&&u?.origin===location.origin&&
+ if(!disposed&&(completed||(active&&jobId))&&u?.origin===location.origin&&
    u.pathname==="/api/plan-progress"&&method(input,init)==="GET"&&
    !["ppStopConfirm","ppForce"].some(k=>u.searchParams.has(k))){
   if(completed&&fullData)return Promise.resolve(Response.json(fullData,{headers:{"cache-control":"no-store"}}));
