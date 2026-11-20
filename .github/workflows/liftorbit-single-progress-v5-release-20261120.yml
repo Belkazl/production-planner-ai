@@ -1,4 +1,5 @@
 name: LiftOrbit release single server-confirmed progress and preview-only dialog suppression
+# E2E verified with V5-native guard after exact source rollback audit
 on:
   push:
     branches: [main]
