@@ -1,0 +1,56 @@
+name: LiftOrbit audit actual running files after guarded rollback
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-jank-rollback-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check live file hashes and safe rollback diagnostics
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          root=Path.home()/'liftorbit-migration'
+          backup=root/'patch-backups/fog-current-candidate-twofile-20261120'
+          for filename in ('auth-runtime.js','restart-optimizer-ui.js'):
+              for kind,p in [('SOURCE',root/'sources/ovh-app/current'/filename),
+                             ('BACKUP',backup/filename)]:
+                  if not p.exists():print('AUDIT_MISSING',kind,filename);continue
+                  s=p.read_bytes()
+                  print('AUDIT_SHA',kind,filename,hashlib.sha256(s).hexdigest())
+                  if kind=='SOURCE':
+                      t=s.decode(errors='replace')
+                      print('AUDIT_MARKERS',filename,
+                            'async_v2', 'ppAsyncPreviewDeliveryV2' in t,
+                            'render_v2','ppLightweightLiveGanttV2' in t,
+                            'render_v1','ppFourSecondFogPreviewV1' in t)
+          path=backup/'qa-rollback-private.log'
+          if path.exists():
+              rows=path.read_text(errors='replace').splitlines()
+              print('AUDIT_ROLLBACK_LOG_LINES',len(rows))
+              pat=re.compile(r'(?i)(failed|error|unhealthy|exit|timeout|restarting|building)')
+              for line in rows[-120:]:
+                  if pat.search(line):
+                      if re.search(r'(?i)(password|secret|token|cookie|authorization|credential|private.key)',line):
+                          print('AUDIT_MESSAGE','[redacted]')
+                      else: print('AUDIT_MESSAGE',line[:170])
+          PY
+          ssh "${opts[@]}" "$USER@$HOST" sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo AUDIT_SMOKE_HEALTHY
