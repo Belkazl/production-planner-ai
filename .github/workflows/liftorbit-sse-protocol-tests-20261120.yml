@@ -1,5 +1,5 @@
 name: LiftOrbit SSE end-to-end protocol and UI tests
-# verify 2-run E2E script with corrected native Continue state anchors
+# verify no unintended restart after Stop and no periodic browser API
 on:
   push:
     branches: [main]
