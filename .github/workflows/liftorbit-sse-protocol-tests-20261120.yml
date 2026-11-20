@@ -1,5 +1,5 @@
 name: LiftOrbit SSE end-to-end protocol and UI tests
-# verified worker native push and browser-origin-corrected one-connection QA
+# verify actual chunked worker SSE, native progress and browser no-poll transport
 on:
   push:
     branches: [main]
@@ -42,6 +42,7 @@ jobs:
           node --check new/restart-optimizer-ui.js
           python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/server.py
           python3 ops/ovh/sse-stream-v1-20261120/test-worker.py
+          python3 ops/ovh/sse-stream-v1-20261120/test-worker-http.py
           node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
           node ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
           node --check ops/ovh/sse-stream-v1-20261120/_live-qa.mjs
