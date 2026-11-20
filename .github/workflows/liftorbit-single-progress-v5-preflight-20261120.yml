@@ -1,5 +1,5 @@
 name: LiftOrbit single server progress V5 preflight
-# confirmed actual live emit(p) function anchor
+# fail-fast browser assertion and single-owner production source guard
 on:
   push:
     branches: [main]
