@@ -43,5 +43,15 @@ jobs:
           fi
           echo "COMPOSE_SERVICE_LOCATIONS"
           find "$root" -maxdepth 4 -type f \( -name 'compose*.yaml' -o -name 'compose*.yml' -o -name 'Dockerfile*' \) 2>/dev/null | head -n 20 | cut -c1-145
+          echo "DEPLOY_LOG_GA_WORKER_LINES"
+          log="$root/patch-backups/sse-native-push-v1-20261120/update-private.log"
+          if [ -r "$log" ]; then
+            grep -E 'ga-worker|ga_workers|ga_python_workers|Dockerfile|CACHED|COPY ' "$log" | tail -n 50 | cut -c1-160 || true
+          fi
+          echo "OPS_WRAPPER_PERMISSIONS"
+          ls -l /usr/local/sbin/liftorbit-ops 2>/dev/null | cut -c1-160 || true
+          if [ -r /usr/local/sbin/liftorbit-ops ]; then
+            grep -nE 'docker|compose|ga-worker|context|source|build' /usr/local/sbin/liftorbit-ops | head -n 30 | cut -c1-160 || true
+          fi
           echo "WORKER_SOURCE_DIAGNOSTIC_DONE"
           REMOTE
