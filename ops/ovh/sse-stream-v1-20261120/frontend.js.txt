@@ -57,10 +57,11 @@ function ensureMeter(){
   track=document.createElement("span");track.className="pp-sse-track";track.setAttribute("aria-hidden","true");
   fill=document.createElement("span");fill.className="pp-sse-fill";track.appendChild(fill);btn.appendChild(track);
  }
- btn.classList.add("pp-sse-active");
- label.textContent=percent+"%";
- fill.style.width=percent+"%";
- btn.setAttribute("aria-valuenow",String(percent));
+ if(!btn.classList.contains("pp-sse-active"))btn.classList.add("pp-sse-active");
+ if(label.textContent!==percent+"%")label.textContent=percent+"%";
+ if(fill.style.width!==percent+"%")fill.style.width=percent+"%";
+ if(btn.getAttribute("aria-valuenow")!==String(percent))
+  btn.setAttribute("aria-valuenow",String(percent));
  return true;
 }
 function hideFog(){
