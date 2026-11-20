@@ -1,0 +1,316 @@
+;(function ppOneSseProgressAndGantt(){
+"use strict";
+if(window.__PP_SSE_PROGRESS_V1__?.installed)return;
+const originalFetch=window.fetch.bind(window);
+const nurl=x=>{try{return new URL(typeof x==="string"?x:x?.url,location.href)}catch{return null}};
+const method=(input,init)=>String(init?.method||(input instanceof Request?input.method:"GET")).toUpperCase();
+let active=false,completed=false,disposed=false,connected=false,manuallyStopped=false;
+let stream=null,retryTimer=null,jobId=null,percent=0,phase="idle",fullData=null,fullPending=false;
+const STEP_MS=250; // One visible percent per fixed beat, including the verified final stretch.
+let targetPercent=0,animationTimer=null,verifiedTerminal=false,finalRetryTimer=null,finalRetries=0;
+let terminalGap=0,terminalAt=0,terminalElapsedMs=0;
+let barButton=null,label=null,track=null,fill=null,observer=null;
+let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0,lastStreamIssue=null;
+let lastPreviewSignature="",lastPlan=null,lastPaint=0,renderScheduled=false;
+let fogRows=[];
+const css=document.createElement("style");
+css.id="ppOneSseProgressCss";
+css.textContent=[
+ "#opt.pp-sse-active{position:relative!important;isolation:isolate!important;",
+ "overflow:hidden!important;color:transparent!important}",
+ "#opt.pp-sse-active .pp-opt-progress-line{display:none!important}",
+ "#opt.pp-sse-active:not(.pp-sse-done){pointer-events:none!important}",
+ "#opt.pp-sse-active .pp-sse-label{position:absolute!important;z-index:21!important;inset:0!important;",
+ "display:flex!important;align-items:center!important;justify-content:center!important;",
+ "font:600 12px/1.2 Inter,system-ui,Arial,sans-serif!important;",
+ "color:white!important;pointer-events:none!important;white-space:nowrap!important}",
+ "#opt.pp-sse-active .pp-sse-track{position:absolute!important;z-index:22!important;",
+ "left:0!important;right:0!important;bottom:0!important;height:4px!important;",
+ "background:rgba(255,255,255,.22)!important;pointer-events:none!important}",
+ "#opt.pp-sse-active .pp-sse-fill{display:block!important;height:100%!important;",
+ "background:#fff!important;transition:width 180ms linear!important;",
+ "pointer-events:none!important}",
+ "#ppGanttToolV2.pp-sse-interim .pg2-bar{pointer-events:none!important;cursor:default!important}",
+ "#ppGanttToolV2.pp-sse-interim .pg2-bar::after{display:none!important}",
+ "#ppGanttToolV2 .pp-sse-fog{position:absolute!important;top:0;bottom:0;pointer-events:none!important;",
+ "z-index:15!important;background:linear-gradient(90deg,rgba(233,239,249,.23),rgba(239,244,252,.96) 28%);}"
+].join("");
+(document.head||document.documentElement).appendChild(css);
+const button=()=>document.getElementById("opt");
+function detachMeter(){
+ barButton?.classList.remove("pp-sse-active","pp-sse-done");
+ barButton?.removeAttribute("aria-valuenow");
+ label?.remove();track?.remove();label=track=fill=null;
+}
+function ensureMeter(){
+ const btn=button();
+ if(!btn)return false;
+ if(btn!==barButton){
+  observer?.disconnect();detachMeter();barButton=btn;
+  observer=new MutationObserver(()=>{
+   if(active||completed)ensureMeter();
+  });
+  observer.observe(btn,{childList:true,attributes:true,attributeFilter:["class"]});
+ }
+ if(!active&&!completed)return false;
+ if(!label?.isConnected||label.parentElement!==btn){
+  label=document.createElement("span");label.className="pp-sse-label";label.setAttribute("aria-hidden","true");
+  btn.appendChild(label);
+ }
+ if(!track?.isConnected||track.parentElement!==btn){
+  track=document.createElement("span");track.className="pp-sse-track";track.setAttribute("aria-hidden","true");
+  fill=document.createElement("span");fill.className="pp-sse-fill";track.appendChild(fill);btn.appendChild(track);
+ }
+ if(!btn.classList.contains("pp-sse-active"))btn.classList.add("pp-sse-active");
+ btn.classList.toggle("pp-sse-done",completed);
+ const doneText=(/^ru/i.test(document.documentElement.lang||"")||
+   window.__PP_LANGUAGE__?.current==="ru")?"Продолжить · 100%":"Continue · 100%";
+ const shownText=completed?doneText:percent+"%";
+ if(label.textContent!==shownText)label.textContent=shownText;
+ if(fill.style.width!==percent+"%")fill.style.width=percent+"%";
+ if(btn.getAttribute("aria-valuenow")!==String(percent))
+  btn.setAttribute("aria-valuenow",String(percent));
+ return true;
+}
+function finishVisible(){
+ if(disposed||!active||!verifiedTerminal)return;
+ terminalElapsedMs=terminalAt?Math.round(performance.now()-terminalAt):0;
+ verifiedTerminal=false;completed=true;active=false;
+ hideFog();
+ percent=100;targetPercent=100;ensureMeter();
+ window.dispatchEvent(new CustomEvent("pp:sse-verified-complete",{detail:{job_id:jobId}}));
+}
+function animatePercent(){
+ animationTimer=null;
+ if(disposed||!active)return;
+ if(percent<targetPercent){
+  percent++;ensureMeter();
+ }
+ if(percent<targetPercent)animationTimer=setTimeout(animatePercent,STEP_MS);
+ else if(verifiedTerminal)finishVisible();
+}
+function setProgressTarget(target){
+ targetPercent=Math.max(targetPercent,Math.max(0,Math.min(100,Math.floor(target))));
+ if(percent<targetPercent&&animationTimer===null)
+  animationTimer=setTimeout(animatePercent,STEP_MS);
+ else if(verifiedTerminal&&percent>=targetPercent)finishVisible();
+}
+function hideFog(){
+ for(const x of fogRows)x.remove();
+ fogRows=[];
+ const stage=document.getElementById("ppGanttToolV2");
+ stage?.classList.remove("pp-sse-interim");
+}
+function showFog(){
+ hideFog();
+ if(!active)return;
+ const stage=document.getElementById("ppGanttToolV2");
+ if(!stage)return;
+ stage.classList.add("pp-sse-interim");
+ if(window.__PP_UNIFIED_GANTT_V2__?.activeMode!==0)return;
+ for(const row of [...stage.querySelectorAll(".pg2-row")].slice(0,14)){
+  const lane=row.querySelector(".pg2-lane");
+  if(!lane)continue;
+  let edge=0;
+  for(const bar of lane.querySelectorAll(".pg2-bar"))edge=Math.max(edge,bar.offsetLeft+bar.offsetWidth);
+  const width=Number.parseFloat(lane.style.width)||lane.scrollWidth||0;
+  if(width<=edge+8)continue;
+  const fog=document.createElement("div");
+  fog.className="pp-sse-fog";
+  fog.style.left=Math.max(0,edge-6)+"px";fog.style.right="0";
+  lane.appendChild(fog);fogRows.push(fog);
+ }
+}
+function sameCandidate(p){
+ if(!p?.partial||!p._pp_preview_limited||
+  !Array.isArray(p.operations)||p.operations.length>140||p.operations.length<1)return true;
+ const signature=p.operations.map(x=>[
+  x.order,x.start_min,x.end_min,x.equipment_ids?.join(",")||x.equipment_id||""
+ ].join("|")).join(";");
+ if(signature===lastPreviewSignature)return true;
+ lastPreviewSignature=signature;lastPlan=p;return false;
+}
+function paintPreview(){
+ if(renderScheduled||!active||!lastPlan)return;
+ renderScheduled=true;
+ requestAnimationFrame(()=>{
+  renderScheduled=false;
+  if(!active||!lastPlan)return;
+  if(window.__PP_UNIFIED_GANTT_V2__?.activeMode!==0)return;
+  const now=performance.now();
+  try{
+   if(typeof renderPlan==="function")renderPlan(lastPlan);
+   previews++;showFog();lastPaint=Math.round(performance.now()-now);
+  }catch(e){errors++}
+ });
+}
+const virtualStatus=()=>({
+ ok:true,running:active&&!completed,success:completed,
+ done:completed?100:Math.min(99,percent),total:100,
+ percent:completed?100:Math.min(99,percent),
+ phase:completed?"completed":active?"running":"idle",
+ job_id:jobId,stage:active?"optimizing":"completed",
+ best_preview:null,candidate_preview:null,
+ result:completed?fullData?.result||null:null,
+ resume_state:completed?fullData?.resume_state||null:null,
+ error:null
+});
+window.fetch=function ppSseNativeProgressNoPoll(input,init){
+ const u=nurl(input);
+ if(!disposed&&(completed||(active&&jobId))&&u?.origin===location.origin&&
+   u.pathname==="/api/plan-progress"&&method(input,init)==="GET"&&
+   !["ppStopConfirm","ppForce"].some(k=>u.searchParams.has(k))){
+  if(completed&&fullData)return Promise.resolve(Response.json(fullData,{headers:{"cache-control":"no-store"}}));
+  return Promise.resolve(Response.json(virtualStatus(),{headers:{"cache-control":"no-store"}}));
+ }
+ return originalFetch(input,init);
+};
+async function finish(){
+ if(disposed||fullPending||!active||!jobId)return;
+ fullPending=true;
+ try{
+  networkFinalGets++;
+  const r=await originalFetch("/api/plan-progress?ppNoCache=1",{
+   method:"GET",credentials:"same-origin",cache:"no-store",
+   headers:{"accept":"application/json"},signal:AbortSignal.timeout(25000)
+  });
+  const data=r.ok?await r.json():null;
+  if(disposed||!active||!data?.success||data.phase!=="completed"||
+     !Array.isArray(data.result?.operations)||!data.result.operations.length)
+   throw Error("sse_full_result_not_verified");
+  fullData=data;phase="completed";
+  terminalGap=100-percent;terminalAt=performance.now();
+  stream?.close();stream=null;connected=false;
+  verifiedTerminal=true;setProgressTarget(100);
+ }catch(_){
+  errors++;fullPending=false;
+  // Only retry the single durable final-result read on a terminal event.
+  // There is never periodic browser progress polling.
+  if(active&&!disposed&&finalRetries<3){
+   finalRetries++;
+   finalRetryTimer=setTimeout(()=>{finalRetryTimer=null;void finish()},
+     1700+finalRetries*1500);
+  }
+ }
+}
+function receiveProgress(raw){
+ let p;
+ try{p=JSON.parse(raw)}catch{return}
+ if(!p?.job_id||typeof p.percent!=="number"||!Number.isFinite(p.percent))return;
+ const id=String(p.job_id);
+ if(jobId&&id!==jobId)return;
+ if(!jobId)jobId=id;
+ if(!active)return;
+ const next=Math.max(0,Math.min(99,Math.floor(p.percent)));
+ setProgressTarget(next);
+ phase=String(p.phase||"running");
+ events++;
+ ensureMeter();
+}
+function connect(){
+ if(disposed||!active||stream||typeof EventSource!=="function")return;
+ if(retryTimer){clearTimeout(retryTimer);retryTimer=null}
+ stream=new EventSource("/api/plan-events");
+ connected=false;
+ stream.addEventListener("open",()=>{connected=true});
+ stream.addEventListener("progress",e=>receiveProgress(e.data));
+ stream.addEventListener("preview",e=>{
+  if(!active)return;
+  let msg;
+  try{msg=JSON.parse(e.data)}catch{return}
+  if(jobId&&msg.job_id!==jobId)return;
+  if(!sameCandidate(msg.plan))paintPreview();
+ });
+ stream.addEventListener("complete",e=>{
+  try{const d=JSON.parse(e.data);if(jobId&&d.job_id!==jobId)return;}catch{return}
+  void finish();
+ });
+ stream.addEventListener("stopped",()=>{stop()});
+ stream.addEventListener("problem",e=>{errors++;try{lastStreamIssue=JSON.parse(e.data)?.reason||"unknown"}catch{lastStreamIssue="unreadable_event"}});
+ stream.addEventListener("error",()=>{
+  connected=false;reconnects++;
+  if(!active||disposed)return;
+  // EventSource does NOT automatically retry HTTP 409/503 before the GA
+  // creates a job. Reopen this same SSE channel; never poll REST status.
+  if(stream?.readyState===2){
+   stream.close();stream=null;
+   if(retryTimer)clearTimeout(retryTimer);
+   retryTimer=setTimeout(()=>{retryTimer=null;connect()},Math.min(4500,500+reconnects*500));
+  }
+ });
+}
+function start(){
+ if(disposed||active)return;
+ manuallyStopped=false;
+ if(retryTimer){clearTimeout(retryTimer);retryTimer=null}
+ if(animationTimer){clearTimeout(animationTimer);animationTimer=null}
+ if(finalRetryTimer){clearTimeout(finalRetryTimer);finalRetryTimer=null}
+ stream?.close();stream=null;connected=false;
+ active=true;completed=false;verifiedTerminal=false;finalRetries=0;
+ terminalGap=0;terminalAt=0;terminalElapsedMs=0;
+ jobId=null;percent=0;targetPercent=0;phase="queued";
+ fullData=null;fullPending=false;lastPreviewSignature="";lastPlan=null;
+ hideFog();ensureMeter();connect();
+}
+function stop(){
+ manuallyStopped=true;
+ if(retryTimer){clearTimeout(retryTimer);retryTimer=null}
+ if(animationTimer){clearTimeout(animationTimer);animationTimer=null}
+ if(finalRetryTimer){clearTimeout(finalRetryTimer);finalRetryTimer=null}
+ stream?.close();stream=null;connected=false;
+ active=false;completed=false;verifiedTerminal=false;finalRetries=0;
+ terminalGap=0;terminalAt=0;terminalElapsedMs=0;
+ phase="idle";fullData=null;fullPending=false;
+ jobId=null;percent=0;targetPercent=0;lastPlan=null;
+ hideFog();detachMeter();
+}
+function interceptDialog(e){
+ if(!active)return;
+ const stage=document.getElementById("ppGanttToolV2");
+ if(!stage)return;
+ const bar=e.target?.closest?.("#ppGanttToolV2 .pg2-bar");
+ if(!bar)return;
+ blockedDialogs++;
+ e.preventDefault();e.stopImmediatePropagation();
+}
+for(const n of ["pointerdown","click","dblclick","keydown"])
+ document.addEventListener(n,interceptDialog,true);
+const startHandler=()=>start();
+const stopHandler=()=>stop();
+window.addEventListener("pp:optimizer-started",startHandler);
+window.addEventListener("pp:optimizer-reconnect-pending",startHandler);
+window.addEventListener("pp:optimizer-stopped",stopHandler);
+// Native app changes classes when a run begins; observe the button, not the
+// entire document, to avoid expensive repeated DOM scans.
+const btnObserver=new MutationObserver(()=>{
+ if(disposed||manuallyStopped)return;
+ const btn=button();
+ if(btn?.classList.contains("pp-opt-running")&&!active&&!completed)start();
+});
+const observeNative=()=>{
+ const btn=button();
+ if(!btn)return;
+ btnObserver.observe(btn,{attributes:true,attributeFilter:["class"]});
+ if(btn.classList.contains("pp-opt-running")&&!active&&!completed&&!manuallyStopped)start();
+};
+observeNative();
+if(document.readyState==="loading")
+ document.addEventListener("DOMContentLoaded",observeNative,{once:true});
+window.__PP_SSE_PROGRESS_V1__={
+ installed:true,mode:"one-native-ga-sse-no-client-status-poll",
+ get state(){return{active,completed,connected,percent,phase,events,previews,
+   networkFinalGets,blockedDialogs,errors,reconnects,lastStreamIssue,retryScheduled:!!retryTimer,jobId,lastPaint,
+   lineVisible:!!track?.isConnected,paceMs:STEP_MS,serverTarget:targetPercent,
+   terminalGap,terminalElapsedMs,terminalPending:verifiedTerminal}},
+ start,stop,
+ dispose(){
+  disposed=true;stop();btnObserver.disconnect();observer?.disconnect();
+  for(const n of ["pointerdown","click","dblclick","keydown"])
+   document.removeEventListener(n,interceptDialog,true);
+  window.removeEventListener("pp:optimizer-started",startHandler);
+  window.removeEventListener("pp:optimizer-reconnect-pending",startHandler);
+  window.removeEventListener("pp:optimizer-stopped",stopHandler);
+  window.fetch=originalFetch;css.remove();
+ }
+};
+})();
