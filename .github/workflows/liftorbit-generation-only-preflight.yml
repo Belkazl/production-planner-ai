@@ -1,0 +1,52 @@
+name: LiftOrbit generation-only GA preflight read-only
+on:
+  push:
+    branches: [fix/ga-run-all-generations-no-timeout-20261120]
+permissions: {contents: read}
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch current worker sources, guard patches, and verify cancellation
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          ga_root=/home/liftorbit-ci/liftorbit-migration/sources/current/ga
+          mkdir -p new/ga_python_workers/ga_workers
+          for name in manager.py server.py fixture.py; do
+            scp -q "${opts[@]}" "$USER@$HOST:$ga_root/ga_workers/$name" "new/ga_python_workers/ga_workers/$name"
+          done
+          touch new/ga_python_workers/ga_workers/__init__.py
+          python3 ops/ovh/ga-generations-only-20261120/patch.py new
+          python3 -m py_compile new/ga_python_workers/ga_workers/{manager,server,fixture}.py
+          PYTHONPATH=new/ga_python_workers python3 - <<'PY'
+          from ga_workers.manager import ProcessJobManager
+          from pathlib import Path
+          s=Path("new/ga_python_workers/ga_workers/server.py").read_text()
+          m=Path("new/ga_python_workers/ga_workers/manager.py").read_text()
+          worker=ProcessJobManager(adapter="ga_workers.fixture:run",allow_fixture=True,capacity=1,timeout_s=0)
+          try:
+            assert worker.timeout_s==0, "zero seconds must disable deadline"
+            assert "if deadline is not None" in m
+            assert "job.result=checkpoint" not in m
+            assert "timeout_s=0)" in s
+            assert "def cancel" in m
+            print("GENERATION_COUNT_IS_ONLY_PRODUCTION_COMPLETION_CONDITION")
+            print("USER_CANCEL_RETAINS_COOPERATIVE_WORKER_STOP")
+            print("GA_NO_TIMEOUT_PREDEPLOY_UNIT_PASS")
+          finally:
+            worker.shutdown()
+          PY
+          echo GA_GENERATIONS_FULL_SOURCE_VALIDATED_NO_DEPLOY
