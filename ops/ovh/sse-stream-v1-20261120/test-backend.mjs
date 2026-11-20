@@ -148,10 +148,10 @@ const terminal=await upstream.fetch(new Request(base+"/api/plan-progress",{metho
 assert.equal(terminal.status,200);
 const full=await terminal.json();
 assert.equal(full.success,true);
-assert.equal(full.result.operations.length,168);
-assert.equal(full.result.generic_operations.length,336);
-assert.equal(full.result.generic_operations.filter(x=>x.is_setup).length,168,
+assert.equal(full.result.operations.length,336);
+assert.equal(full.result.operations.filter(x=>x.is_setup).length,168,
  "Full candidate must retain all setups after 140-operation preview");
+assert.equal(full.result.generic_operations.length,336);
 console.log("SSE_NATIVE_GA_WORKER_FIRST_TEN_OPERATIONS_INCLUDE_SETUPS_140_FULL_336_PASS",
  JSON.stringify({types:all,percent:statuses,previewOps:previews.map(x=>x.operations.length),
  workerStatusReads:readStatus}));
