@@ -7,11 +7,24 @@ const model={
  employees:[],materials:[],setup_rules:[]
 };
 const operations=model.equipment.flatMap(eq=>Array.from({length:12},(_,i)=>({
- order:"A",equipment_ids:[eq.id],employee_ids:[],material_ids:[],
- start_min:i*20,end_min:i*20+10
+ order:"A",operation_id:"job-"+eq.id+"-"+i,
+ equipment_ids:[eq.id],employee_ids:[],material_ids:[],
+ start_min:i*20+10,end_min:i*20+19
 })));
+const setups=model.equipment.flatMap(eq=>Array.from({length:12},(_,i)=>({
+ order:i%2===0?null:"A",operation_id:"setup-"+eq.id+"-"+i,
+ is_setup:true,phase:"setup",
+ // Some changeovers reference equipment only through resources. They must
+ // still be displayed before their job.
+ equipment_ids:i%3===0?[]:[eq.id],
+ resources:i%3===0?[{resource_type:"equipment",id:eq.id}]:[],
+ employee_ids:[],material_ids:[],
+ start_min:i*20+4,end_min:i*20+9
+})));
+const genericOperations=[...setups,...operations].sort((a,b)=>a.start_min-b.start_min);
 const plan={ok:true,valid:true,partial:false,operations,
- generic_operations:operations,order_sequence:["A"],duration_minutes:270,
+ generic_operations:genericOperations,setup_operation_count:setups.length,
+ order_sequence:["A"],duration_minutes:270,
  batch_count:7,operator_wait_minutes:1200,machine_idle_minutes:1400,
  resume_state:{version:0,order_sequence:["A"]}};
 let state="queued", seq=0,controller=null,readStatus=0,starts=0;
@@ -98,13 +111,35 @@ assert.equal(statuses.at(-1),100);
 assert.equal(complete.length,1);
 assert.equal(complete[0].data.verified,true);
 assert.ok(previews.length>0,"4s current preview is sent without extra browser request");
-assert.ok(previews.every(x=>x.operations.length<=140));
-assert.ok(previews.every(x=>x.partial===true));
+assert.ok(previews.length>0);
+for(const preview of previews){
+ assert.equal(preview.partial,true);
+ assert.equal(preview._pp_preview_setups_included,true);
+ assert.equal(preview._pp_preview_per_row,10);
+ assert.equal(preview._pp_preview_production_count,140);
+ assert.equal(preview._pp_preview_setup_count,140);
+ assert.equal(preview.operations.length,280,"First 10 jobs AND their setups on 14 machines");
+ for(const {id} of model.equipment){
+  const assigned=preview.operations.filter(x=>x.equipment_ids.includes(id));
+  const jobRows=assigned.filter(x=>!x.is_setup);
+  const setupRows=assigned.filter(x=>x.is_setup);
+  assert.equal(jobRows.length,10,"Exactly first ten production jobs for "+id);
+  assert.equal(setupRows.length,10,"All associated changeovers for "+id);
+  assert.deepEqual(jobRows.map(x=>x.operation_id),
+   Array.from({length:10},(_,i)=>"job-"+id+"-"+i));
+  assert.deepEqual(setupRows.map(x=>x.operation_id),
+   Array.from({length:10},(_,i)=>"setup-"+id+"-"+i));
+  assert.ok(setupRows.some(x=>x.order==null),
+   "Orderless setup on "+id+" must not be discarded");
+  assert.ok(assigned.every(x=>Number(x.start_min)<210),
+   "No operations of the eleventh job or later may leak into first-ten preview");
+ }
+}
 assert.ok(previews.every(x=>x._pp_preview_kpis?.duration_minutes===270&&
  x._pp_preview_kpis?.batch_count===7&&
  x._pp_preview_kpis?.operator_wait_minutes===1200&&
  x._pp_preview_kpis?.machine_idle_minutes===1400),
- "SSE preview must carry real full-candidate KPIs, not values from its 140 visible tasks");
+ "SSE preview must carry real full-candidate KPIs, not values from the limited preview");
 assert.equal(readStatus>=2,true);
 const all=seen.map(x=>x.type);
 assert.ok(all.indexOf("preview")<all.indexOf("complete"));
@@ -112,7 +147,9 @@ const terminal=await upstream.fetch(new Request(base+"/api/plan-progress",{metho
 assert.equal(terminal.status,200);
 const full=await terminal.json();
 assert.equal(full.success,true);
-assert.equal(full.result.operations.length,168);
-console.log("SSE_NATIVE_GA_WORKER_PERCENT_0_31_73_100_PREVIEW_140_FULL_168_COMPLETE_PASS",
+assert.equal(full.result.operations.length,336);
+assert.equal(full.result.operations.filter(x=>x.is_setup).length,168,
+ "Final plan must retain every setup after the lightweight preview");
+console.log("SSE_NATIVE_GA_WORKER_PERCENT_0_31_73_100_FIRST_TEN_JOBS_PLUS_SETUPS_280_FULL_336_COMPLETE_PASS",
  JSON.stringify({types:all,percent:statuses,previewOps:previews.map(x=>x.operations.length),
  workerStatusReads:readStatus}));
