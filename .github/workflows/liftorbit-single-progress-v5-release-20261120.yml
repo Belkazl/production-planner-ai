@@ -1,5 +1,5 @@
 name: LiftOrbit release single server-confirmed progress and preview-only dialog suppression
-# E2E verified with V5-native guard after exact source rollback audit
+# E2E now distinguishes active 140-op preview from completed 886-op full Gantt
 on:
   push:
     branches: [main]
