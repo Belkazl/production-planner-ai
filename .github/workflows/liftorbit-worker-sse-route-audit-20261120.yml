@@ -48,6 +48,17 @@ jobs:
           if [ -r "$log" ]; then
             grep -E 'ga-worker|ga_workers|ga_python_workers|Dockerfile|CACHED|COPY ' "$log" | tail -n 50 | cut -c1-160 || true
           fi
+          echo "ACTUAL_WORKER_BUILD_SOURCE"
+          for n in manager.py server.py; do
+            f="$root/sources/current/ga/ga_workers/$n"
+            if [ -r "$f" ]; then
+              echo "ACTIVE_GA_SOURCE_$n=present"
+              sha256sum "$f" | cut -c1-64
+              if grep -q 'stream_events\|event_seq' "$f"; then echo "ACTIVE_GA_SSE_MARKER_$n=yes"; else echo "ACTIVE_GA_SSE_MARKER_$n=no"; fi
+            else
+              echo "ACTIVE_GA_SOURCE_$n=missing"
+            fi
+          done
           echo "OPS_WRAPPER_PERMISSIONS"
           ls -l /usr/local/sbin/liftorbit-ops 2>/dev/null | cut -c1-160 || true
           if [ -r /usr/local/sbin/liftorbit-ops ]; then
