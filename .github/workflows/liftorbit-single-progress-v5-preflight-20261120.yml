@@ -1,5 +1,5 @@
 name: LiftOrbit single server progress V5 preflight
-# verify retained four-second preview IIFE after pruning legacy load-shed
+# confirmed actual live emit(p) function anchor
 on:
   push:
     branches: [main]
