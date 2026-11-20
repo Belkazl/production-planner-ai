@@ -1,0 +1,18 @@
+    def stream_wait(self, account_id, job_id, after_seq, timeout=15):
+        """Wait for actual GA worker changes instead of polling its status."""
+        after_seq = int(after_seq)
+        timeout = max(0.1, min(20.0, float(timeout)))
+        with self.cv:
+            job = self._get_owned_locked(account_id, job_id)
+            if job.event_seq <= after_seq and job.state not in TERMINAL and not self.closed:
+                self.cv.wait_for(
+                    lambda: self.closed or job.event_seq > after_seq or
+                    job.state in TERMINAL, timeout=timeout)
+            job = self._get_owned_locked(account_id, job_id)
+            return {
+                "job_id": job.job_id, "seq": job.event_seq,
+                "status": job.state, "progress": job.progress,
+                "stage": job.stage, "running": job.state in ("queued", "running"),
+                "error": job.error,
+            }
+
