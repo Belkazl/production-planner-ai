@@ -34,15 +34,15 @@
     };
   };
   async function stream(req){
-    let principal,model,job;
+    let principal,model,job=null;
     try{
       principal=await account(req);
       model=await readAccountModel(req);
-      job=await currentJob(principal);
     }catch{return response({ok:false,error:'sse_auth_or_model_unavailable'},503)}
-    if(!job)return response({ok:false,error:'sse_no_active_job'},409);
-    if(job.modelKey!==hashModel(model))
-      return response({ok:false,error:'sse_account_model_mismatch'},409);
+    const modelKey=hashModel(model);
+    const expectedId=new URL(req.url).searchParams.get('job_id');
+    if(expectedId&&!/^[0-9a-f]{32}$/.test(expectedId))
+      return response({ok:false,error:'invalid_job_id'},400);
     const encoder=new TextEncoder();
     let aborter=null,previewTimer=null,closed=false,working=false,previewBusy=false;
     let lastPreviewHash="",lastPercent=-1,lastPhase="",lastSeq=-1;
@@ -85,6 +85,22 @@
         const task=(async()=>{
           aborter=new AbortController();
           try{
+            // Send the HTTP 200 streaming response once, before POST /api/plan
+            // has finished creating its account job. This eliminates the 409
+            // request storm during the initial optimization startup race.
+            emit("ready",{transport:"one-sse-stream"});
+            for(let tries=0;tries<120&&!closed;tries++){
+              let candidate=null;
+              try{candidate=await currentJob(principal)}catch(_){}
+              const eligible=candidate&&candidate.modelKey===modelKey&&
+                (expectedId?candidate.id===expectedId:
+                  ["queued","running"].includes(candidate.state));
+              if(eligible){job=candidate;break;}
+              if(tries%12===11)emit("heartbeat",{waiting_for:"job"});
+              await new Promise(resolve=>setTimeout(resolve,750));
+            }
+            if(closed)return;
+            if(!job){emit("problem",{reason:"sse_job_start_timeout"});return;}
             if(job.state==="completed"&&job.result){
               const result=await progress(req);
               const state=await result.json();

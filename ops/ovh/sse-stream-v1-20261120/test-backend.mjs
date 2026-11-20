@@ -63,14 +63,16 @@ const upstream=createPythonGAUpstream({
  fetchImpl:fakeFetch
 });
 const base="https://app.liftorbit.app";
+// The browser opens its single SSE connection BEFORE the account POST
+// has created a worker job. It must receive HTTP 200, not repeated 409s.
+const sse=await upstream.fetch(new Request(base+"/api/plan-events",{method:"GET"}));
+assert.equal(sse.status,200);
+assert.match(sse.headers.get("content-type"),/text\/event-stream/);
 const start=await upstream.fetch(new Request(base+"/api/plan",{
  method:"POST",headers:{"content-type":"application/json"}
 }),{body:JSON.stringify({__pp_async_start:true,generations:100,population:50})});
 assert.equal(start.status,202);
 assert.equal(starts,1);
-const sse=await upstream.fetch(new Request(base+"/api/plan-events",{method:"GET"}));
-assert.equal(sse.status,200);
-assert.match(sse.headers.get("content-type"),/text\/event-stream/);
 const reader=sse.body.getReader(),decoder=new TextDecoder();
 let buffer="",seen=[],deadline=Date.now()+12500;
 while(Date.now()<deadline){
@@ -86,6 +88,7 @@ while(Date.now()<deadline){
   if(type&&data)seen.push({type,data:JSON.parse(data)});
  }
 }
+console.log("SSE_EARLY_STREAM_AUDIT",JSON.stringify({events:seen.map(x=>({type:x.type,percent:x.data?.percent,reason:x.data?.reason,ops:x.data?.plan?.operations?.length})),readStatus,state,starts}));
 const statuses=seen.filter(x=>x.type==="progress").map(x=>x.data.percent);
 const previews=seen.filter(x=>x.type==="preview").map(x=>x.data.plan);
 const complete=seen.filter(x=>x.type==="complete");

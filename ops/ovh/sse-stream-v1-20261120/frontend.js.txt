@@ -6,6 +6,7 @@ const nurl=x=>{try{return new URL(typeof x==="string"?x:x?.url,location.href)}ca
 const method=(input,init)=>String(init?.method||(input instanceof Request?input.method:"GET")).toUpperCase();
 let active=false,completed=false,disposed=false,connected=false,manuallyStopped=false;
 let stream=null,retryTimer=null,jobId=null,percent=0,phase="idle",fullData=null,fullPending=false;
+let targetPercent=0,animationTimer=null,verifiedTerminal=false,finalRetryTimer=null,finalRetries=0;
 let barButton=null,label=null,track=null,fill=null,observer=null;
 let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0;
 let lastPreviewSignature="",lastPlan=null,lastPaint=0,renderScheduled=false;
@@ -63,6 +64,27 @@ function ensureMeter(){
  if(btn.getAttribute("aria-valuenow")!==String(percent))
   btn.setAttribute("aria-valuenow",String(percent));
  return true;
+}
+function finishVisible(){
+ if(disposed||!active||!verifiedTerminal)return;
+ verifiedTerminal=false;completed=true;active=false;
+ percent=100;targetPercent=100;ensureMeter();
+ window.dispatchEvent(new CustomEvent("pp:sse-verified-complete",{detail:{job_id:jobId}}));
+}
+function animatePercent(){
+ animationTimer=null;
+ if(disposed||!active)return;
+ if(percent<targetPercent){
+  percent++;ensureMeter();
+ }
+ if(percent<targetPercent)animationTimer=setTimeout(animatePercent,32);
+ else if(verifiedTerminal)finishVisible();
+}
+function setProgressTarget(target){
+ targetPercent=Math.max(targetPercent,Math.max(0,Math.min(100,Math.floor(target))));
+ if(percent<targetPercent&&animationTimer===null)
+  animationTimer=setTimeout(animatePercent,32);
+ else if(verifiedTerminal&&percent>=targetPercent)finishVisible();
 }
 function hideFog(){
  for(const x of fogRows)x.remove();
@@ -147,11 +169,20 @@ async function finish(){
   if(disposed||!active||!data?.success||data.phase!=="completed"||
      !Array.isArray(data.result?.operations)||!data.result.operations.length)
    throw Error("sse_full_result_not_verified");
-  fullData=data;completed=true;active=false;percent=100;phase="completed";
-  hideFog();ensureMeter();
+  fullData=data;phase="completed";
+  hideFog();
   stream?.close();stream=null;connected=false;
-  window.dispatchEvent(new CustomEvent("pp:sse-verified-complete",{detail:{job_id:jobId}}));
- }catch(_){errors++;fullPending=false}
+  verifiedTerminal=true;setProgressTarget(100);
+ }catch(_){
+  errors++;fullPending=false;
+  // Only retry the single durable final-result read on a terminal event.
+  // There is never periodic browser progress polling.
+  if(active&&!disposed&&finalRetries<3){
+   finalRetries++;
+   finalRetryTimer=setTimeout(()=>{finalRetryTimer=null;void finish()},
+     1700+finalRetries*1500);
+  }
+ }
 }
 function receiveProgress(raw){
  let p;
@@ -162,7 +193,7 @@ function receiveProgress(raw){
  if(!jobId)jobId=id;
  if(!active)return;
  const next=Math.max(0,Math.min(99,Math.floor(p.percent)));
- percent=Math.max(percent,next);
+ setProgressTarget(next);
  phase=String(p.phase||"running");
  events++;
  ensureMeter();
@@ -200,20 +231,26 @@ function connect(){
  });
 }
 function start(){
- if(disposed)return;
+ if(disposed||active)return;
  manuallyStopped=false;
  if(retryTimer){clearTimeout(retryTimer);retryTimer=null}
+ if(animationTimer){clearTimeout(animationTimer);animationTimer=null}
+ if(finalRetryTimer){clearTimeout(finalRetryTimer);finalRetryTimer=null}
  stream?.close();stream=null;connected=false;
- active=true;completed=false;jobId=null;percent=0;phase="queued";
+ active=true;completed=false;verifiedTerminal=false;finalRetries=0;
+ jobId=null;percent=0;targetPercent=0;phase="queued";
  fullData=null;fullPending=false;lastPreviewSignature="";lastPlan=null;
  hideFog();ensureMeter();connect();
 }
 function stop(){
  manuallyStopped=true;
  if(retryTimer){clearTimeout(retryTimer);retryTimer=null}
+ if(animationTimer){clearTimeout(animationTimer);animationTimer=null}
+ if(finalRetryTimer){clearTimeout(finalRetryTimer);finalRetryTimer=null}
  stream?.close();stream=null;connected=false;
- active=false;completed=false;phase="idle";fullData=null;fullPending=false;
- jobId=null;percent=0;lastPlan=null;
+ active=false;completed=false;verifiedTerminal=false;finalRetries=0;
+ phase="idle";fullData=null;fullPending=false;
+ jobId=null;percent=0;targetPercent=0;lastPlan=null;
  hideFog();detachMeter();
 }
 function interceptDialog(e){
@@ -235,10 +272,9 @@ window.addEventListener("pp:optimizer-stopped",stopHandler);
 // Native app changes classes when a run begins; observe the button, not the
 // entire document, to avoid expensive repeated DOM scans.
 const btnObserver=new MutationObserver(()=>{
- if(disposed)return;
+ if(disposed||manuallyStopped)return;
  const btn=button();
- if(!btn?.classList.contains("pp-opt-running"))manuallyStopped=false;
- if(btn?.classList.contains("pp-opt-running")&&!active&&!completed&&!manuallyStopped)start();
+ if(btn?.classList.contains("pp-opt-running")&&!active&&!completed)start();
 });
 const observeNative=()=>{
  const btn=button();
