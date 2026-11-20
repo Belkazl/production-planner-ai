@@ -5,6 +5,7 @@ const b=' if(errors.length)throw Error("BROWSER_ERRORS_"';
 if(original.split(a).length!==2||original.split(b).length!==2)throw Error("BASE_DRIFT");
 const start=original.indexOf(a),end=original.indexOf(b,start);
 const insert=String.raw`
+ {
  // Capture whether the native button passes a stale AbortSignal. Remove only
  // that UI-level signal in this disposable QA account; all production stays unchanged.
  const firstCompletion=await (await ctx.request.get(base+"/api/plan-progress?ppNoCache=1",{timeout:25000})).json();
@@ -48,5 +49,6 @@ const insert=String.raw`
  }
  console.log("SIGNAL_CONTINUE_SUMMARY",JSON.stringify({newStarted,last:out.at(-1)}));
  if(!newStarted)throw Error("SIGNAL_NEW_JOB_NOT_SEEN");
+ }
 `;
 writeFileSync("ops/ovh/ga-post502-isolation-20261119/_signal-diagnose.mjs",original.slice(0,start)+insert+original.slice(end));
