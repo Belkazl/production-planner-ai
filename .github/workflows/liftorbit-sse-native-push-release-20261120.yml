@@ -33,12 +33,13 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          ga_root=/home/liftorbit-ci/liftorbit-migration/sources/current/ga
           mkdir -p old/ga_python_workers/ga_workers new
           for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
             scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "old/$file"
           done
           for file in manager.py server.py; do
-            scp -q "${opts[@]}" "$USER@$HOST:$base/ga_python_workers/ga_workers/$file" "old/ga_python_workers/ga_workers/$file"
+            scp -q "${opts[@]}" "$USER@$HOST:$ga_root/ga_workers/$file" "old/ga_python_workers/ga_workers/$file"
           done
           cp -a old/. new/
           node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new
@@ -92,8 +93,8 @@ jobs:
           backup="$root/patch-backups/sse-native-push-v1-20261120"
           names=(python-ga-upstream.mjs restart-optimizer-ui.js manager.py server.py)
           files=("$base/current/python-ga-upstream.mjs" "$base/current/restart-optimizer-ui.js"
-                 "$base/current/ga_python_workers/ga_workers/manager.py"
-                 "$base/current/ga_python_workers/ga_workers/server.py")
+                 "$root/sources/current/ga/ga_workers/manager.py"
+                 "$root/sources/current/ga/ga_workers/server.py")
           staged=("$base/sse-v1-python-ga-upstream.mjs.next" "$base/sse-v1-restart-optimizer-ui.js.next"
                   "$base/sse-v1-manager.py.next" "$base/sse-v1-server.py.next")
           expected=("$@")
@@ -173,10 +174,17 @@ jobs:
           for n in python-ga-upstream.mjs restart-optimizer-ui.js manager.py server.py; do test -r "$backup/$n"; done
           cp -p "$backup/python-ga-upstream.mjs" "$base/python-ga-upstream.mjs"
           cp -p "$backup/restart-optimizer-ui.js" "$base/restart-optimizer-ui.js"
-          cp -p "$backup/manager.py" "$base/ga_python_workers/ga_workers/manager.py"
-          cp -p "$backup/server.py" "$base/ga_python_workers/ga_workers/server.py"
-          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
-          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          cp -p "$backup/manager.py" "$root/sources/current/ga/ga_workers/manager.py"
+          cp -p "$backup/server.py" "$root/sources/current/ga/ga_workers/server.py"
+          if ! sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1; then
+            echo SSE_ROLLBACK_REBUILD_NONZERO_CHECKING_ACTIVE_HEALTH
+          fi
+          healthy=no
+          for attempt in $(seq 1 24); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
           echo SSE_NATIVE_PUSH_FOUR_FILE_ROLLBACK_VERIFIED
           REMOTE
       - name: Summary
