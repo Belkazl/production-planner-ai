@@ -6,7 +6,9 @@ const nurl=x=>{try{return new URL(typeof x==="string"?x:x?.url,location.href)}ca
 const method=(input,init)=>String(init?.method||(input instanceof Request?input.method:"GET")).toUpperCase();
 let active=false,completed=false,disposed=false,connected=false,manuallyStopped=false;
 let stream=null,retryTimer=null,jobId=null,percent=0,phase="idle",fullData=null,fullPending=false;
+const STEP_MS=250; // One visible percent per fixed beat, including the verified final stretch.
 let targetPercent=0,animationTimer=null,verifiedTerminal=false,finalRetryTimer=null,finalRetries=0;
+let terminalGap=0,terminalAt=0,terminalElapsedMs=0;
 let barButton=null,label=null,track=null,fill=null,observer=null;
 let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0,lastStreamIssue=null;
 let lastPreviewSignature="",lastPlan=null,lastPaint=0,renderScheduled=false;
@@ -17,6 +19,7 @@ css.textContent=[
  "#opt.pp-sse-active{position:relative!important;isolation:isolate!important;",
  "overflow:hidden!important;color:transparent!important}",
  "#opt.pp-sse-active .pp-opt-progress-line{display:none!important}",
+ "#opt.pp-sse-active:not(.pp-sse-done){pointer-events:none!important}",
  "#opt.pp-sse-active .pp-sse-label{position:absolute!important;z-index:21!important;inset:0!important;",
  "display:flex!important;align-items:center!important;justify-content:center!important;",
  "font:600 12px/1.2 Inter,system-ui,Arial,sans-serif!important;",
@@ -35,7 +38,7 @@ css.textContent=[
 (document.head||document.documentElement).appendChild(css);
 const button=()=>document.getElementById("opt");
 function detachMeter(){
- barButton?.classList.remove("pp-sse-active");
+ barButton?.classList.remove("pp-sse-active","pp-sse-done");
  barButton?.removeAttribute("aria-valuenow");
  label?.remove();track?.remove();label=track=fill=null;
 }
@@ -59,6 +62,7 @@ function ensureMeter(){
   fill=document.createElement("span");fill.className="pp-sse-fill";track.appendChild(fill);btn.appendChild(track);
  }
  if(!btn.classList.contains("pp-sse-active"))btn.classList.add("pp-sse-active");
+ btn.classList.toggle("pp-sse-done",completed);
  const doneText=(/^ru/i.test(document.documentElement.lang||"")||
    window.__PP_LANGUAGE__?.current==="ru")?"Продолжить · 100%":"Continue · 100%";
  const shownText=completed?doneText:percent+"%";
@@ -70,7 +74,9 @@ function ensureMeter(){
 }
 function finishVisible(){
  if(disposed||!active||!verifiedTerminal)return;
+ terminalElapsedMs=terminalAt?Math.round(performance.now()-terminalAt):0;
  verifiedTerminal=false;completed=true;active=false;
+ hideFog();
  percent=100;targetPercent=100;ensureMeter();
  window.dispatchEvent(new CustomEvent("pp:sse-verified-complete",{detail:{job_id:jobId}}));
 }
@@ -80,13 +86,13 @@ function animatePercent(){
  if(percent<targetPercent){
   percent++;ensureMeter();
  }
- if(percent<targetPercent)animationTimer=setTimeout(animatePercent,32);
+ if(percent<targetPercent)animationTimer=setTimeout(animatePercent,STEP_MS);
  else if(verifiedTerminal)finishVisible();
 }
 function setProgressTarget(target){
  targetPercent=Math.max(targetPercent,Math.max(0,Math.min(100,Math.floor(target))));
  if(percent<targetPercent&&animationTimer===null)
-  animationTimer=setTimeout(animatePercent,32);
+  animationTimer=setTimeout(animatePercent,STEP_MS);
  else if(verifiedTerminal&&percent>=targetPercent)finishVisible();
 }
 function hideFog(){
@@ -173,7 +179,7 @@ async function finish(){
      !Array.isArray(data.result?.operations)||!data.result.operations.length)
    throw Error("sse_full_result_not_verified");
   fullData=data;phase="completed";
-  hideFog();
+  terminalGap=100-percent;terminalAt=performance.now();
   stream?.close();stream=null;connected=false;
   verifiedTerminal=true;setProgressTarget(100);
  }catch(_){
@@ -241,6 +247,7 @@ function start(){
  if(finalRetryTimer){clearTimeout(finalRetryTimer);finalRetryTimer=null}
  stream?.close();stream=null;connected=false;
  active=true;completed=false;verifiedTerminal=false;finalRetries=0;
+ terminalGap=0;terminalAt=0;terminalElapsedMs=0;
  jobId=null;percent=0;targetPercent=0;phase="queued";
  fullData=null;fullPending=false;lastPreviewSignature="";lastPlan=null;
  hideFog();ensureMeter();connect();
@@ -252,6 +259,7 @@ function stop(){
  if(finalRetryTimer){clearTimeout(finalRetryTimer);finalRetryTimer=null}
  stream?.close();stream=null;connected=false;
  active=false;completed=false;verifiedTerminal=false;finalRetries=0;
+ terminalGap=0;terminalAt=0;terminalElapsedMs=0;
  phase="idle";fullData=null;fullPending=false;
  jobId=null;percent=0;targetPercent=0;lastPlan=null;
  hideFog();detachMeter();
@@ -292,7 +300,8 @@ window.__PP_SSE_PROGRESS_V1__={
  installed:true,mode:"one-native-ga-sse-no-client-status-poll",
  get state(){return{active,completed,connected,percent,phase,events,previews,
    networkFinalGets,blockedDialogs,errors,reconnects,lastStreamIssue,retryScheduled:!!retryTimer,jobId,lastPaint,
-   lineVisible:!!track?.isConnected}},
+   lineVisible:!!track?.isConnected,paceMs:STEP_MS,serverTarget:targetPercent,
+   terminalGap,terminalElapsedMs,terminalPending:verifiedTerminal}},
  start,stop,
  dispose(){
   disposed=true;stop();btnObserver.disconnect();observer?.disconnect();

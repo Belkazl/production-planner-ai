@@ -56,7 +56,7 @@ const fs=require("node:fs");
    window.__unit.sse.send("progress",{job_id:"job-A",percent:30,phase:"running"});
    window.__unit.sse.send("progress",{job_id:"job-A",percent:30,phase:"running"});
   });
-  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===30,null,{timeout:5500});
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===30,null,{timeout:12000});
   assert.equal((await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state)).percent,30);
   assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"30%");
   await page.evaluate(()=>document.getElementById("opt").textContent="Preparing...");
@@ -77,7 +77,7 @@ const fs=require("node:fs");
   assert.equal(await page.evaluate(()=>window.__unit.dialogs),0,"interim operation detail blocked");
   await page.evaluate(()=>window.__unit.sse.send("progress",
    {job_id:"job-A",percent:70,phase:"running"}));
-  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===70,null,{timeout:5500});
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===70,null,{timeout:20000});
   assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"70%");
   // Old native wait loops may still run; they must receive memory data instead
   // of producing any browser-to-server progress request.
@@ -93,7 +93,7 @@ const fs=require("node:fs");
   await page.evaluate(()=>window.__unit.sse.send("complete",
    {job_id:"job-A",percent:100,verified:true}));
   await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.completed,null,{
-   timeout:9000});
+   timeout:20000});
   assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"Continue · 100%");
   assert.equal(await page.locator("#opt").getAttribute("aria-valuenow"),"100");
   const after=await page.evaluate(()=>({
@@ -120,6 +120,39 @@ const fs=require("node:fs");
   const final=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state);
   assert.equal(final.active,false);
   assert.equal(final.lineVisible,false);
+
+  // Regression for an early GA termination at 27%: the last 73 visible steps
+  // must NEVER be replayed in the old ~3-second burst.
+  await page.evaluate(()=>window.dispatchEvent(new Event("pp:optimizer-started")));
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.connected===true,null,{timeout:7000});
+  await page.evaluate(()=>window.__unit.sse.send("progress",
+    {job_id:"early-terminal-job-B",percent:27,phase:"running"}));
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===27,null,{timeout:13000});
+  assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"27%");
+  await page.evaluate(()=>window.__unit.sse.send("complete",
+    {job_id:"early-terminal-job-B",percent:100,verified:true}));
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.terminalPending===true,
+    null,{timeout:4500});
+  await page.waitForTimeout(3150);
+  const mid=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state);
+  assert.equal(mid.paceMs,250,"All phases must use one stable animation cadence");
+  assert.equal(mid.terminalGap,73,"The regression must start with a genuine 73-step gap");
+  assert.equal(mid.completed,false,"A 27%-to-100% burst in three seconds is forbidden");
+  assert.ok(mid.percent>=28&&mid.percent<=42,
+    "Final percentage may advance only one integer per 250ms: "+JSON.stringify(mid));
+  assert.equal(await page.locator("#opt .pp-sse-label").innerText(),mid.percent+"%");
+  assert.equal((await page.evaluate(()=>window.__unit.calls)).length,2,
+    "The final result is fetched once per completed GA run, no status polling");
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.completed===true,
+    null,{timeout:23000});
+  const secondDone=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state);
+  assert.equal(secondDone.percent,100);
+  assert.ok(secondDone.terminalElapsedMs>=15500,
+    "73 remaining steps must not finish in ~3 seconds: "+JSON.stringify(secondDone));
+  assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"Continue · 100%");
+  await page.evaluate(()=>window.dispatchEvent(new Event("pp:optimizer-stopped")));
+  console.log("SSE_EARLY_TERMINAL_27_TO_100_STEADY_PACE_PASS",
+    JSON.stringify({gap:secondDone.terminalGap,elapsedMs:secondDone.terminalElapsedMs,stepMs:secondDone.paceMs}));
   console.log("SSE_BROWSER_NO_POLL_SMOOTH_0_30_70_100_140_LIMIT_FINAL_886_DETAILS_PASS",
     JSON.stringify({calls:after.calls.length,previews:after.state.previews,events:after.state.events}));
  }finally{await browser.close()}
