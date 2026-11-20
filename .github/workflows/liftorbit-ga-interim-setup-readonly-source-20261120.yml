@@ -46,3 +46,19 @@ jobs:
               for j in range(a,b):
                 print('GA_SOURCE',j+1,lines[j][:215])
           PY
+          echo "=== APP PLAN PREVIEW BRIDGE READONLY ==="
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current')
+          for file in ['python-ga-upstream.mjs','auth-runtime.js']:
+              p=root/file
+              src=p.read_text()
+              needles=['async function progress(','function progress(','best_preview','candidate_preview','setup_operations','slice(0,70)','slice(0,140)','bounded','lightweight','function sanitize','_pp_preview']
+              print('BRIDGE_FILE',file,'SIZE',len(src))
+              for needle in needles:
+                  n=src.count(needle)
+                  print('BRIDGE_NEEDLE',needle,n)
+                  if n:
+                      start=src.index(needle)
+                      print('BRIDGE_EXCERPT',repr(src[max(0,start-350):min(len(src),start+2350)]))
+          PY
