@@ -50,4 +50,5 @@ jobs:
           finally:
             worker.shutdown()
           PY
+          python3 ops/ovh/ga-generations-only-20261120/test.py
           echo GA_GENERATIONS_FULL_SOURCE_VALIDATED_NO_DEPLOY
