@@ -12,7 +12,7 @@ on:
       - ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
 permissions: {contents: read}
 concurrency:
-  group: liftorbit-production-etalon-repair
+  group: liftorbit-sse-interim-kpi-ovh
   cancel-in-progress: false
 jobs:
   validate_and_deploy:
