@@ -43,4 +43,11 @@ jobs:
                 print('EXCERPT',name,lo+1,hi)
                 for j in range(lo,hi):
                   print(f'{j+1}: {source[j][:290]}')
+          source=(root/'full_runtime_adapter.py').read_text().splitlines()
+          print('SETUP_PREVIEW_CONSTRUCTION_BODY')
+          for j in range(271,335):
+              print(f'{j+1}: {source[j][:270]}')
+          print('GA_ADAPTER_PROGRESS_EMISSIONS')
+          for j in range(454,512):
+              print(f'{j+1}: {source[j][:260]}')
           PY
