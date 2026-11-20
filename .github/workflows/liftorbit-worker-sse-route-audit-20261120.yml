@@ -1,0 +1,47 @@
+name: LiftOrbit worker SSE route runtime readonly audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/liftorbit-worker-sse-route-audit-20261120.yml'
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare OVH GA worker source with active container code
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -u
+          root="$HOME/liftorbit-migration"
+          src="$root/sources/ovh-app/current/ga_python_workers/ga_workers/server.py"
+          echo "WORKER_HOST_SOURCE_PRESENT=$(test -f "$src" && echo yes || echo no)"
+          echo "WORKER_HOST_SOURCE_HAS_SSE=$(grep -q 'def stream_events' "$src" && echo yes || echo no)"
+          echo "DOCKER_PERMISSION_CHECK"
+          if docker ps --format '{{.Names}} {{.Image}}' > /tmp/liftorbit-worker-container-names 2>/dev/null; then
+            grep -F ga-worker /tmp/liftorbit-worker-container-names | cut -c1-120 || true
+            worker=$(awk '/ga-worker/{print $1;exit}' /tmp/liftorbit-worker-container-names)
+            if [ -n "$worker" ];then
+              docker exec "$worker" sh -c 'find /app /opt /srv -name server.py -type f 2>/dev/null | head -n 5' || true
+              docker exec "$worker" sh -c 'grep -Rql "def stream_events" /app /opt /srv 2>/dev/null && echo WORKER_RUNTIME_HAS_SSE=yes || echo WORKER_RUNTIME_HAS_SSE=no' || true
+            fi
+          else
+            echo "DOCKER_DIRECT_ACCESS=unavailable"
+          fi
+          echo "COMPOSE_SERVICE_LOCATIONS"
+          find "$root" -maxdepth 4 -type f \( -name 'compose*.yaml' -o -name 'compose*.yml' -o -name 'Dockerfile*' \) 2>/dev/null | head -n 20 | cut -c1-145
+          echo "WORKER_SOURCE_DIAGNOSTIC_DONE"
+          REMOTE
