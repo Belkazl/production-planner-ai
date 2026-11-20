@@ -1,6 +1,7 @@
 import {readFileSync,writeFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {createHash} from "node:crypto";
+import {execFileSync} from "node:child_process";
 const root=process.argv[2];if(!root)throw Error("PREVIEW_PATCH_ROOT_REQUIRED");
 const target=n=>resolve(root,n);
 const here="ops/ovh/four-second-fog-preview-20261120/";
@@ -75,3 +76,5 @@ for(const [path,source] of files){
  writeFileSync(target(path),source);
  console.log("PREVIEW_PATCHED_FILE",path,hash(source),source.length);
 }
+execFileSync(process.execPath,[here+"auth-preview-route.mjs",root],{stdio:"inherit"});
+
