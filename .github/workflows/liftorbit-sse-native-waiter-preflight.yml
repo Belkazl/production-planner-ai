@@ -1,0 +1,36 @@
+name: Validate LiftOrbit SSE native waiter without production deployment
+on:
+  push:
+    branches: [diagnostics/sse-native-poll-20261120]
+permissions: {contents: read}
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fifth native transport source plus SSE client patches
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p new
+          scp -q "${opts[@]}" "$USER@$HOST:$root/async-plan-transport.js" new/async-plan-transport.js
+          scp -q "${opts[@]}" "$USER@$HOST:$root/restart-optimizer-ui.js" new/restart-optimizer-ui.js
+          node ops/ovh/sse-stream-v1-20261120/patch-native-transport.mjs new
+          node ops/ovh/sse-stream-v1-20261120/patch-frontend.mjs new
+          node --check new/async-plan-transport.js
+          node --check new/restart-optimizer-ui.js
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/sse-stream-v1-20261120/test-client.cjs
+          echo SSE_NATIVE_TRANSPORT_UI_PRE_DEPLOY_TEST_PASS
