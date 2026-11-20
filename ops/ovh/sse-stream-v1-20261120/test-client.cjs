@@ -56,7 +56,7 @@ const fs=require("node:fs");
    window.__unit.sse.send("progress",{job_id:"job-A",percent:30,phase:"running"});
    window.__unit.sse.send("progress",{job_id:"job-A",percent:30,phase:"running"});
   });
-  await page.waitForTimeout(220);
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===30,null,{timeout:5500});
   assert.equal((await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state)).percent,30);
   assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"30%");
   await page.evaluate(()=>document.getElementById("opt").textContent="Preparing...");
@@ -77,6 +77,7 @@ const fs=require("node:fs");
   assert.equal(await page.evaluate(()=>window.__unit.dialogs),0,"interim operation detail blocked");
   await page.evaluate(()=>window.__unit.sse.send("progress",
    {job_id:"job-A",percent:70,phase:"running"}));
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.percent===70,null,{timeout:5500});
   assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"70%");
   // Old native wait loops may still run; they must receive memory data instead
   // of producing any browser-to-server progress request.
@@ -91,8 +92,8 @@ const fs=require("node:fs");
    "No network API requests during optimization");
   await page.evaluate(()=>window.__unit.sse.send("complete",
    {job_id:"job-A",percent:100,verified:true}));
-  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.completed,{
-   timeout:7000});
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.completed,null,{
+   timeout:9000});
   assert.equal(await page.locator("#opt .pp-sse-label").innerText(),"100%");
   const after=await page.evaluate(()=>({
    state:window.__PP_SSE_PROGRESS_V1__.state,
