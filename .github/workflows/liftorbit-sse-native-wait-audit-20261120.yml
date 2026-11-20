@@ -1,0 +1,46 @@
+name: LiftOrbit inspect SSE backing and native wait loop
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-sse-native-wait-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate safe stream worker auth call and native progress timer exact anchors
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p source
+          for f in auth-runtime.js python-ga-upstream.mjs; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$f" "source/$f"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name,spans in [('auth-runtime.js',[(118,165)]),('python-ga-upstream.mjs',[(7,38),(338,396)])]:
+            ls=(Path('source')/name).read_text().splitlines()
+            for a,b in spans:
+              for i in range(a-1,min(b,len(ls))):
+                s=ls[i]
+                s=re.sub(r'(?i)(password|secret|token|cookie|authorization|credential|api_key)([^=:]{0,15}[=:])([^,} ]+)',r'\1\2[redacted]',s)
+                print('READ',name,i+1,s[:310])
+          root=Path('source')
+          for p in root.glob('*'):
+            t=p.read_text()
+            print('HITS',p.name,[(q,t.find(q)) for q in ['PP_ASYNC_PLAN_INLINE','gaProgressRecovery','waitForPlan','plan-progress']])
+          PY
