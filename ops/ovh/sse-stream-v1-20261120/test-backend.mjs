@@ -1,4 +1,4 @@
-import {createPythonGAUpstream} from "../../../../../new/python-ga-upstream.mjs";
+import {createPythonGAUpstream} from "../../../new/python-ga-upstream.mjs";
 import assert from "node:assert/strict";
 const jobId="a".repeat(32),principal="one-account";
 const model={
