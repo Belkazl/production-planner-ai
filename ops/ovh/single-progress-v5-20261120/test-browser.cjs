@@ -92,4 +92,4 @@ const {chromium}=require("playwright-core");
  JSON.stringify({started:started.state.shown,held:stale.shown,burst:burst.shown,done:done.shown,
   dialogsFinal:1}));
  await browser.close();
-})().catch(e=>{console.error(e);process.exitCode=1});
+})().catch(e=>{console.error("V5_BROWSER_TEST_FAILED",String(e),e.stack||"");process.exit(1)});
