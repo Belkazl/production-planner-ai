@@ -1,0 +1,102 @@
+// Read-only, authenticated Gantt sampling. The optimizer and saved best
+// continue to work with the complete schedule, unchanged.
+const ppFogStatusCache=new Map();
+function ppFogCutCandidate(plan,model){
+ if(!plan||typeof plan!=="object"||plan.valid===false)return null;
+ const equipment=(model?.equipment||model?.autoclaves||[]).slice(0,14);
+ if(!equipment.length)return null;
+ const alias=new Map();
+ for(let i=0;i<equipment.length;i++){
+  const row=equipment[i];
+  for(const value of [row?.id,row?.__ppid,row?.name]){
+   if(value!==undefined&&value!==null)alias.set(String(value),i);
+  }
+ }
+ const ownOrders=new Set((model.orders||[]).map(o=>String(o.id)));
+ const source=(Array.isArray(plan.generic_operations)&&plan.generic_operations.length?
+  plan.generic_operations:plan.operations)||[];
+ if(!Array.isArray(source)||!source.length)return null;
+ const rows=source.filter(op=>op&&typeof op==="object").slice().sort(
+  (a,b)=>(Number(a.start_min)||0)-(Number(b.start_min)||0)||
+          (Number(a.end_min)||0)-(Number(b.end_min)||0));
+ const counts=Array(equipment.length).fill(0),selected=[];
+ for(const op of rows){
+  if(op.order!=null&&!ownOrders.has(String(op.order)))continue;
+  const ids=Array.isArray(op.equipment_ids)&&op.equipment_ids.length?
+   op.equipment_ids:op.equipment_id!=null?[op.equipment_id]:
+   Array.isArray(op.resources)?op.resources.filter(r=>r?.resource_type==="equipment")
+     .map(r=>r.id??r.resource_ref??r.name):[];
+  const targets=[...new Set(ids.map(x=>alias.get(String(x))).filter(Number.isInteger))];
+  if(!targets.length||targets.some(i=>counts[i]>=10))continue;
+  selected.push({...op,equipment_ids:ids.map(x=>String(x))});
+  for(const i of targets)counts[i]++;
+  if(selected.length===140)break;
+ }
+ if(!selected.length)return null;
+ return {
+  ok:true,valid:plan.valid!==false,partial:true,
+  _pp_preview_limited:true,_pp_preview_rows:14,_pp_preview_per_row:10,
+  operations:selected,generic_operations:selected,batches:[],
+  blocked_orders:[],start:plan.start||model.start,
+  duration_minutes:plan.duration_minutes,
+  finish:plan.finish||null
+ };
+}
+async function ppFogHandleAuthenticated(req){
+ const url=new URL(req.url);
+ const light=url.searchParams.has("ppLight");
+ const preview=url.searchParams.has("ppPreview");
+ if(!light&&!preview)return Response.json({ok:false,error:"ga_preview_mode_required"},{status:400});
+ const key=ppSecureSessionKey(req);
+ const cached=ppFogStatusCache.get(key);
+ const now=Date.now();
+ // One-second client heartbeats should not transmit or even re-create an
+ // 800+operation payload. Use the last actual backend checkpoint for 5 sec.
+ if(light&&cached&&cached.meta?.running===true&&now-cached.at<5000){
+  return Response.json({...cached.meta,best_preview:null,candidate_preview:null,
+    result:null},{headers:{"cache-control":"no-store"}});
+ }
+ const target=new URL(req.url);
+ target.pathname="/api/plan-progress";
+ target.search="";
+ const internal=new Request(target.toString(),{method:"GET",headers:req.headers});
+ let response;
+ try{response=await handler(internal)}
+ catch(_){return Response.json({ok:false,error:"ga_snapshot_upstream_unavailable"},{status:503})}
+ if(!response.ok)return Response.json({ok:false,error:"ga_snapshot_http_"+response.status},
+  {status:response.status,headers:{"cache-control":"no-store"}});
+ let data;
+ try{data=await response.json()}
+ catch(_){return Response.json({ok:false,error:"ga_snapshot_invalid_json"},{status:502})}
+ if(!data||data.ok!==true)
+  return Response.json({ok:false,error:String(data?.error||"ga_snapshot_invalid")},{status:503});
+ const meta={ok:true,job_id:data.job_id||null,running:data.running===true,
+  success:data.success===true,phase:String(data.phase||"running"),
+  percent:Math.min(100,Math.max(0,Number(data.percent)||0)),
+  done:Number(data.done)||0,total:Number(data.total)||100,
+  stage:data.stage||null,error:data.error||null};
+ const count=cached?.samples||0;
+ ppFogStatusCache.set(key,{at:Date.now(),meta,samples:count+(preview?1:0)});
+ if(ppFogStatusCache.size>128){
+  const first=ppFogStatusCache.keys().next().value;
+  ppFogStatusCache.delete(first);
+ }
+ // A real completed job MUST be passed through intact. This makes native
+ // waitForPlan() receive the exact verified final result and then show 100%.
+ if(light&&meta.running===false){
+  return Response.json(data,{headers:{"cache-control":"no-store"}});
+ }
+ if(light){
+  return Response.json({...meta,best_preview:null,candidate_preview:null,result:null},
+   {headers:{"cache-control":"no-store"}});
+ }
+ let projected=null;
+ if(meta.running){
+  let model=null;
+  try{model=await ppReadAccountModel(req)}catch(_){}
+  if(model)projected=ppFogCutCandidate(data.candidate_preview,model);
+ }
+ return Response.json({...meta,candidate_preview:projected,
+  candidate_serial:count+1,preview_sampled_at:Date.now(),
+  best_preview:null,result:null},{headers:{"cache-control":"no-store"}});
+}
