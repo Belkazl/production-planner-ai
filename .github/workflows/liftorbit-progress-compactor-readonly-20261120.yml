@@ -1,0 +1,49 @@
+name: LiftOrbit inspect public progress compactor and query handling
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-progress-compactor-readonly-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read effective response compacting functions and dispatch points
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p current
+          for f in auth-runtime.js ga-progress-compact-response.js python-ga-upstream.mjs; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$f" "current/$f" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          pattern=re.compile(r'(ppCompactGaProgressResponse|ppPreview|ppLight|plan-progress|function progress|fetchUpstream)',re.I)
+          sensitive=re.compile(r'(password|secret|token|cookie|authorization|process.env|private.key|credential|api.key)',re.I)
+          for p in Path('current').iterdir():
+            lines=p.read_text(errors='replace').splitlines()
+            hits=[i for i,s in enumerate(lines) if pattern.search(s)]
+            ranges=set()
+            for i in hits[:35]:
+              ranges.update(range(max(0,i-5),min(len(lines),i+18)))
+            print('FILE',p.name,'LINES',len(lines))
+            for i in sorted(ranges)[:280]:
+              s=lines[i]
+              if sensitive.search(s):s='[redacted]'
+              print('SRC',p.name,i+1,s[:220])
+          PY
