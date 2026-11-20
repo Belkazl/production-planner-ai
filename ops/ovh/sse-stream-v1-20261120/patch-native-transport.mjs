@@ -1,0 +1,12 @@
+import {readFileSync,writeFileSync} from "node:fs";
+import {resolve} from "node:path";
+const root=process.argv[2];
+if(!root)throw Error("SSE_NATIVE_TRANSPORT_ROOT_REQUIRED");
+const path=resolve(root,"async-plan-transport.js");
+let source=readFileSync(path,"utf8");
+const a='const r=await nativeFetch("/api/plan-progress",{method:"GET",cache:"no-store",credentials:"same-origin",';
+const b='const r=await window.fetch("/api/plan-progress",{method:"GET",cache:"no-store",credentials:"same-origin",';
+if(source.split(a).length!==2)throw Error("SSE_NATIVE_TRANSPORT_SOURCE_DRIFT");
+source=source.replace(a,b);
+writeFileSync(path,source);
+console.log("SSE_NATIVE_TRANSPORT_PROGRESS_VIA_SHARED_FETCH_ACTIVE");
