@@ -96,7 +96,7 @@ const fs=require("node:fs");
   });
   await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.kpiUpdates===2);
   assert.equal(await page.locator("#dur").innerText(),"4300",
-   "A new full-plan score must refresh KPIs even if 140 preview operations are unchanged");
+   "A new full-plan score must refresh KPIs even if preview operations are unchanged");
   assert.equal(await page.evaluate(()=>window.__unit.baseline),5000);
   await page.evaluate(()=>{
    window.__PP_UNIFIED_GANTT_V2__.activeMode=1;
@@ -113,6 +113,44 @@ const fs=require("node:fs");
   assert.equal(await page.evaluate(()=>window.__unit.render),await page.evaluate(()=>window.__unit.ganttBeforeOtherTab),
    "Other Gantt tabs must not perform expensive full Gantt redraw");
   await page.evaluate(()=>window.__PP_UNIFIED_GANTT_V2__.activeMode=0);
+  // Old UI silently dropped previews with >140 total operations; the first
+  // ten jobs on 14 machines plus ten preceding setups has 280 operations.
+  await page.evaluate(()=>{
+   const operations=Array.from({length:14},(_,row)=>
+    Array.from({length:10},(_,i)=>[
+     {operation_id:"setup-"+row+"-"+i,order:null,is_setup:true,
+      phase:"setup",start_min:20*i+1,end_min:20*i+4,
+      equipment_ids:["E"+row]},
+     {operation_id:"job-"+row+"-"+i,order:"A",
+      start_min:20*i+5,end_min:20*i+14,
+      equipment_ids:["E"+row]}
+    ]).flat()).flat();
+   const plan={partial:true,_pp_preview_limited:true,
+    _pp_preview_rows:14,_pp_preview_per_row:10,
+    _pp_preview_production_count:140,_pp_preview_setup_count:140,
+    _pp_preview_setups_included:true,
+    _pp_preview_kpis:{duration_minutes:4150,batch_count:105,
+      operator_wait_minutes:2000,machine_idle_minutes:2700},
+    operations};
+   window.__unit.sse.send("preview",{job_id:"job-A",plan});
+   window.__unit.sse.send("preview",{job_id:"job-A",plan});
+  });
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.kpiUpdates===4,
+   null,{timeout:4000});
+  const setupSample=await page.evaluate(()=>({
+   state:window.__PP_SSE_PROGRESS_V1__.state,
+   ops:window.__unit.lastOps,
+   kpis:window.__unit.kpiUpdates.length
+  }));
+  assert.equal(setupSample.ops,280,
+   "Preview of first 10 jobs + their setups must not be rejected at 140");
+  assert.equal(setupSample.state.previewSetupCount,140);
+  assert.equal(setupSample.state.previewJobCount,140);
+  assert.equal(setupSample.kpis,4,"Identical setup preview must not repaint twice");
+  assert.equal(await page.locator("#dur").innerText(),"4150");
+  assert.equal(await page.evaluate(()=>window.__unit.baseline),5000);
+  console.log("SSE_BROWSER_10_JOBS_PER_MACHINE_PLUS_140_SETUP_ROWS_ACCEPTED",
+   JSON.stringify({previewOps:setupSample.ops,setups:setupSample.state.previewSetupCount}));
   await page.evaluate(()=>{
    document.querySelector(".pg2-bar").dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}))
   });
