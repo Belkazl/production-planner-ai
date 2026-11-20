@@ -1,0 +1,25 @@
+name: LiftOrbit native poll browser CDP initiator diagnostic
+on:
+  push:
+    branches: [fix/sse-zero-rest-progress-poll-20261120]
+    paths:
+      - 'ops/ovh/sse-stream-v1-20261120/build-network-initiator-probe.mjs'
+      - '.github/workflows/liftorbit-sse-network-initiator-probe.yml'
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-sse-cdp-network-readonly
+  cancel-in-progress: true
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture actual Chrome initiator stacks for GA progress network calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/sse-stream-v1-20261120/build-network-initiator-probe.mjs
+          node --check ops/ovh/sse-stream-v1-20261120/_network-initiator-probe.mjs
+          node ops/ovh/sse-stream-v1-20261120/_network-initiator-probe.mjs
