@@ -6,6 +6,7 @@ if(window.__PP_GA_PROGRESS_V5__?.installed)return;
 const style=document.createElement("style");
 style.id="ppSingleServerProgressV5Css";
 style.textContent=[
+ "#ppLivePreview{display:none!important}",
  "#opt.pp-ga-v5-visible{position:relative!important;isolation:isolate!important;overflow:hidden!important;color:transparent!important}",
  "#opt.pp-ga-v5-visible .pp-opt-progress-line{display:none!important}",
  "#opt.pp-ga-v5-visible .pp-ga-v5-caption{position:absolute!important;inset:0!important;z-index:11!important;",
@@ -218,12 +219,12 @@ function operationDialogGuard(){
  (document.head||document.documentElement).appendChild(style);
  let suppressed=0;
  function interim(){
-  if(mode!=="running"||!nativeRunning())return false;
+  if(mode!=="running"&&mode!=="completing")return false;
   const stage=document.getElementById("ppGanttToolV2");
-  if(!stage||window.__PP_UNIFIED_GANTT_V2__?.activeMode!==0)return false;
-  const n=stage.querySelectorAll(".pg2-bar").length;
-  // Do not suppress details of a full baseline plan or a completed Gantt.
-  return n>0&&n<=140&&!!window.__PP_FOUR_SECOND_PREVIEW__?.state?.lastRenderedAt;
+  if(!stage||![0,1,3].includes(window.__PP_UNIFIED_GANTT_V2__?.activeMode))return false;
+  // Details remain unavailable throughout optimization, regardless of which
+  // interim Gantt tab is selected. Restored on Stop or verified completion.
+  return stage.querySelector(".pg2-bar")!==null;
  }
  const timer=setInterval(()=>{
   document.getElementById("ppGanttToolV2")?.classList.toggle(
