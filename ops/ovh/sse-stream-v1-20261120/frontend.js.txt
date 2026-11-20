@@ -4,7 +4,7 @@ if(window.__PP_SSE_PROGRESS_V1__?.installed)return;
 const originalFetch=window.fetch.bind(window);
 const nurl=x=>{try{return new URL(typeof x==="string"?x:x?.url,location.href)}catch{return null}};
 const method=(input,init)=>String(init?.method||(input instanceof Request?input.method:"GET")).toUpperCase();
-let active=false,completed=false,disposed=false,connected=false;
+let active=false,completed=false,disposed=false,connected=false,manuallyStopped=false;
 let stream=null,jobId=null,percent=0,phase="idle",fullData=null,fullPending=false;
 let barButton=null,label=null,track=null,fill=null,observer=null;
 let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0;
@@ -193,12 +193,14 @@ function connect(){
 }
 function start(){
  if(disposed)return;
+ manuallyStopped=false;
  stream?.close();stream=null;connected=false;
  active=true;completed=false;jobId=null;percent=0;phase="queued";
  fullData=null;fullPending=false;lastPreviewSignature="";lastPlan=null;
  hideFog();ensureMeter();connect();
 }
 function stop(){
+ manuallyStopped=true;
  stream?.close();stream=null;connected=false;
  active=false;completed=false;phase="idle";fullData=null;fullPending=false;
  jobId=null;percent=0;lastPlan=null;
@@ -225,13 +227,14 @@ window.addEventListener("pp:optimizer-stopped",stopHandler);
 const btnObserver=new MutationObserver(()=>{
  if(disposed)return;
  const btn=button();
- if(btn?.classList.contains("pp-opt-running")&&!active&&!completed)start();
+ if(!btn?.classList.contains("pp-opt-running"))manuallyStopped=false;
+ if(btn?.classList.contains("pp-opt-running")&&!active&&!completed&&!manuallyStopped)start();
 });
 const observeNative=()=>{
  const btn=button();
  if(!btn)return;
  btnObserver.observe(btn,{attributes:true,attributeFilter:["class"]});
- if(btn.classList.contains("pp-opt-running")&&!active&&!completed)start();
+ if(btn.classList.contains("pp-opt-running")&&!active&&!completed&&!manuallyStopped)start();
 };
 observeNative();
 if(document.readyState==="loading")
