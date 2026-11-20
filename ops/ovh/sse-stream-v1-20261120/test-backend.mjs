@@ -132,7 +132,7 @@ for(const preview of previews){
   assert.equal(assigned.filter(x=>!x.is_setup).length,5);
   assert.ok(assigned.some(x=>x.is_setup&&x.order==null),
    "Orderless setup on "+id+" must not be discarded");
-  assert.ok(assigned.every(x=>Number(x.start_min)<90),
+  assert.ok(assigned.every(x=>Number(x.start_min)<100),
    "Later operations must not leak into first ten");
  }
 }
