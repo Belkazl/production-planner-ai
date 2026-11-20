@@ -1,0 +1,121 @@
+name: LiftOrbit remove extra elapsed timer from optimizer button
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-button-clock-cleanup-20261120.yml]
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch only visible button label, keep GA and Gantt untouched
+        id: deploy
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp -q "${opts[@]}" "$USER@$HOST:$base/current/restart-optimizer-ui.js" original.js
+          cp original.js patched.js
+          node ops/ovh/ga-jank-fix-20261120/remove-button-clock.mjs patched.js
+          node --check patched.js
+          test "$(grep -c 'working.*elapsed' original.js || true)" -eq 1
+          test "$(grep -c 'working.*elapsed' patched.js || true)" -eq 0
+          before=$(sha256sum original.js | cut -d' ' -f1)
+          after=$(sha256sum patched.js | cut -d' ' -f1)
+          scp -q "${opts[@]}" patched.js "$USER@$HOST:$base/button-clock-cleanup.next"
+          ssh "${opts[@]}" "$USER@$HOST" bash -s -- "$before" "$after" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          base="$root/sources/ovh-app"
+          current="$base/current/restart-optimizer-ui.js"
+          staged="$base/button-clock-cleanup.next"
+          backup="$root/patch-backups/button-clock-cleanup-20261120"
+          mkdir -p "$backup"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test "$(sha "$current")" = "$1"
+          test "$(sha "$staged")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          cp -p "$current" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$1"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$current" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo BUTTON_LABEL_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$staged" "$current"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 28); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes;break;fi
+            sleep 4
+          done
+          test "$healthy" = yes
+          test "$(sha "$current")" = "$2"
+          trap - ERR
+          echo OPTIMIZER_BUTTON_PERCENT_ONLY_INSTALLED
+          REMOTE
+      - name: Verify live health and that authentication is still required
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/api/auth/me || true)
+            if [[ "$health" = 200 && "$guest" = 401 ]];then
+              echo OPTIMIZER_BUTTON_LABEL_PRODUCTION_HEALTH_PASS
+              exit 0
+            fi
+            sleep 4
+          done
+          exit 1
+      - name: Roll back verified original if public health fails
+        if: ${{ failure() && steps.deploy.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          file="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          saved="$root/patch-backups/button-clock-cleanup-20261120/restart-optimizer-ui.js"
+          test -r "$saved"
+          cp -p "$saved" "$file"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$root/patch-backups/button-clock-cleanup-20261120/public-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo OPTIMIZER_BUTTON_LABEL_PUBLIC_ROLLBACK
+          REMOTE
+      - name: Final status
+        if: always()
+        env:
+          DEPLOY: ${{ steps.deploy.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+        run: echo "BUTTON_LABEL percent_only deploy=$DEPLOY health=$HEALTH"
