@@ -1,0 +1,51 @@
+name: LiftOrbit single server progress V5 preflight
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-single-progress-v5-preflight-20261120.yml]
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse live UI patch and run 30s stale/smooth/dialog browser test
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          mkdir -p old new
+          scp -q "${opts[@]}" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" old/restart-optimizer-ui.js
+          cp old/restart-optimizer-ui.js new/restart-optimizer-ui.js
+          node ops/ovh/single-progress-v5-20261120/patch.mjs new
+          node --check new/restart-optimizer-ui.js
+          node --check ops/ovh/single-progress-v5-20261120/runtime.js
+          node --check ops/ovh/single-progress-v5-20261120/test-browser.cjs
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('new/restart-optimizer-ui.js').read_text()
+          assert s.count('(function ppSingleServerProgressV5()')==1
+          assert 'ppLightweightLiveGanttV2' in s
+          assert 'ppUnifiedGanttV2' in s
+          assert 'ppAutomaticIntermediatePreviewV1' not in s
+          assert 'ppNativeOneOwnerProgressV4' not in s
+          assert 'ppLargeGaProgressLoadShedV1' not in s
+          assert 'ppTruthfulSmoothGaPercentV1' not in s
+          assert '__PP_STOP_DEBUG__' in s
+          assert 'pp:ga-light-status' in s
+          print('V5_EXCLUSIVE_PROGRESS_OWNER_SAFE_GUARDS_PASS')
+          PY
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/single-progress-v5-20261120/test-browser.cjs
+          echo V5_READY_FOR_CONTROLLED_ROLLOUT
