@@ -21,7 +21,7 @@ const instrumentation=String.raw`
     },250);
   });
 `;
-const first='  const beforeModel=await page.evaluate(async()=>{';
+const first=' const beforeModel=await page.evaluate(async()=>{';
 once(first,instrumentation+first,"before_model");
 const replacement=String.raw`
   await page.waitForTimeout(31000);
@@ -53,6 +53,6 @@ const replacement=String.raw`
   console.log("JANK_DIAG_CAPTURE",JSON.stringify(d));
   await browser.close();process.exit(0);
 `;
-once('  const epochs=Date.now();',replacement+'  const epochs=Date.now();',"start_poll");
+once(' const epochs=Date.now();',replacement+' const epochs=Date.now();',"start_poll");
 writeFileSync("ops/ovh/ga-jank-fix-20261120/_diagnostic.mjs",src);
 console.log("JANK_DIAG_GENERATED");
