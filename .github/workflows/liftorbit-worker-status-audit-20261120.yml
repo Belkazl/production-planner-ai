@@ -1,0 +1,44 @@
+name: LiftOrbit bounded worker status audit
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-worker-status-audit-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read current private-job status handler contract
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p current
+          for file in server.py manager.py; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/ga_python_workers/ga_workers/$file" "current/$file"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for fn in ['server.py','manager.py']:
+            lines=(Path('current')/fn).read_text().splitlines()
+            print('FILE',fn,len(lines))
+            for i,s in enumerate(lines):
+              if fn=='manager.py' and not (90<=i<=165):continue
+              if fn=='server.py' and not (15<=i<=138):continue
+              if re.search(r'(?i)(password|secret|token|cookie|authorization|process.env)',s):s='[redacted]'
+              print('SRC',fn,i+1,s[:185])
+          PY
