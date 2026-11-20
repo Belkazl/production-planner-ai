@@ -1,0 +1,57 @@
+name: LiftOrbit SSE route and worker transport architecture audit
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-sse-architecture-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read current authenticated route, worker transport and native start/stop API
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p inspect
+          for f in auth-runtime.js python-ga-upstream.mjs restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$f" "inspect/$f"
+          done
+          for f in server.py manager.py full_runtime_adapter.py; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/ga_python_workers/ga_workers/$f" "inspect/$f"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          red=re.compile(r'(?i)(password|\bsecret\b|\btoken\b|private.key|credential|authorization|cookie|process.env|database_url|api.key)')
+          spans={
+            'auth-runtime.js':[(1,70),(90,135),(160,245),(245,320)],
+            'python-ga-upstream.mjs':[(1,80),(285,345),(400,565)],
+            'server.py':[(1,160)],
+            'manager.py':[(1,115),(150,270)],
+            'full_runtime_adapter.py':[(90,180)],
+            'restart-optimizer-ui.js':[(45,185),(640,840)]
+          }
+          for fn,ranges in spans.items():
+            lines=(Path('inspect')/fn).read_text(errors='replace').splitlines()
+            print('SRC_FILE',fn,'LENGTH',len(lines))
+            for a,b in ranges:
+              print('SRC_REGION',fn,a,b)
+              for i in range(a-1,min(b,len(lines))):
+                s=lines[i]
+                if red.search(s):s='[redacted]'
+                print('SRC_LINE',fn,i+1,s[:225])
+          PY
