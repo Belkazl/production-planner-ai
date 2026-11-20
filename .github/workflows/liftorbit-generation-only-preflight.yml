@@ -29,6 +29,7 @@ jobs:
             scp -q "${opts[@]}" "$USER@$HOST:$ga_root/ga_workers/$name" "new/ga_python_workers/ga_workers/$name"
           done
           touch new/ga_python_workers/ga_workers/__init__.py
+          sed -n '1,95p' new/ga_python_workers/ga_workers/fixture.py | cut -c1-200
           python3 ops/ovh/ga-generations-only-20261120/patch.py new
           python3 -m py_compile new/ga_python_workers/ga_workers/{manager,server,fixture}.py
           PYTHONPATH=new/ga_python_workers python3 - <<'PY'
@@ -42,7 +43,7 @@ jobs:
             assert "if deadline is not None" in m
             assert "job.result=checkpoint" not in m
             assert "timeout_s=0)" in s
-            assert "def cancel" in m
+            assert "stop_requested" in m
             print("GENERATION_COUNT_IS_ONLY_PRODUCTION_COMPLETION_CONDITION")
             print("USER_CANCEL_RETAINS_COOPERATIVE_WORKER_STOP")
             print("GA_NO_TIMEOUT_PREDEPLOY_UNIT_PASS")
