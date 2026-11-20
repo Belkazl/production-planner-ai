@@ -116,23 +116,24 @@ for(const preview of previews){
  assert.equal(preview.partial,true);
  assert.equal(preview._pp_preview_setups_included,true);
  assert.equal(preview._pp_preview_per_row,10);
- assert.equal(preview._pp_preview_production_count,140);
- assert.equal(preview._pp_preview_setup_count,140);
- assert.equal(preview.operations.length,280,"First 10 jobs AND their setups on 14 machines");
+ assert.equal(preview._pp_preview_production_count,70);
+ assert.equal(preview._pp_preview_setup_count,70);
+ assert.equal(preview.operations.length,140,
+  "First TEN chronological operations, including changeovers, on 14 machines");
  for(const {id} of model.equipment){
-  const assigned=preview.operations.filter(x=>x.equipment_ids.includes(id));
-  const jobRows=assigned.filter(x=>!x.is_setup);
-  const setupRows=assigned.filter(x=>x.is_setup);
-  assert.equal(jobRows.length,10,"Exactly first ten production jobs for "+id);
-  assert.equal(setupRows.length,10,"All associated changeovers for "+id);
-  assert.deepEqual(jobRows.map(x=>x.operation_id),
-   Array.from({length:10},(_,i)=>"job-"+id+"-"+i));
-  assert.deepEqual(setupRows.map(x=>x.operation_id),
-   Array.from({length:10},(_,i)=>"setup-"+id+"-"+i));
-  assert.ok(setupRows.some(x=>x.order==null),
+  const assigned=preview.operations.filter(x=>x.equipment_ids.includes(id))
+   .sort((a,b)=>a.start_min-b.start_min);
+  assert.equal(assigned.length,10,"Exactly ten total operations for "+id);
+  assert.deepEqual(assigned.map(x=>x.operation_id),
+   Array.from({length:5},(_,i)=>["setup-"+id+"-"+i,"job-"+id+"-"+i]).flat(),
+   "First ten operations in actual chronological order, NOT ten jobs");
+  assert.equal(assigned.filter(x=>x.is_setup).length,5,
+   "Five setup operations each consume one of ten visible slots");
+  assert.equal(assigned.filter(x=>!x.is_setup).length,5);
+  assert.ok(assigned.some(x=>x.is_setup&&x.order==null),
    "Orderless setup on "+id+" must not be discarded");
-  assert.ok(assigned.every(x=>Number(x.start_min)<210),
-   "No operations of the eleventh job or later may leak into first-ten preview");
+  assert.ok(assigned.every(x=>Number(x.start_min)<90),
+   "Later operations must not leak into first ten");
  }
 }
 assert.ok(previews.every(x=>x._pp_preview_kpis?.duration_minutes===270&&
@@ -147,9 +148,10 @@ const terminal=await upstream.fetch(new Request(base+"/api/plan-progress",{metho
 assert.equal(terminal.status,200);
 const full=await terminal.json();
 assert.equal(full.success,true);
-assert.equal(full.result.operations.length,336);
-assert.equal(full.result.operations.filter(x=>x.is_setup).length,168,
- "Final plan must retain every setup after the lightweight preview");
-console.log("SSE_NATIVE_GA_WORKER_PERCENT_0_31_73_100_FIRST_TEN_JOBS_PLUS_SETUPS_280_FULL_336_COMPLETE_PASS",
+assert.equal(full.result.operations.length,168);
+assert.equal(full.result.generic_operations.length,336);
+assert.equal(full.result.generic_operations.filter(x=>x.is_setup).length,168,
+ "Full candidate must retain all setups after 140-operation preview");
+console.log("SSE_NATIVE_GA_WORKER_FIRST_TEN_OPERATIONS_INCLUDE_SETUPS_140_FULL_336_PASS",
  JSON.stringify({types:all,percent:statuses,previewOps:previews.map(x=>x.operations.length),
  workerStatusReads:readStatus}));
