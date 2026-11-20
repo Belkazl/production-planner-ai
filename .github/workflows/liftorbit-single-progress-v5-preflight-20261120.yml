@@ -33,6 +33,8 @@ jobs:
           node --check new/restart-optimizer-ui.js
           node --check ops/ovh/single-progress-v5-20261120/runtime.js
           node --check ops/ovh/single-progress-v5-20261120/test-browser.cjs
+          node ops/ovh/single-progress-v5-20261120/build-live-qa.mjs
+          node --check ops/ovh/single-progress-v5-20261120/_live-qa.mjs
           python3 - <<'PY'
           from pathlib import Path
           s=Path('new/restart-optimizer-ui.js').read_text()
