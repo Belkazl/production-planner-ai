@@ -35,7 +35,7 @@ jobs:
           base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
           ga_root=/home/liftorbit-ci/liftorbit-migration/sources/current/ga
           mkdir -p old/ga_python_workers/ga_workers new
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js async-plan-transport.js; do
             scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "old/$file"
           done
           for file in manager.py server.py; do
@@ -45,6 +45,8 @@ jobs:
           node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new
           node ops/ovh/sse-stream-v1-20261120/patch-backend.mjs new
           node ops/ovh/sse-stream-v1-20261120/patch-frontend.mjs new
+          node ops/ovh/sse-stream-v1-20261120/patch-native-transport.mjs new
+          node --check new/async-plan-transport.js
           node --check new/python-ga-upstream.mjs
           node --check new/restart-optimizer-ui.js
           python3 -m py_compile new/ga_python_workers/ga_workers/manager.py new/ga_python_workers/ga_workers/server.py
@@ -55,7 +57,7 @@ jobs:
           node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
           npm install --no-save --no-package-lock playwright-core@1.57.0
           node ops/ovh/sse-stream-v1-20261120/test-client.cjs
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js async-plan-transport.js; do
             sha256sum "old/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/original-$file.sha"
             sha256sum "new/$file" | cut -d' ' -f1 > "$RUNNER_TEMP/new-$file.sha"
           done
@@ -80,44 +82,46 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
-          for file in python-ga-upstream.mjs restart-optimizer-ui.js; do
+          for file in python-ga-upstream.mjs restart-optimizer-ui.js async-plan-transport.js; do
             scp -q "${opts[@]}" "new/$file" "$USER@$HOST:$base/sse-v1-$file.next"
           done
           for file in manager.py server.py; do
             scp -q "${opts[@]}" "new/ga_python_workers/ga_workers/$file" "$USER@$HOST:$base/sse-v1-$file.next"
           done
-          ssh "${opts[@]}" "$USER@$HOST" bash -s --            "$(cat "$RUNNER_TEMP/original-python-ga-upstream.mjs.sha")" "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")"            "$(cat "$RUNNER_TEMP/original-restart-optimizer-ui.js.sha")" "$(cat "$RUNNER_TEMP/new-restart-optimizer-ui.js.sha")"            "$(cat "$RUNNER_TEMP/original-manager.py.sha")" "$(cat "$RUNNER_TEMP/new-manager.py.sha")"            "$(cat "$RUNNER_TEMP/original-server.py.sha")" "$(cat "$RUNNER_TEMP/new-server.py.sha")" <<'REMOTE'
+          ssh "${opts[@]}" "$USER@$HOST" bash -s --            "$(cat "$RUNNER_TEMP/original-python-ga-upstream.mjs.sha")" "$(cat "$RUNNER_TEMP/new-python-ga-upstream.mjs.sha")"            "$(cat "$RUNNER_TEMP/original-restart-optimizer-ui.js.sha")" "$(cat "$RUNNER_TEMP/new-restart-optimizer-ui.js.sha")" "$(cat "$RUNNER_TEMP/original-async-plan-transport.js.sha")" "$(cat "$RUNNER_TEMP/new-async-plan-transport.js.sha")"            "$(cat "$RUNNER_TEMP/original-manager.py.sha")" "$(cat "$RUNNER_TEMP/new-manager.py.sha")"            "$(cat "$RUNNER_TEMP/original-server.py.sha")" "$(cat "$RUNNER_TEMP/new-server.py.sha")" <<'REMOTE'
           set -euo pipefail
           root="$HOME/liftorbit-migration"
           base="$root/sources/ovh-app"
           backup="$root/patch-backups/sse-native-push-v1-20261120"
-          names=(python-ga-upstream.mjs restart-optimizer-ui.js manager.py server.py)
+          names=(python-ga-upstream.mjs restart-optimizer-ui.js async-plan-transport.js manager.py server.py)
           files=("$base/current/python-ga-upstream.mjs" "$base/current/restart-optimizer-ui.js"
+                 "$base/current/async-plan-transport.js"
                  "$root/sources/current/ga/ga_workers/manager.py"
                  "$root/sources/current/ga/ga_workers/server.py")
           staged=("$base/sse-v1-python-ga-upstream.mjs.next" "$base/sse-v1-restart-optimizer-ui.js.next"
+                  "$base/sse-v1-async-plan-transport.js.next"
                   "$base/sse-v1-manager.py.next" "$base/sse-v1-server.py.next")
           expected=("$@")
           sha(){ sha256sum "$1" | cut -d' ' -f1; }
-          test "${#expected[@]}" -eq 8
-          for i in 0 1 2 3; do
+          test "${#expected[@]}" -eq 10
+          for i in 0 1 2 3 4; do
             test "$(sha "${files[$i]}")" = "${expected[$((2*i))]}"
             test "$(sha "${staged[$i]}")" = "${expected[$((2*i+1))]}"
           done
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
           mkdir -p "$backup"
-          for i in 0 1 2 3; do
+          for i in 0 1 2 3 4; do
             cp -p "${files[$i]}" "$backup/${names[$i]}"
             test "$(sha "$backup/${names[$i]}")" = "${expected[$((2*i))]}"
           done
           rollback(){
             trap - ERR
-            for i in 0 1 2 3; do cp -p "$backup/${names[$i]}" "${files[$i]}" || true; done
+            for i in 0 1 2 3 4; do cp -p "$backup/${names[$i]}" "${files[$i]}" || true; done
             sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
             echo SSE_NATIVE_PUSH_ROLLBACK_ATTEMPTED
           }
           trap rollback ERR
-          for i in 0 1 2 3; do mv "${staged[$i]}" "${files[$i]}"; done
+          for i in 0 1 2 3 4; do mv "${staged[$i]}" "${files[$i]}"; done
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
           healthy=no
           for attempt in $(seq 1 32); do
@@ -125,7 +129,7 @@ jobs:
             sleep 5
           done
           test "$healthy" = yes
-          for i in 0 1 2 3; do test "$(sha "${files[$i]}")" = "${expected[$((2*i+1))]}"; done
+          for i in 0 1 2 3 4; do test "$(sha "${files[$i]}")" = "${expected[$((2*i+1))]}"; done
           trap - ERR
           echo SSE_NATIVE_PUSH_PRODUCTION_DEPLOYED
           REMOTE
@@ -171,9 +175,10 @@ jobs:
           root="$HOME/liftorbit-migration"
           backup="$root/patch-backups/sse-native-push-v1-20261120"
           base="$root/sources/ovh-app/current"
-          for n in python-ga-upstream.mjs restart-optimizer-ui.js manager.py server.py; do test -r "$backup/$n"; done
+          for n in python-ga-upstream.mjs restart-optimizer-ui.js async-plan-transport.js manager.py server.py; do test -r "$backup/$n"; done
           cp -p "$backup/python-ga-upstream.mjs" "$base/python-ga-upstream.mjs"
           cp -p "$backup/restart-optimizer-ui.js" "$base/restart-optimizer-ui.js"
+          cp -p "$backup/async-plan-transport.js" "$base/async-plan-transport.js"
           cp -p "$backup/manager.py" "$root/sources/current/ga/ga_workers/manager.py"
           cp -p "$backup/server.py" "$root/sources/current/ga/ga_workers/server.py"
           if ! sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1; then
