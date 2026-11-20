@@ -1,5 +1,5 @@
 name: LiftOrbit eliminate progress and Gantt freezes on large plans
-# retry after diagnosing and fixing telemetry test and fourteen-row fog
+# acceptance separates ongoing optimization freezes from full terminal Gantt rendering
 on:
   push:
     branches: [main]
