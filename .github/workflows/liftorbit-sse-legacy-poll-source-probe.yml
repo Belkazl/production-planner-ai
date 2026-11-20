@@ -30,11 +30,11 @@ jobs:
           ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
           set -u
           base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
-          find "$base" -maxdepth 3 -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.html' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -size -3M | while IFS= read -r f; do
-            matches=$(grep -nc 'api/plan-progress' "$f" 2>/dev/null || true)
+          find -L "$base" -maxdepth 3 -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.html' -o -name '*.ts' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -size -3M | while IFS= read -r f; do
+            matches=$(grep -nEc 'api/plan-progress|progressOnce|waitForPlan' "$f" 2>/dev/null || true)
             if [ "$matches" != 0 ] && [ -n "$matches" ];then
               echo "SOURCE ${f#$base/} count=$matches"
-              grep -nE 'plan-progress|setInterval|setTimeout' "$f" | head -n 35 | cut -c1-200 || true
+              grep -nE -C 2 'plan-progress|progressOnce|waitForPlan' "$f" | head -n 60 | cut -c1-240 || true
             fi
           done
           REMOTE
