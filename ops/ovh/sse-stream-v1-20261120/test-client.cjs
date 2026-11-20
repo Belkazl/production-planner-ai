@@ -44,7 +44,7 @@ const fs=require("node:fs");
   });
   await page.addScriptTag({content:fs.readFileSync(
    "ops/ovh/sse-stream-v1-20261120/frontend.js.txt","utf8")});
-  await page.waitForFunction(()=>window.__unit.streams>=2,null,{timeout:8000});
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__?.state?.connected===true&&window.__unit.streams>=2,null,{timeout:8000});
   const ready=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.state);
   assert.equal(ready.connected,true,"Must reconnect after early HTTP 409 before GA job exists");
   assert.ok(ready.reconnects>=1,"Startup 409 retry tested");
