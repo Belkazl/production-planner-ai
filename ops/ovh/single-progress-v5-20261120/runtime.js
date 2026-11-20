@@ -28,7 +28,7 @@ let shown=0,confirmed=0,latestPercent=0,lastStep=0,lastStatusAt=0;
 let jobId=null,firstStage="queued",stale=false,finalDone=false,finishing=false,has100=false;
 let attempts=0,updates=0,firstStagePaints=0,serverStageEvents=0,finalCount=0,verifiedCount=0;
 let disposed=false,verifying=false,verifyNext=0,version=0,lastClickedAt=0;
-let lastLabel="",lastRunningNative=false;
+let lastLabel="",lastRunningNative=false,reconnected=false;
 const clamp=n=>Math.min(99,Math.max(0,Math.floor(Number(n)||0)));
 const now=()=>Date.now();
 const langRu=()=>/^ru/i.test(document.documentElement.lang||"")||
@@ -81,7 +81,7 @@ function reset(){
  clearVisual();
 }
 function begin(reconnect=false){
- version++;mode="running";shown=confirmed=0;latestPercent=0;jobId=null;
+ version++;mode="running";shown=confirmed=0;latestPercent=0;jobId=null;reconnected=!!reconnect;
  lastStep=now();lastStatusAt=0;firstStage="queued";
  finalDone=finishing=has100=false;verifying=false;verifyNext=0;stale=false;
  lastLabel="";lastRunningNative=nativeRunning();
@@ -130,6 +130,8 @@ function incomingProgress(p){
   if(value>confirmed){
    confirmed=value;updates++;
   }
+  if(reconnected&&lastStatusAt===0)shown=value;
+  reconnected=false;
   latestPercent=value;
  }
  const age=Number(p.snapshot_age_ms);
@@ -191,7 +193,7 @@ function tick(){
   if(nativeRunning()&&now()-lastClickedAt<20000)begin(true);
  }
  if(mode==="running"||mode==="completing"){
-  if(mode==="running"&&!natural&&lastRunningNative&&now()>verifyNext&&!verifying)
+  if(mode==="running"&&!natural&&lastStatusAt>0&&now()>verifyNext&&!verifying)
    void verify(version);
   if(mode==="running"&&shown<confirmed&&now()-lastStep>=110){
    shown++;lastStep=now();
