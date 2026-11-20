@@ -1,0 +1,191 @@
+  // Authenticated one-way worker events. The worker uses a Condition signal
+  // from the GA process, not periodic status requests. Preview snapshots are
+  // strictly read-only, limited to the first 10 tasks on 14 equipment rows.
+  const boundedPreview = (plan,model) => {
+    if(!plan || plan.valid===false || !model)return null;
+    const equipment=(model.equipment||model.autoclaves||[]).slice(0,14);
+    const aliases=new Map();
+    equipment.forEach((row,i)=>{
+      for(const id of [row.id,row.name,row.__ppid])
+        if(id!=null)aliases.set(String(id),i);
+    });
+    const ownOrders=new Set((model.orders||[]).map(x=>String(x.id)));
+    const operations=plan.generic_operations?.length
+      ?plan.generic_operations:plan.operations||[];
+    if(!Array.isArray(operations)||!operations.length||!aliases.size)return null;
+    const count=Array(equipment.length).fill(0),selected=[];
+    for(const op of [...operations].sort((a,b)=>Number(a.start_min||0)-Number(b.start_min||0))){
+      if(!op||op.order==null||!ownOrders.has(String(op.order)))continue;
+      const ids=op.equipment_ids?.length?op.equipment_ids:
+         op.equipment_id!=null?[op.equipment_id]:[];
+      const targets=[...new Set(ids.map(x=>aliases.get(String(x))).filter(Number.isInteger))];
+      if(!targets.length||targets.some(i=>count[i]>=10))continue;
+      for(const t of targets)count[t]++;
+      selected.push({...op,equipment_ids:ids});
+      if(selected.length>=140)break;
+    }
+    if(!selected.length)return null;
+    return {
+      valid:true,ok:true,partial:true,_pp_preview_limited:true,
+      _pp_preview_rows:14,_pp_preview_per_row:10,
+      operations:selected,generic_operations:selected,batches:[],
+      start:plan.start||model.start||null,
+      duration_minutes:plan.duration_minutes||null
+    };
+  };
+  async function stream(req){
+    let principal,model,job=null;
+    try{
+      principal=await account(req);
+      model=await readAccountModel(req);
+    }catch{return response({ok:false,error:'sse_auth_or_model_unavailable'},503)}
+    const modelKey=hashModel(model);
+    const expectedId=new URL(req.url).searchParams.get('job_id');
+    if(expectedId&&!/^[0-9a-f]{32}$/.test(expectedId))
+      return response({ok:false,error:'invalid_job_id'},400);
+    const encoder=new TextEncoder();
+    let aborter=null,previewTimer=null,closed=false,working=false,previewBusy=false;
+    let lastPreviewHash="",lastPercent=-1,lastPhase="",lastSeq=-1;
+    const payload=(event,data)=>"event: "+event+"\ndata: "+JSON.stringify(data)+"\n\n";
+    const body=new ReadableStream({
+      start(controller){
+        const emit=(event,data)=>{
+          if(closed)return;
+          try{controller.enqueue(encoder.encode(payload(event,data)))}
+          catch(_){closed=true;aborter?.abort()}
+        };
+        const close=()=>{
+          if(closed)return;
+          closed=true;
+          if(previewTimer)clearInterval(previewTimer);
+          aborter?.abort();
+          try{controller.close()}catch(_){}
+        };
+        const sendPreview=async()=>{
+          if(closed||!working||previewBusy)return;
+          previewBusy=true;
+          try{
+            const res=await progress(req);
+            if(!res.ok)return;
+            const data=await res.json();
+            if(closed||!data?.running)return;
+            const candidate=boundedPreview(data.candidate_preview||data.best_preview,model);
+            if(candidate){
+              const identity=candidate.operations.map(x=>[x.order,x.start_min,x.end_min,
+                x.equipment_ids?.join(',')||''].join(':')).join('|');
+              if(identity!==lastPreviewHash){
+                lastPreviewHash=identity;
+                emit("preview",{job_id:job.id,plan:candidate});
+              }
+            }
+          }catch(_){}finally{previewBusy=false}
+        };
+        // Real server worker continuously pushes progress. Gantt is an
+        // independent server-owned 4s preview, not a browser HTTP poll.
+        const task=(async()=>{
+          aborter=new AbortController();
+          try{
+            // Send the HTTP 200 streaming response once, before POST /api/plan
+            // has finished creating its account job. This eliminates the 409
+            // request storm during the initial optimization startup race.
+            emit("ready",{transport:"one-sse-stream"});
+            for(let tries=0;tries<120&&!closed;tries++){
+              let candidate=null;
+              try{candidate=await currentJob(principal)}catch(_){}
+              const eligible=candidate&&candidate.modelKey===modelKey&&
+                (expectedId?candidate.id===expectedId:
+                  ["queued","running"].includes(candidate.state));
+              if(eligible){job=candidate;break;}
+              if(tries%12===11)emit("heartbeat",{waiting_for:"job"});
+              await new Promise(resolve=>setTimeout(resolve,750));
+            }
+            if(closed)return;
+            if(!job){emit("problem",{reason:"sse_job_start_timeout"});return;}
+            if(job.state==="completed"&&job.result){
+              const result=await progress(req);
+              const state=await result.json();
+              if(result.ok&&state?.success&&state?.phase==="completed")
+                emit("complete",{job_id:job.id,percent:100,verified:true});
+              else emit("error",{job_id:job.id,reason:"sse_terminal_unverified"});
+              return;
+            }
+            const worker=await fetchImpl(origin+"/internal/jobs/"+job.id+"/events",{
+              method:"GET",
+              headers:{authorization:"Bearer "+token,"x-authenticated-account":principal,
+                accept:"text/event-stream"},
+              signal:aborter.signal,redirect:"manual",cache:"no-store"
+            });
+            if(!worker.ok||!worker.body)throw Error("worker_events_http_"+worker.status);
+            const reader=worker.body.getReader(),decoder=new TextDecoder();
+            working=true;
+            previewTimer=setInterval(()=>{void sendPreview()},4000);
+            emit("progress",{job_id:job.id,percent:Math.min(99,job.progress||0),
+              phase:job.state,stage:"queued",seq:0});
+            let buffer="";
+            for(;;){
+              const part=await reader.read();
+              if(part.done)break;
+              buffer+=decoder.decode(part.value,{stream:true}).replaceAll("\r","");
+              if(buffer.length>32000)throw Error("worker_sse_frame_too_large");
+              let at;
+              while((at=buffer.indexOf("\n\n"))>=0){
+                const frame=buffer.slice(0,at).replaceAll("\r","");
+                buffer=buffer.slice(at+2);
+                const dataLines=frame.split("\n").filter(x=>x.startsWith("data:"));
+                if(!dataLines.length)continue;
+                let data;
+                try{data=JSON.parse(dataLines.map(x=>x.slice(5).trimStart()).join("\n"))}
+                catch{continue}
+                if(data.job_id!==job.id||!Number.isInteger(data.seq)||data.seq<=lastSeq)continue;
+                lastSeq=data.seq;
+                const phase=String(data.status||"running");
+                const pct=Math.max(0,Math.min(99,Number(data.progress)||0));
+                if(phase==="queued"||phase==="running"){
+                  working=true;
+                  if(pct!==lastPercent||phase!==lastPhase){
+                    lastPercent=pct;lastPhase=phase;
+                    emit("progress",{job_id:job.id,percent:pct,phase,stage:data.stage||"optimizing",
+                      seq:lastSeq});
+                  }
+                }else{
+                  working=false;
+                  if(previewTimer){clearInterval(previewTimer);previewTimer=null}
+                  if(phase==="completed"){
+                    const checked=await progress(req);
+                    const result=checked.ok?await checked.json().catch(()=>null):null;
+                    if(checked.ok&&result?.success===true&&result?.phase==="completed"&&
+                       result.result?.valid!==false&&result.result?.operations?.length){
+                      emit("progress",{job_id:job.id,percent:100,phase:"completed",seq:lastSeq});
+                      emit("complete",{job_id:job.id,percent:100,verified:true});
+                    }else emit("error",{job_id:job.id,reason:"sse_final_validation_failed"});
+                  }else emit("stopped",{job_id:job.id,phase});
+                  return;
+                }
+              }
+            }
+            if(!closed)throw Error("worker_events_disconnected");
+          }catch(error){
+            if(!closed){
+              const message=String(error?.message||"");
+              const reason=aborter?.signal.aborted?"sse_aborted":
+                /^worker_events_http_[0-9]{3}$/.test(message)?message:
+                message==="worker_events_disconnected"?"worker_disconnected":
+                error?.name==="TypeError"?"worker_fetch_type_error":
+                "worker_event_stream_failed";
+              emit("problem",{job_id:job?.id||null,reason});
+            }
+          }finally{close()}
+        })();
+        void task;
+      },
+      cancel(){closed=true;working=false;if(previewTimer)clearInterval(previewTimer);
+        aborter?.abort();}
+    });
+    return new Response(body,{status:200,headers:{
+      "content-type":"text/event-stream; charset=utf-8",
+      "cache-control":"no-store, no-transform",
+      "x-accel-buffering":"no",
+      "x-content-type-options":"nosniff"
+    }});
+  }
+
