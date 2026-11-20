@@ -7,8 +7,8 @@ const start=original.indexOf(a),end=original.indexOf(b,start);
 const insert=String.raw`
  // Capture whether the native button passes a stale AbortSignal. Remove only
  // that UI-level signal in this disposable QA account; all production stays unchanged.
- const first=await (await ctx.request.get(base+"/api/plan-progress?ppNoCache=1",{timeout:25000})).json();
- if(first.phase!=="completed"||first.result?.operations?.length<800)throw Error("FIRST_NOT_COMPLETE");
+ const firstCompletion=await (await ctx.request.get(base+"/api/plan-progress?ppNoCache=1",{timeout:25000})).json();
+ if(firstCompletion.phase!=="completed"||firstCompletion.result?.operations?.length<800)throw Error("FIRST_NOT_COMPLETE");
  await page.evaluate(()=>{
   window.__ppSignalQa={calls:[],events:[]};
   const nativeWindowFetch=window.fetch;
