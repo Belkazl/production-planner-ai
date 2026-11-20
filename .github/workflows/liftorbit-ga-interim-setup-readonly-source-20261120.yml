@@ -1,0 +1,48 @@
+name: Read GA interim setup source without changing server
+on:
+  push:
+    branches: [diagnostics/ga-preview-changeover-source-20261120]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read source of interim plans and setup operation attachment
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers')
+          files=['full_runtime_adapter.py','compile_legacy_ga.py','manager.py','server.py']
+          targets=('setup_operations','candidate_preview','best_preview','on_progress','progress_callback','progress_fn','checkpoint','intermediate','best_plan','generation')
+          for name in files:
+            path=root/name
+            if not path.is_file():continue
+            lines=path.read_text().splitlines()
+            print('GA_FILE',name,'LINES',len(lines))
+            matches=[]
+            for i,line in enumerate(lines):
+              if any(x in line.lower() for x in targets):matches.append(i)
+            ranges=[]
+            for i in matches[:110]:
+              a=max(0,i-3);b=min(len(lines),i+4)
+              if ranges and a<=ranges[-1][1]:
+                ranges[-1]=(ranges[-1][0],max(b,ranges[-1][1]))
+              else:ranges.append((a,b))
+            for a,b in ranges[:42]:
+              print('GA_SOURCE_RANGE',name,a+1,b)
+              for j in range(a,b):
+                print('GA_SOURCE',j+1,lines[j][:215])
+          PY
