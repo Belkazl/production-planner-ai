@@ -29,6 +29,8 @@ jobs:
           test "$actual" = "c25a7675624813aa4019790dd6df97d0b50ab76794d8b24d697f1e4f493942cb"
           ssh "${opts[@]}" "$USER@$HOST" sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
           echo SSE_PRODUCTION_BACKEND_SOURCE_AND_SMOKE_PASS
+          mkdir -p new
+          cp "$RUNNER_TEMP/actual.mjs" new/python-ga-upstream.mjs
           npm install --no-save --no-package-lock playwright-core@1.57.0
           node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
           SSE_TEST_CANDIDATE_WITHOUT_SETUPS=1 node ops/ovh/sse-stream-v1-20261120/test-backend.mjs
