@@ -1,0 +1,46 @@
+name: LiftOrbit read native optimizer transport and bridge source safely
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-live-transport-inspect-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect currently deployed transport and top of run handler
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          scp -q "${opts[@]}" "$USER@$HOST:$root/async-plan-transport.js" "$RUNNER_TEMP/transport.js"
+          scp -q "${opts[@]}" "$USER@$HOST:$root/python-ga-upstream.mjs" "$RUNNER_TEMP/bridge.mjs"
+          node --check "$RUNNER_TEMP/transport.js"
+          sha256sum "$RUNNER_TEMP/transport.js" "$RUNNER_TEMP/bridge.mjs" | cut -c1-75
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          folder=Path(os.environ['RUNNER_TEMP'])
+          for n,sections in [('transport.js',[(1,25),(55,145)]),('bridge.mjs',[(260,350)])]:
+              lines=(folder/n).read_text().splitlines()
+              print('FILE',n,'LINES',len(lines))
+              for a,b in sections:
+                  for i in range(a-1,min(b,len(lines))):
+                      line=lines[i]
+                      if any(t in line.lower() for t in ('password','secret','credential','cookie','authorization','process.env','database_url','api_key','token','private.key','sessionkey')):
+                          print('SOURCE',n,i+1,'[sensitive line]')
+                      else: print('SOURCE',n,i+1,line[:220])
+          PY
