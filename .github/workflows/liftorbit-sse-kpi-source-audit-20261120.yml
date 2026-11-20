@@ -44,3 +44,11 @@ jobs:
               for i in offsets[:2]:
                 print('KPI_SOURCE_EXCERPT',repr(src[max(0,i-350):i+2400]))
           PY
+      - name: Read KPI rendering and metric DOM through a disposable browser session
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/sse-interim-kpi-20261120/build-probe.mjs
+          node --check ops/ovh/sse-interim-kpi-20261120/_readonly-probe.mjs
+          node ops/ovh/sse-interim-kpi-20261120/_readonly-probe.mjs
