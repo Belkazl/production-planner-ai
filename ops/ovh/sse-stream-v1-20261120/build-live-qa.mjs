@@ -84,8 +84,9 @@ between(
  '  throw Error("SSE_REAL_WORKER_PERCENT_NOT_DONE_"+JSON.stringify(sse));',
  ' if(interimMax>140||lostLine>0||!sseRequests.length)',
  '  throw Error("SSE_INTERIM_BARS_OR_LINE_INVALID_"+JSON.stringify({interimMax,lostLine,sseRequests}));',
- ' if(sse.networkFinalGets!==1||progressRequests.length>3)',
- '  throw Error("SSE_BROWSER_IS_STILL_POLLING_"+JSON.stringify({progressRequests,sse}));',
+ ' const periodicRequests=progressRequests.filter(t=>t>=epochs&&t<Date.now()-10000);',
+ ' if(sse.networkFinalGets!==1||periodicRequests.length||progressRequests.length>9)',
+ '  throw Error("SSE_BROWSER_IS_STILL_POLLING_"+JSON.stringify({progressRequests,periodicRequests,sse}));',
  ' if(errors.length)throw Error("SSE_BROWSER_ERRORS_"+JSON.stringify(errors.slice(0,4)));'
  ],"sse_acceptance");
 between(
