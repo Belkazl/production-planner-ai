@@ -47,6 +47,10 @@ backend=repl(backend,
 backend=repl(backend,
  "    const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));",
  "    const running=['queued','running'].includes(status.status),pct=Math.max(0,Math.min(100,Number(status.progress)||0));\n    if(previewOnly)return response({ok:true,job_id:state.id,running,\n      stage:status.stage||null,success:status.status==='completed',\n      done:pct,total:100,percent:pct,phase:status.status,\n      candidate_preview:running?(state.candidate||null):null,\n      candidate_serial:status.candidate_serial||0,\n      preview_probe:status.preview_probe||null,\n      best_preview:null,result:null,error:state.error||null});","backend_return_preview");
+backend=repl(backend,
+ "    if(terminal||!state.lastPersistedAt||stamp-state.lastPersistedAt>=2000){",
+ "    if(terminal||(!previewOnly&&(!state.lastPersistedAt||stamp-state.lastPersistedAt>=2000))){",
+ "backend_no_heavy_preview_db_write");
 let frontend=readFileSync(target("restart-optimizer-ui.js"),"utf8");
 if(frontend.includes("ppFourSecondFogPreviewV1"))throw Error("FRONTEND_ALREADY_PATCHED");
 for(const marker of ["ppNativeOneOwnerProgressV4","ppUnifiedGanttV2",
