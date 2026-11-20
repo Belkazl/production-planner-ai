@@ -13,10 +13,11 @@ const between=(a,b,lines,label)=>{
  s=s.slice(0,i)+lines.join("\n")+"\n"+s.slice(j);
 };
 one(' const firstStageResponseHeaders=[],firstStageVisibleSamples=[];',
- ' const firstStageResponseHeaders=[],firstStageVisibleSamples=[];\n const progressRequests=[],sseRequests=[];',"request_arrays");
+ ' const firstStageResponseHeaders=[],firstStageVisibleSamples=[];\n const progressRequests=[],sseRequests=[],startResponses=[],streamResponses=[];',"request_arrays");
 one(' page.on("request",r=>{if(new URL(r.url()).pathname==="/api/plan"&&r.method()==="POST")requests.push(Date.now())});',
  ' page.on("request",r=>{if(new URL(r.url()).pathname==="/api/plan"&&r.method()==="POST")requests.push(Date.now())});\n'+
- ' page.on("request",r=>{try{const p=new URL(r.url()).pathname;if(p==="/api/plan-progress")progressRequests.push(Date.now());if(p==="/api/plan-events")sseRequests.push(Date.now())}catch{}});',
+ ' page.on("request",r=>{try{const p=new URL(r.url()).pathname;if(p==="/api/plan-progress")progressRequests.push(Date.now());if(p==="/api/plan-events")sseRequests.push(Date.now())}catch{}});\n'+
+ ' page.on("response",r=>{try{const p=new URL(r.url()).pathname;if(p==="/api/plan"&&r.request().method()==="POST")startResponses.push(r.status());if(p==="/api/plan-events")streamResponses.push(r.status())}catch{}});',
  "network_observability");
 between(' const guard=await page.evaluate(()=>({v4:',
  ' let suppressedUiProgressRequests=0;',
@@ -38,7 +39,7 @@ one(' const epochs=Date.now();',[
  '  console.log("SSE_FIRST_REAL_WORKER_EVENT",JSON.stringify(initialSse));',
  ' }catch(e){',
  '  const state=await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__?.state||null);',
- '  throw Error("SSE_INITIAL_CONNECTION_NOT_ESTABLISHED_"+JSON.stringify(state));',
+ '  throw Error("SSE_INITIAL_CONNECTION_NOT_ESTABLISHED_"+JSON.stringify({state,startResponses,streamResponses,postRequests:requests.length,sseRequests:sseRequests.length}));',
  ' }',
  ' let lostLine=0,interimMax=0,previewSamples=0,progressDuringRun=0;',
  ' const epochs=Date.now();'
