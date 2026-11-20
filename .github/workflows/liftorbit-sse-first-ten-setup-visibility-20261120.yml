@@ -1,0 +1,34 @@
+name: LiftOrbit SSE first 10 operations setup visibility OVH
+on:
+  push:
+    branches: [main, fix/sse-first-ten-setup-visibility-20261120]
+    paths:
+      - .github/workflows/liftorbit-sse-first-ten-setup-visibility-20261120.yml
+      - ops/ovh/sse-first-ten-setup-visibility-20261120/**
+      - ops/ovh/sse-stream-v1-20261120/backend-stream.js.txt
+      - ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+      - ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-sse-first-ten-setup-visibility-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify_and_release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strict per-machine first ten + native setup display, deploy only on main
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            bash ops/ovh/sse-first-ten-setup-visibility-20261120/deploy.sh
+          else
+            FIRST_TEN_VISIBILITY_PREFLIGHT_ONLY=yes bash ops/ovh/sse-first-ten-setup-visibility-20261120/deploy.sh
+          fi
