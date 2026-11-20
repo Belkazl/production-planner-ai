@@ -10,7 +10,7 @@ const canonical=input=>{
  catch(_){return null}
 };
 const method=(input,init)=>String(init?.method||(input instanceof Request?input.method:"GET")).toUpperCase();
-let previews=0,activity=0,light=0,errors=0,lastSerial=0,lastTick=0,lastJob=null,lastPercent=null;
+let previews=0,activity=0,light=0,errors=0,lastSerial=0,lastTick=0,lastJob=null,lastPercent=null,lastProbe=null;
 let closed=false,pending=false,progressPending=false,wasRunning=false,overlay=null,layer=null;
 const style=document.createElement("style");
 style.id="ppFourSecondFogPreviewCss";
@@ -124,6 +124,7 @@ async function snapshot(){
   const p=await r.json();
   if(closed||!isRunning()||p.running!==true)return;
   activity++;
+  lastProbe=p.preview_probe||null;
   if(p.job_id&&lastJob&&p.job_id!==lastJob){lastSerial=0;clearFog()}
   if(p.job_id)lastJob=p.job_id;
   emitMeta(p);
@@ -168,7 +169,7 @@ window.addEventListener("pp:optimizer-reconnect-pending",()=>{lastJob=null;lastS
 window.__PP_FOUR_SECOND_PREVIEW__={
  installed:true,intervalMs:everyMs,rows:14,perRow:10,
  get state(){return{previews,activity,light,errors,lastSerial,lastTick,lastJob,
-   lastPercent,active:isRunning(),fogRows:layer?.children.length||0}},
+   lastPercent,lastProbe,active:isRunning(),fogRows:layer?.children.length||0}},
  refresh:snapshot,
  dispose(){closed=true;clearInterval(ticks);clearInterval(four);clearInterval(one);
   clearFog();style.remove();window.fetch=oldFetch}
