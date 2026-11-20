@@ -43,6 +43,12 @@ jobs:
           done
           echo "UPSTREAM_SOURCE_SYMBOLS"
           grep -nE "async function (account|readAccountModel|currentJob|progress|start)|const (hashModel|currentJob|readAccountModel)|sse_|modelKey|job\.state|__pp_async_start" "$base/python-ga-upstream.mjs" | head -n 95 | cut -c1-180 || true
+          echo "CURRENT_JOB_SOURCE_238_266"
+          sed -n "238,266p" "$base/python-ga-upstream.mjs" | cut -c1-190
+          echo "START_SOURCE_267_350"
+          sed -n "267,351p" "$base/python-ga-upstream.mjs" | cut -c1-190
+          echo "PROGRESS_SOURCE_423_455"
+          sed -n "423,455p" "$base/python-ga-upstream.mjs" | cut -c1-190
           echo "NATIVE_UI_START_EVENTS"
           grep -nE "optimizer-started|optimizer-reconnect-pending|/api/plan-events|__pp_async_start|/api/plan|optimizer-stopped|pp-opt-running" "$base/restart-optimizer-ui.js" | head -n 80 | cut -c1-160 || true
           sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1
