@@ -1,3 +1,4 @@
+# corrected diagnostic bindings
 name: LiftOrbit diagnose native Continue abort signal without production edits
 on:
   push:
