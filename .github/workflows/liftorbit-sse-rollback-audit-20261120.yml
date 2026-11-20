@@ -1,0 +1,51 @@
+name: LiftOrbit SSE rollback exact-source audit
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-sse-rollback-audit-20261120.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify four exact backup SHA and public health after failed SSE live QA
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path.home()/'liftorbit-migration'
+          backup=root/'patch-backups/sse-native-push-v1-20261120'
+          base=root/'sources/ovh-app/current'
+          files={'python-ga-upstream.mjs':base/'python-ga-upstream.mjs',
+                 'restart-optimizer-ui.js':base/'restart-optimizer-ui.js',
+                 'manager.py':base/'ga_python_workers/ga_workers/manager.py',
+                 'server.py':base/'ga_python_workers/ga_workers/server.py'}
+          for name,p in files.items():
+            original=backup/name
+            if not p.is_file() or not original.is_file():print('AUDIT_MISSING',name);continue
+            a=p.read_bytes();b=original.read_bytes()
+            print('SSE_AUDIT_FILE',name,'same_original',a==b,'live_sha',hashlib.sha256(a).hexdigest(),
+                  'has_sse',b'ppOneSseProgressAndGantt' in a or b'def stream_wait' in a or b'async function stream(req)' in a or b'def stream_events' in a)
+          for f in ['qa-rollback-private.log','rollback-private.log']:
+            p=backup/f
+            if p.exists():print('SSE_ROLLBACK_LOG',f,'lines',len(p.read_text(errors='replace').splitlines()))
+          PY
+          if ssh "${opts[@]}" "$USER@$HOST" sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null; then echo SSE_PRIVATE_SMOKE_PASS; else echo SSE_PRIVATE_SMOKE_FAIL; fi
+          for path in __bridge_health api/auth/me; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 18 "https://app.liftorbit.app/$path" || true)
+            echo "SSE_PUBLIC_STATUS $path $code"
+          done
