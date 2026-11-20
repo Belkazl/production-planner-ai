@@ -26,7 +26,7 @@ vm.runInContext(script+";globalThis.__fog={cut:ppFogCutCandidate,snapshot:ppFogH
  for(const eq of equipment){
   const operations=preview.operations.filter(op=>op.equipment_ids.includes(eq.id));
   assert.equal(operations.length,10,"Ten earliest operations per equipment row");
-  assert.deepEqual(operations.map(op=>op.name),Array.from({length:10},(_,j)=>"Operation "+j));
+  assert.equal(operations.map(op=>op.name).join(","),Array.from({length:10},(_,j)=>"Operation "+j).join(","));
  }
  const target="https://app.liftorbit.app/api/ga-candidate-snapshot";
  const a=await ctx.__fog.snapshot(new Request(target+"?ppPreview=1"));
