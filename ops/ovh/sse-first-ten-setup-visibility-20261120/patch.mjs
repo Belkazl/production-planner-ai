@@ -1,44 +1,35 @@
 import {readFileSync,writeFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 const original=process.argv[2],target=process.argv[3];
-if(!original||!target)throw Error("SSE_FIRST10_ZOOM_FILES_REQUIRED");
-let s=readFileSync(original,"utf8");
-const old1=`    const productionCount=selected.filter(op=>!isSetup(op)).length;
-    const setupCount=selected.length-productionCount;`;
-const new1=`    const productionCount=selected.filter(op=>!isSetup(op)).length;
-    const setupCount=selected.length-productionCount;
-    // Use the VISIBLE first-ten-operation window for the interim time axis.
-    // Keeping the complete optimization duration here compresses every real
-    // changeover into a near-invisible sliver at the far left of the Gantt.
-    // Full-candidate metrics still arrive separately in _pp_preview_kpis.
-    const visibleEnd=Math.max(1,Math.ceil(Math.max(...selected.map(op=>Number(op.end_min)))));`;
-const old2=`      start:plan.start||model.start||null,
-      duration_minutes:plan.duration_minutes||null,
-      _pp_preview_kpis:metrics`;
-const new2=`      start:plan.start||model.start||null,
-      duration_minutes:visibleEnd,
-      _pp_preview_full_duration_minutes:plan.duration_minutes||null,
-      _pp_preview_kpis:metrics`;
-if(s.includes(new1)&&s.includes(new2))
- throw Error("SSE_FIRST10_ZOOM_ALREADY_DEPLOYED");
-for(const [from,to] of [[old1,new1],[old2,new2]]){
- const n=s.split(from).length-1;
- if(n!==1)throw Error("SSE_FIRST10_ZOOM_SOURCE_DRIFT_"+n+"_"+from.slice(0,60));
- s=s.replace(from,to);
-}
-const guards={
- bounded:s.includes("const boundedPreview = (plan,model) =>"),
- chronological:s.includes("for(const entry of entries.slice(0,10))"),
- detached:s.includes("const detached=[];"),
- kpis:s.includes("_pp_preview_kpis:metrics"),
- oldTenJobs:s.includes("entries.slice(0,last+1)"),
- setupArray:s.includes("setup_operations"),
- totalOps:s.length
-};
-console.log("SSE_FIRST10_SOURCE_VERSION_GUARDS",JSON.stringify(guards));
-if(!guards.bounded||!guards.chronological||!guards.detached||!guards.kpis)
- throw Error("SSE_FIRST10_ZOOM_SECURITY_OR_FIRST_TEN_GUARD_FAILED");
+if(!original||!target)throw Error("SSE_FIRST10_SETUP_FILES_REQUIRED");
+const current=readFileSync(original,"utf8");
 const canonical=readFileSync("ops/ovh/sse-stream-v1-20261120/backend-stream.js.txt","utf8");
-if(!s.includes(canonical))throw Error("SSE_FIRST10_ZOOM_MUST_MATCH_TESTED_CANONICAL");
-writeFileSync(target,s);
-console.log("SSE_FIRST10_ZOOM_GUARDED_SOURCE_READY",createHash("sha256").update(s).digest("hex"));
+const startMarker="  const boundedPreview = (plan,model) => {";
+const endMarker="  async function stream(req){";
+function section(src,label){
+ const a=src.indexOf(startMarker),b=src.indexOf(endMarker,a);
+ if(a<0||b<=a||src.indexOf(startMarker,a+1)!==-1||
+    src.indexOf(endMarker,b+1)!==-1)throw Error("SSE_FIRST10_"+label+"_BOUNDS_DRIFT");
+ return {a,b,body:src.slice(a,b)};
+}
+const before=section(current,"LIVE"),after=section(canonical,"CANONICAL");
+if(before.body===after.body)throw Error("SSE_FIRST10_ALREADY_DEPLOYED");
+if(!current.includes("const isSetup = op =>")||
+   !current.includes("for(const entry of entries.slice(0,10))")||
+   !current.includes("_pp_preview_kpis:metrics")||
+   !current.includes("const useBest=setupRows(live)===0&&setupRows(stored)>0"))
+ throw Error("SSE_FIRST10_LIVE_SECURITY_OR_SSE_PROTOCOL_DRIFT");
+if(!after.body.includes("const detached=[];")||
+   !after.body.includes("const visibleEnd=Math.max(")||
+   !after.body.includes("duration_minutes:visibleEnd")||
+   !after.body.includes("for(const entry of entries.slice(0,10))"))
+ throw Error("SSE_FIRST10_NEW_CANONICAL_SOURCE_NOT_TESTED");
+const patched=current.slice(0,before.a)+after.body+current.slice(before.b);
+if(!patched.includes(after.body)||patched.includes(before.body))
+ throw Error("SSE_FIRST10_PATCH_NOT_EXACT");
+writeFileSync(target,patched);
+console.log("SSE_FIRST10_SETUP_SOURCE_UPDATED",JSON.stringify({
+ oldBytes:current.length,newBytes:patched.length,
+ before:before.body.length,after:after.body.length,
+ sha256:createHash("sha256").update(patched).digest("hex")
+}));
