@@ -46,6 +46,23 @@ jobs:
               for j in range(a,b):
                 print('GA_SOURCE',j+1,lines[j][:215])
           PY
+          echo "=== GANTT RENDERER CHANGEOVER CODE ==="
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          p=Path("/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current")
+          for name in ("auth-runtime.js","restart-optimizer-ui.js"):
+            src=(p/name).read_text()
+            patterns=["function renderPlan(", "function renderPlanV2(", "function ppUnifiedGanttV2(", "is_setup","setup_operation","phase==='setup'","phase === 'setup'","pg2-bar","setup"]
+            print("GANTT_SOURCE",name,"LEN",len(src))
+            for needle in patterns:
+              indices=[]
+              start=0
+              while (pos:=src.find(needle,start))>=0:
+                indices.append(pos)
+                start=pos+len(needle)
+              print("GANTT_NEEDLE",needle,"COUNT",len(indices))
+              for i in indices[:2]:print("GANTT_EXCERPT",repr(src[max(0,i-470):i+1500]))
+          PY
           echo "=== BRIDGE CHECKPOINT TRANSFORM SOURCE ==="
           ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
           from pathlib import Path
