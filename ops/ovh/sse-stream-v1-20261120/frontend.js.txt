@@ -124,9 +124,16 @@ function showFog(){
 }
 function sameCandidate(p){
  if(!p?.partial||!p._pp_preview_limited||
-  !Array.isArray(p.operations)||p.operations.length>140||p.operations.length<1)return true;
+  !Array.isArray(p.operations)||p.operations.length<1||
+  p.operations.length>140)return true;
+ const setup=x=>x?.is_setup===true ||
+  String(x?.phase||"").toLowerCase()==="setup" ||
+  String(x?.type||"").toLowerCase()==="setup";
+ // Exactly the earliest ten operations per equipment row, counting
+ // changeovers as operations. No oversized or arbitrary preview is accepted.
  const signature=p.operations.map(x=>[
-  x.order,x.start_min,x.end_min,x.equipment_ids?.join(",")||x.equipment_id||""
+  x.operation_id||x.id||"",x.order??"",setup(x)?"setup":"job",
+  x.start_min,x.end_min,x.equipment_ids?.join(",")||x.equipment_id||""
  ].join("|")).join(";")+"|KPI:"+JSON.stringify(p._pp_preview_kpis||null);
  if(signature===lastPreviewSignature)return true;
  lastPreviewSignature=signature;lastPlan=p;return false;
@@ -140,8 +147,9 @@ function updatePreviewKpis(preview){
  const render=window.renderKpisWithDelta;
  if(typeof render!=="function")return;
  // The native KPI renderer preserves the explicitly accepted comparison
- // baseline. The preview carries four COMPLETE-plan values but only 140
- // Gantt operations. Never save/accept a limited preview as a real plan.
+ // baseline. The preview carries four COMPLETE-plan values while the Gantt
+ // shows the earliest ten operations per machine, including setups. It is never
+ // saved or accepted as a finished plan.
  render(metrics);
  kpiUpdates++;lastKpiMetrics={...metrics};
 }
@@ -322,6 +330,9 @@ window.__PP_SSE_PROGRESS_V1__={
  get state(){return{active,completed,connected,percent,phase,events,previews,
    networkFinalGets,blockedDialogs,errors,reconnects,lastStreamIssue,retryScheduled:!!retryTimer,jobId,lastPaint,
    lineVisible:!!track?.isConnected,kpiUpdates,lastKpiMetrics,
+   previewSetupCount:lastPlan?._pp_preview_setup_count||0,
+   previewJobCount:lastPlan?._pp_preview_production_count||0,
+   previewRows:lastPlan?._pp_preview_rows||0,
    paceMs:STEP_MS,serverTarget:targetPercent,
    terminalGap,terminalElapsedMs,terminalPending:verifiedTerminal}},
  start,stop,

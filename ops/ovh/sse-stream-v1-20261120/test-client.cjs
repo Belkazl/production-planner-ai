@@ -96,7 +96,7 @@ const fs=require("node:fs");
   });
   await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.kpiUpdates===2);
   assert.equal(await page.locator("#dur").innerText(),"4300",
-   "A new full-plan score must refresh KPIs even if 140 preview operations are unchanged");
+   "A new full-plan score must refresh KPIs even if preview operations are unchanged");
   assert.equal(await page.evaluate(()=>window.__unit.baseline),5000);
   await page.evaluate(()=>{
    window.__PP_UNIFIED_GANTT_V2__.activeMode=1;
@@ -113,6 +113,57 @@ const fs=require("node:fs");
   assert.equal(await page.evaluate(()=>window.__unit.render),await page.evaluate(()=>window.__unit.ganttBeforeOtherTab),
    "Other Gantt tabs must not perform expensive full Gantt redraw");
   await page.evaluate(()=>window.__PP_UNIFIED_GANTT_V2__.activeMode=0);
+  // First TEN chronological operations per machine include setups; they
+  // are not ten jobs plus extra changeovers.
+  await page.evaluate(()=>{
+   const operations=Array.from({length:14},(_,row)=>
+    Array.from({length:5},(_,i)=>[
+     {operation_id:"setup-"+row+"-"+i,order:null,is_setup:true,
+      phase:"setup",start_min:20*i+1,end_min:20*i+4,
+      equipment_ids:["E"+row]},
+     {operation_id:"job-"+row+"-"+i,order:"A",
+      start_min:20*i+5,end_min:20*i+14,
+      equipment_ids:["E"+row]}
+    ]).flat()).flat();
+   const plan={partial:true,_pp_preview_limited:true,
+    _pp_preview_rows:14,_pp_preview_per_row:10,
+    _pp_preview_production_count:70,_pp_preview_setup_count:70,
+    _pp_preview_setups_included:true,
+    _pp_preview_kpis:{duration_minutes:4150,batch_count:105,
+      operator_wait_minutes:2000,machine_idle_minutes:2700},
+    operations};
+   window.__unit.sse.send("preview",{job_id:"job-A",plan});
+   window.__unit.sse.send("preview",{job_id:"job-A",plan});
+  });
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.kpiUpdates===4,
+   null,{timeout:4000});
+  const setupSample=await page.evaluate(()=>({
+   state:window.__PP_SSE_PROGRESS_V1__.state,
+   ops:window.__unit.lastOps,
+   kpis:window.__unit.kpiUpdates.length
+  }));
+  assert.equal(setupSample.ops,140,"Exactly ten including setup per machine");
+  assert.equal(setupSample.state.previewSetupCount,70);
+  assert.equal(setupSample.state.previewJobCount,70);
+  assert.equal(setupSample.kpis,4,"Identical preview must not repaint twice");
+  assert.equal(await page.locator("#dur").innerText(),"4150");
+  assert.equal(await page.evaluate(()=>window.__unit.baseline),5000);
+  await page.evaluate(()=>{
+   const invalid=Array.from({length:141},(_,i)=>({
+    order:"A",operation_id:"extra-"+i,
+    start_min:i,end_min:i+1,equipment_ids:["E"]
+   }));
+   window.__unit.sse.send("preview",{job_id:"job-A",plan:{
+    partial:true,_pp_preview_limited:true,operations:invalid,
+    _pp_preview_kpis:{duration_minutes:9000,batch_count:900,
+      operator_wait_minutes:9000,machine_idle_minutes:9000}
+   }});
+  });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator("#dur").innerText(),"4150",
+   "An oversized or invalid preview must not corrupt displayed KPIs");
+  console.log("SSE_BROWSER_FIRST_TEN_OPERATIONS_COUNTING_SETUPS_PASS",
+   JSON.stringify({previewOps:setupSample.ops,setups:setupSample.state.previewSetupCount}));
   await page.evaluate(()=>{
    document.querySelector(".pg2-bar").dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}))
   });
