@@ -1,0 +1,20 @@
+name: LiftOrbit diagnose actual UI freezes on large Gantt
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-render-jank-qa-20261120.yml]
+permissions: {contents: read}
+jobs:
+  profile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Measure full render calls, paint latency and preview HTTP in real browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-jank-fix-20261120/build-diagnostic.mjs
+          node --check ops/ovh/ga-jank-fix-20261120/_diagnostic.mjs
+          node ops/ovh/ga-jank-fix-20261120/_diagnostic.mjs
