@@ -1,5 +1,5 @@
 name: LiftOrbit single server progress V5 preflight
-# fail-fast browser assertion and single-owner production source guard
+# enforce never ahead of confirmed backend progress while smoothing 30 to 70
 on:
   push:
     branches: [main]
