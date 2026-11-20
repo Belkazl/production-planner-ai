@@ -12,6 +12,7 @@ let terminalGap=0,terminalAt=0,terminalElapsedMs=0;
 let barButton=null,label=null,track=null,fill=null,observer=null;
 let previews=0,events=0,reconnects=0,errors=0,networkFinalGets=0,blockedDialogs=0,lastStreamIssue=null;
 let lastPreviewSignature="",lastPlan=null,lastPaint=0,renderScheduled=false;
+let kpiUpdates=0,lastKpiMetrics=null;
 let fogRows=[];
 const css=document.createElement("style");
 css.id="ppOneSseProgressCss";
@@ -126,9 +127,23 @@ function sameCandidate(p){
   !Array.isArray(p.operations)||p.operations.length>140||p.operations.length<1)return true;
  const signature=p.operations.map(x=>[
   x.order,x.start_min,x.end_min,x.equipment_ids?.join(",")||x.equipment_id||""
- ].join("|")).join(";");
+ ].join("|")).join(";")+"|KPI:"+JSON.stringify(p._pp_preview_kpis||null);
  if(signature===lastPreviewSignature)return true;
  lastPreviewSignature=signature;lastPlan=p;return false;
+}
+function updatePreviewKpis(preview){
+ const metrics=preview?._pp_preview_kpis;
+ const keys=["duration_minutes","batch_count",
+   "operator_wait_minutes","machine_idle_minutes"];
+ if(!metrics||!keys.every(k=>metrics[k]!=null&&
+   Number.isFinite(Number(metrics[k]))&&Number(metrics[k])>=0))return;
+ const render=window.renderKpisWithDelta;
+ if(typeof render!=="function")return;
+ // The native KPI renderer preserves the explicitly accepted comparison
+ // baseline. The preview carries four COMPLETE-plan values but only 140
+ // Gantt operations. Never save/accept a limited preview as a real plan.
+ render(metrics);
+ kpiUpdates++;lastKpiMetrics={...metrics};
 }
 function paintPreview(){
  if(renderScheduled||!active||!lastPlan)return;
@@ -136,11 +151,15 @@ function paintPreview(){
  requestAnimationFrame(()=>{
   renderScheduled=false;
   if(!active||!lastPlan)return;
-  if(window.__PP_UNIFIED_GANTT_V2__?.activeMode!==0)return;
-  const now=performance.now();
+  const now=performance.now(),preview=lastPlan;
   try{
-   if(typeof renderPlan==="function")renderPlan(lastPlan);
-   previews++;showFog();lastPaint=Math.round(performance.now()-now);
+   if(window.__PP_UNIFIED_GANTT_V2__?.activeMode===0){
+    if(typeof renderPlan==="function")renderPlan(preview);
+    showFog();
+   }
+   // Text-only KPIs remain current even when another Gantt tab is selected.
+   updatePreviewKpis(preview);
+   previews++;lastPaint=Math.round(performance.now()-now);
   }catch(e){errors++}
  });
 }
@@ -250,6 +269,7 @@ function start(){
  terminalGap=0;terminalAt=0;terminalElapsedMs=0;
  jobId=null;percent=0;targetPercent=0;phase="queued";
  fullData=null;fullPending=false;lastPreviewSignature="";lastPlan=null;
+ kpiUpdates=0;lastKpiMetrics=null;
  hideFog();ensureMeter();connect();
 }
 function stop(){
@@ -262,6 +282,7 @@ function stop(){
  terminalGap=0;terminalAt=0;terminalElapsedMs=0;
  phase="idle";fullData=null;fullPending=false;
  jobId=null;percent=0;targetPercent=0;lastPlan=null;
+ lastPreviewSignature="";lastKpiMetrics=null;
  hideFog();detachMeter();
 }
 function interceptDialog(e){
@@ -300,7 +321,8 @@ window.__PP_SSE_PROGRESS_V1__={
  installed:true,mode:"one-native-ga-sse-no-client-status-poll",
  get state(){return{active,completed,connected,percent,phase,events,previews,
    networkFinalGets,blockedDialogs,errors,reconnects,lastStreamIssue,retryScheduled:!!retryTimer,jobId,lastPaint,
-   lineVisible:!!track?.isConnected,paceMs:STEP_MS,serverTarget:targetPercent,
+   lineVisible:!!track?.isConnected,kpiUpdates,lastKpiMetrics,
+   paceMs:STEP_MS,serverTarget:targetPercent,
    terminalGap,terminalElapsedMs,terminalPending:verifiedTerminal}},
  start,stop,
  dispose(){

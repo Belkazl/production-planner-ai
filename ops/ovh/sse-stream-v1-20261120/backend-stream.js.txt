@@ -25,12 +25,20 @@
       if(selected.length>=140)break;
     }
     if(!selected.length)return null;
+    // KPI numbers belong to the COMPLETE validated candidate, never to the
+    // truncated 140-operation preview used to paint the lightweight Gantt.
+    const kpiKeys=["duration_minutes","batch_count",
+      "operator_wait_minutes","machine_idle_minutes"];
+    const values=Object.fromEntries(kpiKeys.map(key=>[key,Number(plan[key])]));
+    const metrics=kpiKeys.every(key=>plan[key]!=null &&
+      Number.isFinite(values[key])&&values[key]>=0)?values:null;
     return {
       valid:true,ok:true,partial:true,_pp_preview_limited:true,
       _pp_preview_rows:14,_pp_preview_per_row:10,
       operations:selected,generic_operations:selected,batches:[],
       start:plan.start||model.start||null,
-      duration_minutes:plan.duration_minutes||null
+      duration_minutes:plan.duration_minutes||null,
+      _pp_preview_kpis:metrics
     };
   };
   async function stream(req){

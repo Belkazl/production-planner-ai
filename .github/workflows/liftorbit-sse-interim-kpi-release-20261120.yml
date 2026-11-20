@@ -1,0 +1,36 @@
+name: LiftOrbit restore interim SSE Key metrics without polling
+on:
+  push:
+    branches: [main, fix/sse-interim-kpi-20261120]
+    paths:
+      - .github/workflows/liftorbit-sse-interim-kpi-release-20261120.yml
+      - ops/ovh/sse-interim-kpi-20261120/**
+      - ops/ovh/sse-stream-v1-20261120/frontend.js.txt
+      - ops/ovh/sse-stream-v1-20261120/backend-stream.js.txt
+      - ops/ovh/sse-stream-v1-20261120/test-client.cjs
+      - ops/ovh/sse-stream-v1-20261120/test-backend.mjs
+      - ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  validate_and_deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test KPI updates and deploy guarded two-file OVH patch on main only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            bash ops/ovh/sse-interim-kpi-20261120/deploy.sh
+          else
+            KPI_PREFLIGHT_ONLY=yes bash ops/ovh/sse-interim-kpi-20261120/deploy.sh
+          fi

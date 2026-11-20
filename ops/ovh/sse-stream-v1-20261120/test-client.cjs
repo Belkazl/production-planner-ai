@@ -10,12 +10,20 @@ const fs=require("node:fs");
   const html='<!doctype html><html><body>'+
    '<button id="opt" class="pp-opt-running" style="width:250px;height:42px;background:#8cacf1;color:white">Optimization</button>'+
    '<div id="ppGanttToolV2"><div class="pg2-row"><div class="pg2-lane" style="position:relative;width:800px">'+
-   '<button class="pg2-bar" style="width:30px">Pressing</button></div></div></div></body></html>';
+   '<button class="pg2-bar" style="width:30px">Pressing</button></div></div></div>'+
+   '<div id="kpis"><b id="dur">5000</b><b id="cycles">118</b><b id="waitKpi">9999</b><b id="idleKpi">9999</b></div></body></html>';
   await page.route("https://app.liftorbit.test/",route=>route.fulfill({status:200,contentType:"text/html",body:html}));
   await page.goto("https://app.liftorbit.test/",{waitUntil:"domcontentloaded"});
   await page.evaluate(()=>{
    window.__PP_UNIFIED_GANTT_V2__={activeMode:0};
-   window.__unit={calls:[],render:0,dialogs:0};
+   window.__unit={calls:[],render:0,dialogs:0,kpiUpdates:[],baseline:5000};
+   window.renderKpisWithDelta=p=>{
+    window.__unit.kpiUpdates.push({...p});
+    document.getElementById("dur").textContent=String(p.duration_minutes);
+    document.getElementById("cycles").textContent=String(p.batch_count);
+    document.getElementById("waitKpi").textContent=String(p.operator_wait_minutes);
+    document.getElementById("idleKpi").textContent=String(p.machine_idle_minutes);
+   };
    window.renderPlan=p=>{window.__unit.render++;window.__unit.lastOps=p.operations.length};
    document.querySelector(".pg2-bar").addEventListener("click",()=>window.__unit.dialogs++);
    const full=Array.from({length:886},(_,i)=>({order:"A",start_min:i*3,end_min:i*3+1,equipment_ids:["E"]}));
@@ -65,12 +73,46 @@ const fs=require("node:fs");
    "native button rewrite must not erase the progress");
   await page.evaluate(()=>{
    const plan={partial:true,_pp_preview_limited:true,
+    _pp_preview_kpis:{duration_minutes:4500,batch_count:110,
+      operator_wait_minutes:2500,machine_idle_minutes:3100},
     operations:[{order:"A",start_min:10,end_min:15,equipment_ids:["E"]}]};
    window.__unit.sse.send("preview",{job_id:"job-A",plan});
    window.__unit.sse.send("preview",{job_id:"job-A",plan});
   });
   await page.waitForTimeout(120);
   assert.equal(await page.evaluate(()=>window.__unit.render),1,"duplicate preview must not redraw");
+  assert.equal(await page.locator("#dur").innerText(),"4500");
+  assert.equal(await page.locator("#cycles").innerText(),"110");
+  assert.equal(await page.locator("#waitKpi").innerText(),"2500");
+  assert.equal(await page.locator("#idleKpi").innerText(),"3100");
+  assert.equal(await page.evaluate(()=>window.__unit.kpiUpdates.length),1,"duplicate KPI event must not redraw");
+  assert.equal(await page.evaluate(()=>window.__unit.baseline),5000,"preview cannot rebase selected reference");
+  await page.evaluate(()=>{
+   const p={partial:true,_pp_preview_limited:true,
+    _pp_preview_kpis:{duration_minutes:4300,batch_count:108,
+      operator_wait_minutes:2400,machine_idle_minutes:3000},
+    operations:[{order:"A",start_min:10,end_min:15,equipment_ids:["E"]}]};
+   window.__unit.sse.send("preview",{job_id:"job-A",plan:p});
+  });
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.kpiUpdates===2);
+  assert.equal(await page.locator("#dur").innerText(),"4300",
+   "A new full-plan score must refresh KPIs even if 140 preview operations are unchanged");
+  assert.equal(await page.evaluate(()=>window.__unit.baseline),5000);
+  await page.evaluate(()=>{
+   window.__PP_UNIFIED_GANTT_V2__.activeMode=1;
+   window.__unit.ganttBeforeOtherTab=window.__unit.render;
+   const p={partial:true,_pp_preview_limited:true,
+    _pp_preview_kpis:{duration_minutes:4200,batch_count:105,
+      operator_wait_minutes:2100,machine_idle_minutes:2800},
+    operations:[{order:"A",start_min:11,end_min:16,equipment_ids:["E"]}]};
+   window.__unit.sse.send("preview",{job_id:"job-A",plan:p});
+  });
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__.state.kpiUpdates===3);
+  assert.equal(await page.locator("#dur").innerText(),"4200",
+   "Lightweight KPI updates must not depend on active Gantt tab");
+  assert.equal(await page.evaluate(()=>window.__unit.render),await page.evaluate(()=>window.__unit.ganttBeforeOtherTab),
+   "Other Gantt tabs must not perform expensive full Gantt redraw");
+  await page.evaluate(()=>window.__PP_UNIFIED_GANTT_V2__.activeMode=0);
   await page.evaluate(()=>{
    document.querySelector(".pg2-bar").dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}))
   });
