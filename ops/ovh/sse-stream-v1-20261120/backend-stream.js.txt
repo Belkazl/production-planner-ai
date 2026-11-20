@@ -144,8 +144,23 @@
             if(!res.ok)return;
             const data=await res.json();
             if(closed||!data?.running)return;
-            const candidate=boundedPreview(data.candidate_preview||data.best_preview,model);
+            const setupRows=p=>{
+              if(!p||typeof p!=="object")return 0;
+              const native=Array.isArray(p.operations)?p.operations:[];
+              const generic=Array.isArray(p.generic_operations)?p.generic_operations:[];
+              const detached=Array.isArray(p.setup_operations)?p.setup_operations:[];
+              return Math.max(native.filter(isSetup).length,
+                generic.filter(isSetup).length,detached.length);
+            };
+            // Never combine changeovers from one candidate with production
+            // from another. If tentative candidate lacks its setup schedule,
+            // show the independently verified setup-aware BEST plan instead.
+            const live=data.candidate_preview,stored=data.best_preview;
+            const useBest=setupRows(live)===0&&setupRows(stored)>0;
+            const source=useBest?"best":live?"candidate":"best";
+            const candidate=boundedPreview(useBest?stored:(live||stored),model);
             if(candidate){
+              candidate._pp_preview_origin=source;
               const identity=candidate.operations.map(x=>[
                 x.operation_id||x.id||"",x.order??"",isSetup(x)?"setup":"job",
                 x.start_min,x.end_min,x.equipment_ids?.join(',')||""
