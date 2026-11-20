@@ -150,7 +150,7 @@ window.fetch=function ppSseNativeProgressNoPoll(input,init){
  const u=nurl(input);
  if(!disposed&&(active||completed)&&u?.origin===location.origin&&
    u.pathname==="/api/plan-progress"&&method(input,init)==="GET"&&
-   !["ppStopConfirm","stop_snapshot","ppForce","ppReconnect"].some(k=>u.searchParams.has(k))){
+   !["ppStopConfirm","ppForce"].some(k=>u.searchParams.has(k))){
   if(completed&&fullData)return Promise.resolve(Response.json(fullData,{headers:{"cache-control":"no-store"}}));
   return Promise.resolve(Response.json(virtualStatus(),{headers:{"cache-control":"no-store"}}));
  }
