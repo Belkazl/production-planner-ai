@@ -1,4 +1,5 @@
 name: LiftOrbit jank fix preflight against deployed sources
+# corrected active-only lag acceptance syntax
 on:
   push:
     branches: [main]
