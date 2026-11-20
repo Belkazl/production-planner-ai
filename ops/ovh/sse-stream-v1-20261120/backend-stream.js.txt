@@ -1,7 +1,6 @@
-  // Each equipment lane shows its FIRST 10 production jobs in chronological
-  // order, together with every changeover preceding those jobs. Setup work
-  // never consumes a job slot. A setup without an order id still belongs to
-  // its authenticated equipment lane and must not be silently discarded.
+  // Each equipment lane shows its FIRST 10 OPERATIONS in chronological
+  // order, including setup/changeover and production. A setup counts as
+  // one of the ten, even without an order id. No arbitrary operation picking.
   const isSetup = op => op?.is_setup === true ||
     String(op?.phase||"").toLowerCase()==="setup" ||
     String(op?.type||"").toLowerCase()==="setup";
@@ -44,19 +43,12 @@
     }
     const chosen=new Map();
     for(const [row,entries] of lanes.entries()){
-      // Tied timestamps are ordered setup-first; stable source order breaks
-      // remaining ties. Never choose later jobs merely because they appear
-      // earlier in the worker's unsorted array.
+      // First ten operations in actual start-time order, NOT the first ten
+      // raw records and NOT ten production jobs plus all their setups.
+      // Setup precedes production on identical start times.
       entries.sort((a,b)=>a.start-b.start ||
         Number(b.setup)-Number(a.setup) || a.end-b.end || a.sourceIndex-b.sourceIndex);
-      let count=0,last=-1;
-      for(let n=0;n<entries.length;n++){
-        if(entries[n].setup)continue;
-        last=n;
-        if(++count===10)break;
-      }
-      if(last<0)continue;
-      for(const entry of entries.slice(0,last+1)){
+      for(const entry of entries.slice(0,10)){
         let targets=chosen.get(entry.sourceIndex);
         if(!targets){targets=new Set();chosen.set(entry.sourceIndex,targets)}
         targets.add(row);
@@ -72,9 +64,10 @@
       Number(a.end_min)-Number(b.end_min));
     const productionCount=selected.filter(op=>!isSetup(op)).length;
     const setupCount=selected.length-productionCount;
-    // The lightweight preview includes 10 JOBS per lane + their changeovers;
-    // unlike the old 140-operation cutoff, setups do NOT displace jobs.
-    if(productionCount>14*10)throw Error("preview_more_than_ten_jobs_per_lane");
+    // At most 10 actual operations per lane, including setups. 14 equipment
+    // lanes mean a maximum of 140 unique preview operations, not more.
+    if(selected.length>equipment.length*10)
+      throw Error("preview_more_than_ten_operations_per_lane");
     // KPI numbers belong to the COMPLETE verified candidate, never the
     // truncated preview used to paint the lightweight Gantt.
     const kpiKeys=["duration_minutes","batch_count",
