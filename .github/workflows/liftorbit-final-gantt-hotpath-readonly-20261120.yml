@@ -1,0 +1,46 @@
+name: LiftOrbit inspect final full Gantt long task hot path read only
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-final-gantt-hotpath-readonly-20261120.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect DOM loops in the deployed native Gantt engine source
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration/sources/ovh-app/current'
+          pats=('__PP_GANTT_TOOL_V2_INSTALLED__','.pg2-bar','pg2-bar','function renderPlan')
+          sensitive=re.compile(r'(?i)(password|secret|token|cookie|authorization|credential|private.key|api.key)')
+          for p in root.iterdir():
+              if not p.is_file() or p.suffix not in ('.js','.mjs','.ts','.cjs'):continue
+              t=p.read_text(errors='replace')
+              if not ('__PP_GANTT_TOOL_V2_INSTALLED__' in t or 'className="pg2-bar"' in t or "className='pg2-bar'" in t):continue
+              lines=t.splitlines()
+              hits=[i for i,l in enumerate(lines) if any(x in l for x in pats)]
+              print('GANTT_SOURCE_FILE',p.name,len(lines),'HITS',[i+1 for i in hits[:50]])
+              indices=set()
+              for i in hits[:18]:indices.update(range(max(0,i-10),min(len(lines),i+18)))
+              for i in sorted(indices)[:340]:
+                  s=lines[i]
+                  if sensitive.search(s):s='[redacted]'
+                  print('GANTT_SOURCE_LINE',p.name,i+1,s[:210])
+          PY
