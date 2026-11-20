@@ -43,10 +43,9 @@ jobs:
           grep -Ein -C 4 'generation|progress|stagnation|early.stop|time_limit|time_budget' "$root/ga_workers/compile_legacy_ga.py" | head -n 130 | cut -c1-270 || true
           echo GA_LIVE_TIMEOUT_CONFIGURATION_AUDIT
           rootconf=/home/liftorbit-ci/liftorbit-migration
-          grep -RIl --exclude-dir=.git --exclude='*.log' --exclude='*.key' --exclude='*.bak' --exclude-dir=patch-backups 'PP_PY_GA_TIMEOUT_S' "$rootconf" 2>/dev/null | head -n 25 | sed 's@.*/@@' || true
-          find -L "$rootconf" -maxdepth 3 -type f \( -name '*compose*.yaml' -o -name '*compose*.yml' -o -name '*deploy*.sh' \) | while IFS= read -r file; do
-            grep -n "PP_PY_GA_TIMEOUT_S" "$file" 2>/dev/null | sed -E 's/[[:cntrl:]]//g' | cut -c1-150 || true
-          done
+          find "$rootconf" -maxdepth 3 -type f \( -name '*compose*.yaml' -o -name '*compose*.yml' -o -name 'worker-config.example.env' \) 2>/dev/null | while IFS= read -r file; do
+            grep -Hn 'PP_PY_GA_TIMEOUT_S' "$file" 2>/dev/null | cut -c1-190 || true
+          done || true
           echo GA_FULL_ADAPTER_CHECKPOINT_AND_PROGRESS
           sed -n '345,462p' "$root/ga_workers/full_runtime_adapter.py" | cut -c1-220
           echo GA_COMPILER_HEAD
