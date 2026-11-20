@@ -21,11 +21,12 @@ const newGuard=[
 ' console.log("JANK_LIVE_4S_QA",JSON.stringify({snapshotDiag,',
 '  samples:lightTimeline.slice(0,18),p90,requests:responseTimings.length,',
 '  maxBars:Math.max(0,...withBars.map(x=>x.bars)),',
-'  maxLag:Math.max(0,...lightTimeline.map(x=>x.mainThreadLag))}));',
+'  activeMaxLag:Math.max(0,...stillActive.map(x=>x.mainThreadLag)),',
+'  finalMaxLag:Math.max(0,...lightTimeline.map(x=>x.mainThreadLag))}));',
 ' if(!snapshotDiag||snapshotDiag.version!==2||snapshotDiag.activity<4||',
 '  snapshotDiag.light<8||!withBars.length||badBars.length||',
 '  snapshotDiag.maxPaintMs>850||',
-'  Math.max(0,...lightTimeline.map(x=>x.mainThreadLag))>1600)',
+'  Math.max(0,...stillActive.map(x=>x.mainThreadLag))>950)'
 '   throw Error("JANK_LIVE_4S_OR_UI_BLOCKED_"+JSON.stringify(snapshotDiag));',
 ' console.log("JANK_UI_AND_4S_NONBLOCKING_CANDIDATE_PASS");'
 ].join("\n");
