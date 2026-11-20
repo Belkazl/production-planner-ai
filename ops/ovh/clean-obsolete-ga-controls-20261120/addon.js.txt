@@ -1,0 +1,29 @@
+;(function ppHideObsoleteGanttOptimizationWidgetsV1(){
+"use strict";
+if(window.__PP_HIDE_OBSOLETE_GA_WIDGETS_V1__?.installed)return;
+const cssId="ppHideObsoleteGaWidgetsCssV1";
+if(!document.getElementById(cssId)){
+ const style=document.createElement("style");
+ style.id=cssId;
+ // Remove old manual best/candidate switch and the retired GA time-limit
+ // notice. Preserve the Gantt, optimization-depth selector, and SSE bar.
+ // !important overrides the old live bridge's inline display:block.
+ style.textContent=[
+  "#ppLivePreview{display:none!important}",
+  "#ppOptimizerCandidateStatus{display:none!important}",
+  "#planView .toolbar [data-mode=\"best\"]{display:none!important}",
+  "#planView .toolbar [data-mode=\"candidate\"]{display:none!important}"
+ ].join("\n");
+ (document.head||document.documentElement).appendChild(style);
+}
+window.__PP_HIDE_OBSOLETE_GA_WIDGETS_V1__={
+ installed:true,
+ get hidden(){
+  return {
+   switcher:!!document.getElementById("ppLivePreview"),
+   oldStatus:!!document.getElementById("ppOptimizerCandidateStatus"),
+   css:!!document.getElementById(cssId)
+  }
+ }
+};
+})();

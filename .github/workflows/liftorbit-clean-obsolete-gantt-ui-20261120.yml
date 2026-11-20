@@ -1,0 +1,156 @@
+name: LiftOrbit remove obsolete GA comparison toggles and time-limit alert
+on:
+  push:
+    branches: [main, fix/clean-live-gantt-controls-20261120]
+    paths:
+      - .github/workflows/liftorbit-clean-obsolete-gantt-ui-20261120.yml
+      - ops/ovh/clean-obsolete-ga-controls-20261120/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  ui_release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 21
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read only current UI, hide retired controls, verify browser behavior without deployment
+        id: preflight
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js" "$RUNNER_TEMP/old-ui.js"
+          node ops/ovh/clean-obsolete-ga-controls-20261120/patch.mjs "$RUNNER_TEMP/old-ui.js" "$RUNNER_TEMP/new-ui.js"
+          node --check "$RUNNER_TEMP/new-ui.js"
+          sha256sum "$RUNNER_TEMP/old-ui.js" | cut -d' ' -f1 > "$RUNNER_TEMP/old.sha"
+          sha256sum "$RUNNER_TEMP/new-ui.js" | cut -d' ' -f1 > "$RUNNER_TEMP/new.sha"
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/clean-obsolete-ga-controls-20261120/test.cjs
+          node ops/ovh/sse-stream-v1-20261120/test-client.cjs
+          node ops/ovh/sse-stream-v1-20261120/build-live-qa.mjs
+          node --check ops/ovh/sse-stream-v1-20261120/_live-qa.mjs
+          echo SSE_CONTINUE_CTA_PREFLIGHT_PASS
+      - name: Deploy one UI file atomically with backup and rollback
+        if: github.ref == 'refs/heads/main'
+        id: rollout
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          scp -q -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$RUNNER_TEMP/new-ui.js" "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/obsolete-gantt-ui-20261120.next"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s -- "$(cat "$RUNNER_TEMP/old.sha")" "$(cat "$RUNNER_TEMP/new.sha")" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          current="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          staged="$root/sources/ovh-app/obsolete-gantt-ui-20261120.next"
+          backup="$root/patch-backups/obsolete-gantt-ui-20261120"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test $# -eq 2
+          test "$(sha "$current")" = "$1"
+          test "$(sha "$staged")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$current" "$backup/restart-optimizer-ui.js"
+          test "$(sha "$backup/restart-optimizer-ui.js")" = "$1"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$current" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_CLEAN_UI_INTERNAL_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$staged" "$current"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 32); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$current")" = "$2"
+          trap - ERR
+          echo GA_CLEAN_UI_UI_ONLY_DEPLOYED
+          REMOTE
+      - name: Validate HTTPS auth boundary
+        if: github.ref == 'refs/heads/main'
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/api/auth/me || true)
+            stream=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://app.liftorbit.app/api/plan-events || true)
+            if [[ "$health" = 200 && "$guest" = 401 && "$stream" = 401 ]]; then
+              echo GA_CLEAN_UI_LIVE_HEALTH_PASS
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Two real 886-operation GA runs verify Gantt and streaming unaffected
+        if: github.ref == 'refs/heads/main'
+        id: qa
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ops/ovh/sse-stream-v1-20261120/_live-qa.mjs
+          echo GA_CLEAN_UI_TWO_REAL_GA_RUNS_PASS
+      - name: Restore exact original UI if production regression fails
+        if: ${{ failure() && steps.rollout.outcome == 'success' }}
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          backup="$root/patch-backups/obsolete-gantt-ui-20261120/restart-optimizer-ui.js"
+          target="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          test -r "$backup"
+          cp -p "$backup" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update >/dev/null 2>&1 || true
+          healthy=no
+          for attempt in $(seq 1 30); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          echo GA_CLEAN_UI_UI_ROLLBACK_HEALTHY
+          REMOTE
+      - name: Summary
+        if: always()
+        env:
+          PREFLIGHT: ${{ steps.preflight.outcome }}
+          ROLLOUT: ${{ steps.rollout.outcome }}
+          HEALTH: ${{ steps.health.outcome }}
+          LIVE: ${{ steps.qa.outcome }}
+        run: echo "GA_CLEAN_UI_RESULT preflight=$PREFLIGHT rollout=$ROLLOUT health=$HEALTH live=$LIVE"
