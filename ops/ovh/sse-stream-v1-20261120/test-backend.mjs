@@ -12,6 +12,7 @@ const operations=model.equipment.flatMap(eq=>Array.from({length:12},(_,i)=>({
 })));
 const plan={ok:true,valid:true,partial:false,operations,
  generic_operations:operations,order_sequence:["A"],duration_minutes:270,
+ batch_count:7,operator_wait_minutes:1200,machine_idle_minutes:1400,
  resume_state:{version:0,order_sequence:["A"]}};
 let state="queued", seq=0,controller=null,readStatus=0,starts=0;
 const send=(phase,pct)=>{
@@ -99,6 +100,11 @@ assert.equal(complete[0].data.verified,true);
 assert.ok(previews.length>0,"4s current preview is sent without extra browser request");
 assert.ok(previews.every(x=>x.operations.length<=140));
 assert.ok(previews.every(x=>x.partial===true));
+assert.ok(previews.every(x=>x._pp_preview_kpis?.duration_minutes===270&&
+ x._pp_preview_kpis?.batch_count===7&&
+ x._pp_preview_kpis?.operator_wait_minutes===1200&&
+ x._pp_preview_kpis?.machine_idle_minutes===1400),
+ "SSE preview must carry real full-candidate KPIs, not values from its 140 visible tasks");
 assert.equal(readStatus>=2,true);
 const all=seen.map(x=>x.type);
 assert.ok(all.indexOf("preview")<all.indexOf("complete"));
