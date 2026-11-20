@@ -21,20 +21,40 @@
     // rows that may omit them.
     const nativeSetups=nativeOps.filter(isSetup).length;
     const genericSetups=genericOps.filter(isSetup).length;
-    const operations=genericSetups>nativeSetups?genericOps:
+    const primary=genericSetups>nativeSetups?genericOps:
       nativeOps.length?nativeOps:genericOps;
+    // The real GA adapter emits checked changeovers in a SEPARATE
+    // `setup_operations` array. Both `operations` and `generic_operations`
+    // can contain only production rows in an interim snapshot. Merge them
+    // before choosing the first ten, never invent synthetic setup blocks.
+    const equipmentIds=op=>Array.isArray(op.equipment_ids)&&op.equipment_ids.length?
+      op.equipment_ids:op.equipment_id!=null?[op.equipment_id]:
+      Array.isArray(op.resources)?op.resources
+        .filter(r=>r?.resource_type==="equipment")
+        .map(r=>r.id??r.resource_ref??r.name):[];
+    const footprint=op=>[Number(op.start_min),Number(op.end_min),
+      equipmentIds(op).map(String).sort().join(",")].join("|");
+    const setupKeys=new Set(primary.filter(isSetup).map(footprint));
+    const separated=Array.isArray(plan.setup_operations)?
+      plan.setup_operations:[];
+    const detached=[];
+    for(const op of separated){
+      if(!op||typeof op!=="object")continue;
+      const key=footprint(op);
+      if(setupKeys.has(key))continue;
+      setupKeys.add(key);
+      detached.push({...op,is_setup:true,phase:"setup"});
+    }
+    const operations=[...primary,...detached];
     if(!operations.length||!aliases.size)return null;
     const lanes=Array.from({length:equipment.length},()=>[]);
     for(const [sourceIndex,op] of operations.entries()){
       if(!op||typeof op!=="object")continue;
       const setup=isSetup(op);
+      // A changeover may have no order id (or an internal batch id).
+      // The job and its equipment lane are already account-scoped.
       if(!setup && (op.order==null || !ownOrders.has(String(op.order))))continue;
-      if(op.order!=null && !ownOrders.has(String(op.order)))continue;
-      const ids=Array.isArray(op.equipment_ids)&&op.equipment_ids.length?
-        op.equipment_ids:op.equipment_id!=null?[op.equipment_id]:
-        Array.isArray(op.resources)?op.resources
-          .filter(r=>r?.resource_type==="equipment")
-          .map(r=>r.id??r.resource_ref??r.name):[];
+      const ids=equipmentIds(op);
       const targets=[...new Set(ids.map(id=>aliases.get(String(id))).filter(Number.isInteger))];
       if(!targets.length)continue;
       const start=Number(op.start_min),end=Number(op.end_min);
@@ -79,6 +99,7 @@
       valid:true,ok:true,partial:true,_pp_preview_limited:true,
       _pp_preview_rows:equipment.length,_pp_preview_per_row:10,
       _pp_preview_setups_included:true,
+      _pp_preview_detached_setups:detached.length,
       _pp_preview_production_count:productionCount,
       _pp_preview_setup_count:setupCount,
       operations:selected,generic_operations:selected,batches:[],
