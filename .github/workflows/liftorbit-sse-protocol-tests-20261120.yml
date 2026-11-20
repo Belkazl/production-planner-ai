@@ -3,7 +3,9 @@ name: LiftOrbit SSE end-to-end protocol and UI tests
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/liftorbit-sse-protocol-tests-20261120.yml]
+    paths:
+      - '.github/workflows/liftorbit-sse-protocol-tests-20261120.yml'
+      - 'ops/ovh/sse-stream-v1-20261120/**'
 permissions: {contents: read}
 jobs:
   test:
