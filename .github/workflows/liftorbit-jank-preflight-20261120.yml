@@ -1,0 +1,41 @@
+name: LiftOrbit jank fix preflight against deployed sources
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-jank-preflight-20261120.yml]
+permissions: {contents: read}
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit-test async status, limited Gantt, steady percent without server edits
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p old new
+          for f in auth-runtime.js restart-optimizer-ui.js; do
+            scp -q "${opts[@]}" "$USER@$HOST:$root/$f" "old/$f"
+            cp "old/$f" "new/$f"
+          done
+          node ops/ovh/ga-jank-fix-20261120/patch.mjs new
+          node --check new/auth-runtime.js
+          node --check new/restart-optimizer-ui.js
+          node ops/ovh/ga-jank-fix-20261120/test-async.cjs
+          node ops/ovh/four-second-fog-preview-20261120/test-contract.cjs
+          node ops/ovh/ga-jank-fix-20261120/build-live-qa.mjs
+          node --check ops/ovh/ga-jank-fix-20261120/_live-qa.mjs
+          echo "GA_JANK_PREFLIGHT_PASS"
