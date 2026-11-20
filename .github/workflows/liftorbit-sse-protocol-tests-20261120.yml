@@ -29,12 +29,13 @@ jobs:
           chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          ga_root=/home/liftorbit-ci/liftorbit-migration/sources/current/ga
           mkdir -p old/ga_python_workers/ga_workers new
           for f in python-ga-upstream.mjs restart-optimizer-ui.js; do
             scp -q "${opts[@]}" "$USER@$HOST:$root/$f" "old/$f"
           done
           for f in manager.py server.py; do
-            scp -q "${opts[@]}" "$USER@$HOST:$root/ga_python_workers/ga_workers/$f" "old/ga_python_workers/ga_workers/$f"
+            scp -q "${opts[@]}" "$USER@$HOST:$ga_root/ga_workers/$f" "old/ga_python_workers/ga_workers/$f"
           done
           cp -a old/. new/
           node ops/ovh/sse-stream-v1-20261120/patch-worker.mjs new

@@ -11,8 +11,8 @@ const repl=(s,a,b,name)=>{
 };
 let manager=readFileSync(get("ga_python_workers/ga_workers/manager.py"),"utf8");
 manager=repl(manager,
- "    progress: int = 0\n    stage: str = 'queued'",
- "    progress: int = 0\n    event_seq: int = 0\n    stage: str = 'queued'","job_event_seq");
+ "    progress: int = 0\n    result: Optional[dict] = field(default=None, repr=False)",
+ "    progress: int = 0\n    event_seq: int = 0\n    stage: str = 'queued'\n    result: Optional[dict] = field(default=None, repr=False)","job_event_seq");
 manager=repl(manager,
  '            job.state = "cancelled"\n            job.ended_at = time.monotonic()',
  '            job.state = "cancelled"\n            job.event_seq += 1\n            job.ended_at = time.monotonic()',"cancel_seq");
@@ -20,8 +20,8 @@ manager=repl(manager,
  '                job.started_at, job.state = time.monotonic(), "running"',
  '                job.started_at, job.state = time.monotonic(), "running"\n                job.event_seq += 1\n                self.cv.notify_all()',"running_seq");
 manager=repl(manager,
- '                            if isinstance(data.get("best_preview"), dict):\n                                job.best_preview = data["best_preview"]',
- '                            if isinstance(data.get("best_preview"), dict):\n                                job.best_preview = data["best_preview"]\n                            job.event_seq += 1\n                            self.cv.notify_all()',"progress_push");
+ '                                job.candidate_preview = data["candidate_preview"]\n                        elif msg.get("type") == "result":',
+ '                                job.candidate_preview = data["candidate_preview"]\n                            job.stage = str(data.get("stage") or job.stage)[:64]\n                            job.event_seq += 1\n                            self.cv.notify_all()\n                        elif msg.get("type") == "result":',"progress_push");
 manager=repl(manager,
  '                    job.ended_at = time.monotonic()\n                if self.by_account.get(job.account_id) == job.job_id:',
  '                    job.ended_at = time.monotonic()\n                    job.event_seq += 1\n                if self.by_account.get(job.account_id) == job.job_id:',"terminal_seq");
