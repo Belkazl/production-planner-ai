@@ -25,7 +25,8 @@ mkdir -p old/ga_python_workers/ga_workers
 for n in manager.py server.py fixture.py; do
   scp_call "$USER@$HOST:$base/$n" "old/ga_python_workers/ga_workers/$n"
 done
-cp -a old new
+mkdir -p new
+cp -a old/. new/
 python3 ops/ovh/ga-generations-only-20261120/patch.py new
 python3 -m py_compile new/ga_python_workers/ga_workers/manager.py \
   new/ga_python_workers/ga_workers/server.py new/ga_python_workers/ga_workers/fixture.py
