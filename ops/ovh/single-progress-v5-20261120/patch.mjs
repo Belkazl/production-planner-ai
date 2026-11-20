@@ -36,9 +36,9 @@ for(const [module,marker] of modules){
 }
 if(source.includes("ppNativeOneOwnerProgressV4")||source.includes("ppLargeGaProgressLoadShedV1")||
  source.includes("ppAutomaticIntermediatePreviewV1"))throw Error("PP_V5_OLD_CONTROLLER_SURVIVED");
-const oldEmit='const emit=p=>{\n if(p?.running!==true)return;';
+const oldEmit='function emit(p){\n if(p?.running!==true)return;';
 const newEmit=[
- 'const emit=p=>{',
+ 'function emit(p){',
  ' window.dispatchEvent(new CustomEvent("pp:ga-light-status",{detail:{',
  '  ok:p?.ok,phase:p?.phase,running:p?.running,success:p?.success,',
  '  percent:p?.percent,done:p?.done,total:p?.total,stage:p?.stage,',
