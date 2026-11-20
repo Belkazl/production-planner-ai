@@ -7,10 +7,12 @@ const fs=require("node:fs");
   args:["--no-sandbox","--disable-dev-shm-usage"]});
  try{
   const page=await browser.newPage();
-  await page.setContent('<!doctype html><html><body>'+
+  const html='<!doctype html><html><body>'+
    '<button id="opt" class="pp-opt-running" style="width:250px;height:42px;background:#8cacf1;color:white">Optimization</button>'+
    '<div id="ppGanttToolV2"><div class="pg2-row"><div class="pg2-lane" style="position:relative;width:800px">'+
-   '<button class="pg2-bar" style="width:30px">Pressing</button></div></div></div></body></html>');
+   '<button class="pg2-bar" style="width:30px">Pressing</button></div></div></div></body></html>';
+  await page.route("https://app.liftorbit.test/",route=>route.fulfill({status:200,contentType:"text/html",body:html}));
+  await page.goto("https://app.liftorbit.test/",{waitUntil:"domcontentloaded"});
   await page.evaluate(()=>{
    window.__PP_UNIFIED_GANTT_V2__={activeMode:0};
    window.__unit={calls:[],render:0,dialogs:0};
