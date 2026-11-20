@@ -1,0 +1,53 @@
+name: LiftOrbit SSE production read-only diagnostics
+on:
+  push:
+    branches: [fix/sse-startup-409-20261120]
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-sse-readonly-diagnostic
+  cancel-in-progress: true
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect production source and running status without modification
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -u
+          base="$HOME/liftorbit-migration/sources/ovh-app/current"
+          backup="$HOME/liftorbit-migration/patch-backups/sse-native-push-v1-20261120"
+          for pair in "python-ga-upstream.mjs:async function stream(req)" "restart-optimizer-ui.js:ppOneSseProgressAndGantt" "ga_python_workers/ga_workers/manager.py:event_seq" "ga_python_workers/ga_workers/server.py:stream_events"; do
+            file="${pair%%:*}"
+            probe="${pair#*:}"
+            if grep -Fq "$probe" "$base/$file"; then echo "LIVE_SOURCE $file SSE_PRESENT"; else echo "LIVE_SOURCE $file SSE_ABSENT"; fi
+            sha256sum "$base/$file" | cut -c1-64
+          done
+          for f in "$backup/qa-rollback-private.log" "$backup/update-private.log"; do
+            if [ -f "$f" ]; then
+              echo "PRIVATE_LOG ${f##*/}"
+              grep -Ei 'error|failed|exit|healthy|timeout|permission|refuse|404|409|502' "$f" | tail -n 12 | cut -c1-150 || true
+            fi
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1
+          echo "LIVE_SMOKE_PASS"
+          REMOTE
+      - name: Verify public status
+        shell: bash
+        run: |
+          for path in /__bridge_health /api/plan-events /api/auth/me; do
+            code=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' "https://app.liftorbit.app$path")
+            echo "$path $code"
+          done
