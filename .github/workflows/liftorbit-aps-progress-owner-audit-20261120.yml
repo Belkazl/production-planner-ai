@@ -1,0 +1,52 @@
+name: LiftOrbit inspect live status decorators and APS bridge ownership
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/liftorbit-aps-progress-owner-audit-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect status middleware source files without model data
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          ssh "${opts[@]}" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration/sources/ovh-app/current'
+          candidates=[]
+          for path in root.glob('*'):
+              if not path.is_file() or path.suffix not in ('.js','.mjs','.ts','.cjs'):continue
+              try:
+                  txt=path.read_text(errors='replace')
+              except OSError:continue
+              if 'aps_setup_bridge' in txt or 'ppPythonGAUpstream' in txt or 'plan-progress' in txt:
+                  candidates.append((path.name,txt))
+          red=re.compile(r'(?i)(password|credential|private.key|authorization|cookie|process.env|database_url|api.key|secret|token)')
+          for name,src in candidates:
+              lines=src.splitlines()
+              hits=[i for i,line in enumerate(lines) if 'aps_setup_bridge' in line or 'plan-progress' in line or 'ppPythonGAUpstream' in line]
+              print('FILE',name,'LINES',len(lines),'MATCHES',[i+1 for i in hits[:40]])
+              selected=set()
+              for i in hits[:14]:selected.update(range(max(0,i-3),min(len(lines),i+6)))
+              for i in sorted(selected)[:160]:
+                  s=lines[i]
+                  if red.search(s):s='[redacted]'
+                  print('SRC',name,i+1,s[:215])
+          PY
