@@ -1,0 +1,37 @@
+name: Isolated optimizer OS-process security regression
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Build secured LiftOrbit gateway
+        run: |
+          bun run build-bridge.ts
+          bun run feature-stop.ts
+          bun run gantt-details.ts
+          bun run order-accordion.ts
+          bun run auth-bridge.ts
+          bun run ceramics-resource-repair.ts
+          bun run restart-optimizer.ts
+          bun run documents-tab.ts
+          bun run ga-execution-budget.ts
+          bun run language-build.ts
+          bun build ./index.ts --target=bun --outdir=/tmp/liftorbit-secured
+      - name: Ten truly separate runtime instances with conflicting mutable global state
+        run: |
+          PP_COMPUTE_SECRET=local-fixture-secret PP_WORKER_POOL_SIZE=10 PP_BACKEND_START_CMD='python3 tests/isolated-compute-mock.py' PORT=8099 python3 isolated-compute-manager.py > /tmp/isolated-manager.log 2>&1 &
+          p=$!
+          trap 'kill "$p" 2>/dev/null || true' EXIT
+          for i in $(seq 1 25); do
+            if curl -fsS http://127.0.0.1:8099/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          python3 tests/isolated-compute-ten.py || { cat /tmp/isolated-manager.log; exit 1; }
