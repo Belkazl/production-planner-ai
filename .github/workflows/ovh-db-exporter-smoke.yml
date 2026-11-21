@@ -1,0 +1,49 @@
+name: OVH migration - temporary DB exporter smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - migration_exporter/server.py
+      - Dockerfile
+      - .github/workflows/ovh-db-exporter-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event.pull_request.head.repo.full_name == 'Belkazl/production-planner-ai' && github.head_ref == 'ops/railway-db-exporter-20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check syntax
+        run: python3 -m py_compile migration_exporter/server.py
+      - name: Build temporary read-only exporter image
+        run: docker build --pull -t liftorbit-migration-exporter:test .
+      - name: Run isolated HTTP security checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name migration-exporter-smoke -p 127.0.0.1:18091:8080 \
+            -e PORT=8080 \
+            -e MIGRATION_EXPORT_TOKEN=abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd \
+            -e MIGRATION_DB_MAIN='postgresql://invalid-host.local/no_db' \
+            liftorbit-migration-exporter:test
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:18091/health > /tmp/migration_exporter_health; then break; fi
+            sleep 1
+          done
+          test "$(cat /tmp/migration_exporter_health)" = ok
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18091/backup/postgres)" = 404
+          test "$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'Authorization: Bearer wrong' http://127.0.0.1:18091/backup/postgres)" = 404
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18091/unknown)" = 404
+          echo 'EXPORTER_AUTH_SECURITY_SMOKE_OK'
+      - name: Show logs on test failure
+        if: failure()
+        run: docker logs migration-exporter-smoke || true
+      - name: Tear down test
+        if: always()
+        run: docker rm -f migration-exporter-smoke || true
