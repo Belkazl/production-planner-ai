@@ -1,0 +1,35 @@
+
+/* Language control is part of the existing auth and production header. */
+.pp-language-control{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;
+ font:500 12px/1.2 Inter,system-ui,Arial,sans-serif;color:#536680}
+.pp-language-label{color:#637792;font-weight:600}
+.pp-language-control select{appearance:auto;min-width:104px;width:auto;max-width:145px;
+ background:#fff;border:1px solid #cfdaea;border-radius:8px;
+ padding:7px 7px;font:600 12px/1.25 Inter,system-ui,Arial,sans-serif;
+ color:#253f63;cursor:pointer;box-shadow:0 1px 3px #16365809}
+.pp-language-control select:hover{border-color:#6b9cea}
+.pp-language-control select:focus-visible{outline:2px solid #2d75df;outline-offset:2px}
+#ppProtectedAccount{display:flex;align-items:center;gap:9px}
+#ppProtectedAccount .pp-language-control{padding:0}
+body>.box{position:relative}
+body>.box .pp-language-control{position:absolute;right:27px;top:28px}
+body>.box .logo{padding-right:122px}
+body>.box .pp-language-label{display:none}
+@media (max-width:650px){
+ #ppProtectedAccount{right:6px;top:3px;gap:5px}
+ #ppProtectedAccount .pp-language-label{display:none}
+ #ppProtectedAccount .pp-language-control select{min-width:81px;font-size:11px;padding:6px 4px}
+ #ppProtectedAccount>button{padding:7px 6px;font-size:11px}
+ body>.box .pp-language-control{right:20px;top:23px}
+ body>.box .pp-language-control select{min-width:87px}
+}
+/* Keep the original Russian textContent for existing text-based routing.
+   These wrappers only replace the visible glyphs, never the DOM value. */
+.pp-i18n-route-label{font:inherit;font-weight:inherit}
+html[lang="en"] .pp-i18n-route-label{font-size:0!important}
+html[lang="en"] .pp-i18n-route-label::after{
+ content:attr(data-pp-en);
+ font-size:var(--pp-lang-font-size,12px);
+ font-family:inherit;font-weight:inherit;font-style:inherit;
+ line-height:inherit;white-space:inherit;
+}
