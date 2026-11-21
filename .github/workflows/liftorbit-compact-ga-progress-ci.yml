@@ -1,0 +1,65 @@
+name: LiftOrbit lossless intermediate GA JSON compaction QA
+on:
+  push:
+    branches: [experiment/ga-compact-preview-20261113]
+    paths:
+      - ops/ovh/compact-ga-progress.mjs
+      - ops/ovh/compact-ga-progress.test.mjs
+      - .github/workflows/liftorbit-compact-ga-progress-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout experimental OVH JSON compactor
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/ga-compact-preview-20261113
+          path: feature
+          persist-credentials: false
+      - name: Checkout deployed OVH patch scripts
+        uses: actions/checkout@v4
+        with:
+          ref: 4765adaf3fe2c22f6130a23b87544dd36eb4b36f
+          path: prior
+          persist-credentials: false
+      - name: Checkout immutable production application
+        uses: actions/checkout@v4
+        with:
+          ref: 4a1457d6f33e7ef5b6e8ad59c3e21ef345b8c25f
+          path: pinned
+          persist-credentials: false
+      - name: Build exact OVH post-recovery app source in disposable workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app
+          cp -a pinned/. app/
+          for patch in patch-runtime-origins.mjs repair-planner-ui.mjs repair-ga-state.mjs repair-ga-load.mjs repair-continuation.mjs repair-async-ga.mjs; do
+            node "prior/ops/ovh/$patch" app
+          done
+          cp app/auth-runtime.js "$RUNNER_TEMP/before.js"
+          node feature/ops/ovh/compact-ga-progress.mjs app
+          node --check app/auth-runtime.js
+          cmp -s "$RUNNER_TEMP/before.js" app/auth-runtime.js && exit 11 || :
+      - name: Verify 1008-operation JSON, Gantt and final-state invariants
+        shell: bash
+        run: node --test feature/ops/ovh/compact-ga-progress.test.mjs
+      - name: Build actual pinned Bun application Docker image in isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker build --quiet -t liftorbit-ga-compact-ci:temporary app > "$RUNNER_TEMP/build.log" 2>&1; then
+            echo 'COMPACT_GA_REAL_DOCKER_BUILD_PASS'
+          else
+            python3 - "$RUNNER_TEMP/build.log" <<'PY'
+          import pathlib,re,sys
+          s=pathlib.Path(sys.argv[1]).read_text(errors="replace")
+          markers=sorted(set(re.findall(r"(?:PP|ACCOUNT|GA|STOP|CERAMIC)[A-Z0-9_]{4,100}",s)))
+          print("COMPACT_GA_REAL_DOCKER_BUILD_FAILED",len(s),"safe_codes",markers[:15],flush=True)
+          PY
+            exit 1
+          fi
