@@ -1,0 +1,19 @@
+name: LiftOrbit live GA fresh seeded calculation acceptance OVH
+on:
+  push:
+    branches: [qa/ga-fresh-seeded-live-20261123]
+    paths:
+      - .github/workflows/liftorbit-ga-fresh-seeded-live-qa-20261123.yml
+permissions: {contents: read}
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Two genuine independent fresh GA jobs on disposable OVH account
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-fresh-seeded-qa-20261123/live.mjs
