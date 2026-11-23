@@ -166,4 +166,14 @@ try{
  console.log("FRESH_QA_REAL_OVH_RUN_LAUNCHED_AND_SAVED_PRESERVED",
    JSON.stringify({progress:final.progress?.percent,active:final.progress?.active,
     responses,errors:errors.slice(-5)}));
+ // Stop the disposable test run so it leaves no unattended GA load on OVH.
+ const stopButton=page.getByRole("button",{name:/Stop optimization|Остановить оптимизацию/i});
+ if(await stopButton.count()){
+  await stopButton.first().click({timeout:15000});
+  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().running===false,
+   null,{timeout:45000});
+  console.log("FRESH_QA_DISPOSABLE_WORKER_STOPPED_PASS");
+ }else{
+  throw Error("FRESH_QA_STOP_BUTTON_NOT_FOUND");
+ }
 }finally{await browser.close()}
