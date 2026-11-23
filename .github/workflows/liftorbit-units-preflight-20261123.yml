@@ -1,0 +1,21 @@
+name: Unit source native HTML preflight without production changes
+on:
+  push:
+    branches: [fix/single-source-resource-units-20261123]
+    paths:
+      - .github/workflows/liftorbit-units-preflight-20261123.yml
+      - ops/ovh/units-single-source-20261123/preflight.mjs
+      - ops/ovh/units-single-source-20261123/resource-units-html.js
+permissions: {contents: read}
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JS resource-unit transformer syntax
+        run: node --check ops/ovh/units-single-source-20261123/resource-units-html.js
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Patch authentic native editor HTML only inside disposable browser account
+        run: node ops/ovh/units-single-source-20261123/preflight.mjs

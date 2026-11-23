@@ -1,0 +1,139 @@
+name: LiftOrbit single source for resource units on OVH
+on:
+  push:
+    branches: [main, fix/single-source-resource-units-20261123]
+    paths:
+      - .github/workflows/liftorbit-resource-units-release-20261123.yml
+      - ops/ovh/units-single-source-20261123/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-units-single-source-ovh
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and deploy only native HTML unit transformer
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp_call "$USER@$HOST:$root/current/restart-optimizer-html.js" "$d/old-html.js"
+          scp_call "$USER@$HOST:$root/current/restart-optimizer.ts" "$d/old-build.ts"
+          node ops/ovh/units-single-source-20261123/patch.mjs "$d/old-html.js" "$d/old-build.ts" "$d/new-html.js" "$d/new-build.ts"
+          node --check "$d/new-html.js"
+          node --check ops/ovh/units-single-source-20261123/resource-units-html.js
+          node - "$d/old-html.js" "$d/old-build.ts" "$d/new-html.js" "$d/new-build.ts" <<'JS'
+          const fs=require("node:fs"),assert=require("node:assert/strict");
+          const [oh,ob,nh,nb]=process.argv.slice(2).map(p=>fs.readFileSync(p,"utf8"));
+          const original="new Response(ppStartOverHtml(ppGaPollHtml).replace('</body>'";
+          const changed="new Response(ppResourceUnitsHtml(ppStartOverHtml(ppGaPollHtml)).replace('</body>'";
+          assert.equal(nb.replace(changed,original),ob);
+          assert(nh.startsWith(oh));
+          assert.equal(nh.slice(oh.length).split("function ppResourceUnitsHtml(input){").length,2);
+          assert(nh.includes('ppNormalizeRequirementUnits(next)'));
+          assert(!oh.includes('ppNormalizeRequirementUnits(next)'));
+          console.log('UNITS_SAFE_TWO_FILE_PREDEPLOY_DIFF_PASS');
+          JS
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo UNITS_ISOLATED_SOURCE_PREFLIGHT_PASS
+            exit 0
+          fi
+          old_html=$(sha256sum "$d/old-html.js"|cut -d' ' -f1)
+          old_build=$(sha256sum "$d/old-build.ts"|cut -d' ' -f1)
+          new_html=$(sha256sum "$d/new-html.js"|cut -d' ' -f1)
+          new_build=$(sha256sum "$d/new-build.ts"|cut -d' ' -f1)
+          stage_html="$root/restart-optimizer-html.units-20261123.next"
+          stage_build="$root/restart-optimizer.units-20261123.next"
+          scp_call "$d/new-html.js" "$USER@$HOST:$stage_html"
+          scp_call "$d/new-build.ts" "$USER@$HOST:$stage_build"
+          ssh_call "$USER@$HOST" bash -s -- "$old_html" "$old_build" "$new_html" "$new_build" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration/sources/ovh-app"
+          html="$root/current/restart-optimizer-html.js"
+          build="$root/current/restart-optimizer.ts"
+          stage_html="$root/restart-optimizer-html.units-20261123.next"
+          stage_build="$root/restart-optimizer.units-20261123.next"
+          backup="$HOME/liftorbit-migration/patch-backups/resource-units-single-source-20261123"
+          sha(){ sha256sum "$1"|cut -d' ' -f1; }
+          test "$(sha "$html")" = "$1" || { echo UNITS_CURRENT_HTML_SOURCE_DRIFT;exit 5; }
+          test "$(sha "$build")" = "$2" || { echo UNITS_CURRENT_BUILD_SOURCE_DRIFT;exit 5; }
+          test "$(sha "$stage_html")" = "$3"
+          test "$(sha "$stage_build")" = "$4"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$html" "$backup/restart-optimizer-html.js"
+          cp -p "$build" "$backup/restart-optimizer.ts"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-html.js" "$html" || true
+            cp -p "$backup/restart-optimizer.ts" "$build" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo UNITS_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage_html" "$html"
+          mv "$stage_build" "$build"
+          node --check "$html"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for i in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$html")" = "$3"
+          test "$(sha "$build")" = "$4"
+          trap - ERR
+          echo UNITS_OVH_DEPLOYED_AND_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$root/current/restart-optimizer-html.js" "$d/verified-html.js"
+          scp_call "$USER@$HOST:$root/current/restart-optimizer.ts" "$d/verified-build.ts"
+          test "$(sha256sum "$d/verified-html.js"|cut -d' ' -f1)" = "$new_html"
+          test "$(sha256sum "$d/verified-build.ts"|cut -d' ' -f1)" = "$new_build"
+          echo UNITS_DEPLOYED_FILE_BYTES_VERIFIED
+      - name: Verify production HTTPS and guest boundary
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          good=no
+          for i in $(seq 1 12);do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [ "$health" = 200 ] && [ "$guest" = 401 ];then good=yes;break;fi
+            sleep 5
+          done
+          test "$good" = yes
+          echo UNITS_PUBLIC_HEALTH_AND_AUTH_PASS
+  browser:
+    if: github.ref == 'refs/heads/main'
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify real Production units and Materials propagation on OVH
+        env:
+          PP_UNITS_LIVE: "1"
+        run: node ops/ovh/units-single-source-20261123/preflight.mjs

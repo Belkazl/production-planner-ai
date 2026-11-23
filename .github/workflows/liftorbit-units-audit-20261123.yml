@@ -1,0 +1,52 @@
+name: Audit unit field source of truth in Production and Materials
+on:
+  push:
+    branches: [fix/single-source-resource-units-20261123]
+    paths: [.github/workflows/liftorbit-units-audit-20261123.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read frontend source only from OVH
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          print("APP_ROOT",root.exists())
+          for p in sorted(root.iterdir()):
+              if p.is_file():print("TOP_FILE",p.name,p.stat().st_size)
+              elif p.is_dir():print("TOP_DIR",p.name)
+          candidates=[p for p in root.rglob("*") if p.is_file() and p.suffix in (".js",".ts",".tsx",".html",".mjs") and p.stat().st_size<4000000]
+          print("CANDIDATE_COUNT",len(candidates))
+          for name in ("build-bridge.ts","bootstrap.ts","restart-optimizer-html.js","restart-optimizer.ts","Dockerfile"):
+              p=root/name
+              if p.exists():
+                  print("STRUCT_SOURCE",name)
+                  for i,line in enumerate(p.read_text(errors="replace").splitlines()[:145],1):
+                      print(f"{i:04d} {line[:260]}")
+          terms=re.compile(r'(Resource requirements|Consumption|resource_requirements|\\bunit\\b|material.*unit|unit.*material|add resource|Add material)',re.I)
+          for p in candidates:
+              if "node_modules" in p.parts or "dist" in p.parts or "build" in p.parts:continue
+              lines=p.read_text(errors="replace").splitlines()
+              hits=[i for i,line in enumerate(lines) if terms.search(line)]
+              if hits:
+                  print("SOURCE",p.relative_to(root),"LINES",len(lines),"HITS",len(hits))
+                  for i in hits[:65]:print(f"MATCH {i+1}: {lines[i][:280]}")
+          PY

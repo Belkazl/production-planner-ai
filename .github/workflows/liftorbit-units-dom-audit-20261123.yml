@@ -1,0 +1,18 @@
+name: Inspect Production and Materials editor DOM isolated browser
+on:
+  push:
+    branches: [fix/single-source-resource-units-20261123]
+    paths:
+      - .github/workflows/liftorbit-units-dom-audit-20261123.yml
+      - ops/ovh/units-single-source-20261123/audit.mjs
+permissions: {contents: read}
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Inspect native editor HTML and data field selectors
+        run: node ops/ovh/units-single-source-20261123/audit.mjs
