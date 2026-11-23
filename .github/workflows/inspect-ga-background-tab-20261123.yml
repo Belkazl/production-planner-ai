@@ -34,6 +34,20 @@ jobs:
           paths=[ui/x for x in ["restart-optimizer-ui.js","async-plan-transport.js","stop-ui.js","python-ga-upstream.mjs","ga-execution-budget.ts","worker-manager.ts","nonblocking-db-shim.js","auth-runtime.js","ga-python-state-store.mjs","bootstrap.ts"]]
           paths += [worker/x for x in ["manager.py","server.py","full_runtime_adapter.py"]]
           terms=re.compile(r"visibilitychange|visibilityState|document\.hidden|addEventListener\(['\"](?:blur|focus|pagehide|beforeunload|freeze|resume|visibilitychange)|onvisibilitychange|requestAnimationFrame|setInterval|setTimeout|EventSource|last_heartbeat|heartbeat|on_disconnect|abort\(|aborter|timed_out|cancel|timeout|keepalive|watchdog|stale|ttl|worker\.terminate|stopRequested",re.I)
+          for name,folder,spans in [
+            ("async-plan-transport.js",ui,[(1,157)]),
+            ("restart-optimizer-ui.js",ui,[(1430,1480),(1556,1667)]),
+            ("stop-ui.js",ui,[(100,185),(280,321)]),
+            ("python-ga-upstream.mjs",ui,[(1,95),(300,410)])]:
+            p=folder/name
+            print('SOURCE_SPAN_FILE',name)
+            lines=p.read_text(errors="replace").splitlines()
+            for a,b in spans:
+              print('SOURCE_SPAN',a,b)
+              for n in range(a,min(b,len(lines))+1):
+                line=lines[n-1]
+                if re.search(r'password|private.?key|authorization|bearer',line,re.I):line='[REDACTED]'
+                print(f'{n:04d} {line[:250]}')
           for p in paths:
             if not p.exists():continue
             lines=p.read_text(errors="replace").splitlines()
