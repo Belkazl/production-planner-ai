@@ -114,5 +114,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install browser driver
         run: npm install --no-save --no-package-lock playwright-core@1.57.0
-      - name: Real browser: stale old ignored, first new plan retained, normal continuation unaffected
+      - name: "Real browser: stale old ignored, first new plan retained, normal continuation unaffected"
         run: node ops/ovh/fresh-first-reference-20261123/live.mjs
