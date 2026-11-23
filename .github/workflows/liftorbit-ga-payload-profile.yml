@@ -1,0 +1,118 @@
+name: LiftOrbit preview JSON field-size breakdown isolated QA
+on:
+  push:
+    branches: [experiment/ga-compact-preview-20261113]
+    paths:
+      - .github/workflows/liftorbit-ga-payload-profile.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-payload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Observe large real GA progress responses on disposable user only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error, uuid, secrets, time, sys
+          base="https://app.liftorbit.app";cookie=""
+          def query(path,method="GET",body=None):
+            global cookie
+            headers={"Origin":base,"Sec-Fetch-Site":"same-origin","Accept":"application/json"}
+            if cookie:headers["Cookie"]=cookie
+            data=json.dumps(body).encode() if body is not None else None
+            if body is not None:headers["Content-Type"]="application/json"
+            req=urllib.request.Request(base+path,method=method,data=data,headers=headers)
+            try:
+              with urllib.request.urlopen(req,timeout=30) as r:
+                status=r.status;headers=r.headers;raw=r.read(16_000_001)
+            except urllib.error.HTTPError as e:
+              status=e.code;headers=e.headers;raw=e.read(16_000_001)
+            except Exception as e:
+              print("GA_PAYLOAD_TRANSPORT_ERROR",type(e).__name__,flush=True)
+              return 0,{},0,"exception",False
+            if path=="/api/auth/register":cookie=(headers.get("Set-Cookie") or "").split(";")[0]
+            mime=(headers.get("Content-Type") or "").split(";")[0]
+            try:obj=json.loads(raw);parsed=True
+            except (ValueError,UnicodeError):obj={};parsed=False
+            return status,obj,len(raw),mime,parsed
+          def check(label,r,allowed=(200,)):
+            status,data,size,mime,parsed=r
+            print("GA_PAYLOAD",label,"http",status,"bytes",size,"mime",mime,"json",parsed,
+                  "phase",str(data.get("phase") or "-")[:28],
+                  "running",data.get("running"),
+                  "best_ops",len((data.get("best_preview") or {}).get("operations") or []),
+                  "candidate_ops",len((data.get("candidate_preview") or {}).get("operations") or []),flush=True)
+            if status not in allowed or not parsed:
+              raise RuntimeError("GA_PAYLOAD_"+label+"_INVALID")
+            return data
+          rq=lambda typ,ref:{"resource_type":typ,"match_mode":"specific","resource_ref":ref,
+                            "resource_refs":[ref],"quantity":1}
+          eq=[{"id":"EQ"+str(n),"name":"QA machine","kind":"workstation","capacity":600,"capacity_unit":"m2"} for n in range(14)]
+          staff=[{"id":"EM"+str(n),"name":"QA employee","shift":"day"} for n in range(5)]
+          ops=[{"id":"OP"+str(n),"name":"QA step","sequence":n+1,"duration_min":30,
+                "resource_requirements":[rq("equipment","EQ"+str(n)),rq("employee","EM"+str(n%5))]} for n in range(7)]
+          orders=[{"id":"O"+str(n),"quantity":7200,"unit":"m2","technical_process_id":"TP"} for n in range(12)]
+          model={"scheduler_mode":"resource","start":"2026-11-12T08:00:00","equipment":eq,
+            "employees":staff,"shifts":{"day":[["08:00","12:00"],["13:00","17:00"]]},
+            "orders":orders,"technical_processes":[{"id":"TP","name":"QA pipeline","operations":ops}],
+            "materials":[],"setup_rules":[]}
+          stopped=False
+          try:
+            check("register",query("/api/auth/register","POST",{
+              "email":"ga-payload-"+uuid.uuid4().hex+"@liftorbit.invalid",
+              "password":secrets.token_urlsafe(32),"company":"Disposable GA payload QA"}))
+            key="qa-"+uuid.uuid4().hex
+            check("storage",query("/api/db-storage","POST",{"storage":{
+              "prodplan.projects.v2":json.dumps([{"id":key,"name":"QA","model":model}]),
+              "prodplan.project.active.v2":key}}))
+            check("start",query("/api/plan","POST",{"generations":2,"population":4,
+              "seed":4321,"objective":"duration","__pp_async_start":True}),allowed=(202,))
+            sizes=[]
+            profiled=False
+            for tick in range(12):
+              time.sleep(2)
+              result=query("/api/plan-progress")
+              status,data,size,mime,parsed=result
+              print("GA_PAYLOAD_SAMPLE",tick,"status",status,"bytes",size,"mime",mime,
+                    "valid_json",parsed,"running",data.get("running"),
+                    "best_rows",len((data.get("best_preview") or {}).get("operations") or []),
+                    "candidate_rows",len((data.get("candidate_preview") or {}).get("operations") or []),
+                    "final_rows",len((data.get("result") or {}).get("operations") or []),flush=True)
+              sizes.append(size)
+              if not profiled and data.get("best_preview"):
+                profiled=True
+                import hashlib
+                def nbytes(x):return len(json.dumps(x,ensure_ascii=False,separators=(",",":")).encode())
+                print("GA_PROFILE_TOP",json.dumps({k:nbytes(v) for k,v in data.items()},sort_keys=True),flush=True)
+                for field in ("best_preview","candidate_preview"):
+                  plan=data.get(field) or {}
+                  if not plan:continue
+                  lens={k:nbytes(v) for k,v in plan.items()}
+                  print("GA_PROFILE_PLAN",field,json.dumps(lens,sort_keys=True),flush=True)
+                  ops=plan.get("operations") or []
+                  generic=plan.get("generic_operations") or []
+                  same=ops==generic
+                  print("GA_PROFILE_DUPLICATE",field,
+                        "ops_rows",len(ops),"generic_rows",len(generic),
+                        "identical",same,
+                        "redundant_bytes",nbytes(generic) if same else 0,flush=True)
+                b=data.get("best_preview") or {}
+                c=data.get("candidate_preview") or {}
+                print("GA_PROFILE_BEST_CANDIDATE_SAME",b==c,flush=True)
+
+              if status!=200 or not parsed:raise RuntimeError("PROGRESS_NOT_VALID_JSON")
+              if data.get("running") is False:break
+            print("GA_PAYLOAD_SUMMARY","samples",len(sizes),"largest_bytes",max(sizes or [0]),flush=True)
+          except Exception as e:
+            print("GA_PAYLOAD_QA_FAILED",type(e).__name__,str(e)[:80],flush=True)
+            sys.exit(1)
+          finally:
+            if cookie:
+              try:
+                status,data,size,mime,parsed=query("/api/optimizer-stop","POST",{})
+                print("GA_PAYLOAD_QA_STOP","status",status,flush=True)
+              except Exception:pass
+          PY
