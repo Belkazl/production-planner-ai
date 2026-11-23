@@ -1,0 +1,31 @@
+name: LiftOrbit Start optimization again explicit Gantt clear OVH
+on:
+  push:
+    branches: [main, fix/fresh-gantt-explicit-clear-20261123]
+    paths:
+      - .github/workflows/liftorbit-fresh-gantt-explicit-clear-release-20261123.yml
+      - ops/ovh/fresh-gantt-explicit-clear-20261123/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-fresh-gantt-explicit-clear-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate_and_deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test blank first Gantt and saved plans, deploy UI to OVH on main only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/main" ];then
+            bash ops/ovh/fresh-gantt-explicit-clear-20261123/deploy.sh
+          else
+            FRESH_GANTT_CLEAR_PREFLIGHT_ONLY=yes bash ops/ovh/fresh-gantt-explicit-clear-20261123/deploy.sh
+          fi
