@@ -1,0 +1,46 @@
+name: Audit fresh genetic search startup on OVH
+on:
+  push:
+    branches: [diagnose/ga-fresh-seed-20261123]
+    paths: [.github/workflows/audit-fresh-ga-seed-20261123.yml]
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read source-level fresh GA initialization only
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/ssh/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/ssh/"*
+          ssh -i "$RUNNER_TEMP/ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration"
+          paths=[
+            root/"sources/current/ga/ga_workers/manager.py",
+            root/"sources/current/ga/ga_workers/server.py",
+            root/"sources/current/ga/ga_workers/fixture.py",
+            root/"sources/ovh-app/current/python-ga-upstream.mjs",
+          ]
+          patterns=re.compile(r'(^\s*(def |async def |class )|seed|random|initial|population|resume|continue|fresh|cache|existing|best|optimizer-reset)',re.I)
+          for p in paths:
+            print("FILE",p.name,"EXISTS",p.exists())
+            if not p.exists():continue
+            lines=p.read_text(errors="replace").splitlines()
+            print("TOTAL_LINES",len(lines))
+            found=[i for i,line in enumerate(lines) if patterns.search(line)]
+            for i in found[:135]:
+              print(f"{i+1}: {lines[i][:220]}")
+          PY
