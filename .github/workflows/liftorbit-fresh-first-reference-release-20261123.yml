@@ -1,0 +1,118 @@
+name: LiftOrbit store first new fresh result as own comparison baseline
+on:
+  push:
+    branches: [main, fix/fresh-first-reference-20261123]
+    paths:
+      - .github/workflows/liftorbit-fresh-first-reference-release-20261123.yml
+      - ops/ovh/fresh-first-reference-20261123/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-fresh-first-reference-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add first new result reference and update OVH on main after guarded preflight
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp_call "$USER@$HOST:$root/current/restart-optimizer-ui.js" "$d/old.js"
+          node ops/ovh/fresh-first-reference-20261123/patch.mjs "$d/old.js" "$d/new.js"
+          node --check "$d/new.js"
+          node - "$d/old.js" "$d/new.js" <<'JS'
+          const fs=require("node:fs"),assert=require("node:assert/strict");
+          const [oldCode,newCode]=process.argv.slice(2).map(p=>fs.readFileSync(p,"utf8"));
+          const insertion=[
+             "   // A completed, account-owned result from the NEW worker is the first",
+             "   // comparison reference. The old project.lastPlan must never seed this.",
+             "   const freshProject=current();",
+             "   const firstNewResult=window.__ppFreshRestartMode===true&&freshProject&&",
+             "     String(window.__ppFreshRestartProject)===String(freshProject.id)&&",
+             "     !window.__ppFreshReferencePlan;",
+             "   if(firstNewResult&&belong(candidate,freshProject)){",
+             "      window.__ppFreshReferencePlan=candidate;",
+             "      window.__ppFreshReferenceProject=freshProject.id;",
+             "      return response; // no old incumbent on the first new iteration",
+             "   }"
+          ].join("\n");
+          assert.equal(newCode.replace(insertion+"\n",""),oldCode,"only new result reference bridge allowed");
+          assert.equal(newCode.split("window.__ppFreshReferencePlan=candidate;").length,2);
+          assert.equal(newCode.split("const currentFreshPlan=window.__ppFreshReferencePlan;").length,2);
+          for(const x of ["ppOptimizerStartOver","quick:Object.freeze({generations:3,population:6})",
+                         "function ppOneSseProgressAndGantt(){","__PP_CONTINUATION_SEED_V2__"]){
+            assert(oldCode.includes(x));assert(newCode.includes(x));
+          }
+          console.log("FRESH_FIRST_REFERENCE_EXACT_ONLY_CHANGE_PASS");
+          JS
+          old_sha=$(sha256sum "$d/old.js"|cut -d' ' -f1)
+          new_sha=$(sha256sum "$d/new.js"|cut -d' ' -f1)
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo FRESH_FIRST_REFERENCE_READONLY_PREFLIGHT_PASS
+            exit 0
+          fi
+          stage="$root/restart-optimizer-ui.fresh-first-reference.next"
+          scp_call "$d/new.js" "$USER@$HOST:$stage"
+          ssh_call "$USER@$HOST" bash -s -- "$old_sha" "$new_sha" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration/sources/ovh-app"
+          target="$root/current/restart-optimizer-ui.js"
+          stage="$root/restart-optimizer-ui.fresh-first-reference.next"
+          backup="$HOME/liftorbit-migration/patch-backups/fresh-first-reference-20261123"
+          sha(){ sha256sum "$1"|cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1" || { echo FRESH_REFERENCE_SOURCE_DRIFT;exit 5; }
+          test "$(sha "$stage")" = "$2" || { echo FRESH_REFERENCE_UPLOAD_CORRUPT;exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/restart-optimizer-ui.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$target" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo FRESH_FIRST_REFERENCE_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          good=no
+          for i in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then good=yes;break;fi
+            sleep 5
+          done
+          test "$good" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo FRESH_FIRST_REFERENCE_OVH_DEPLOYED_HEALTHY
+          REMOTE
+          scp_call "$USER@$HOST:$root/current/restart-optimizer-ui.js" "$d/deployed.js"
+          test "$(sha256sum "$d/deployed.js"|cut -d' ' -f1)" = "$new_sha"
+          echo FRESH_FIRST_REFERENCE_DEPLOYED_SHA_PASS
+  browser:
+    if: github.ref == 'refs/heads/main'
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: "Real browser: stale old ignored, first new plan retained, normal continuation unaffected"
+        run: node ops/ovh/fresh-first-reference-20261123/live.mjs
