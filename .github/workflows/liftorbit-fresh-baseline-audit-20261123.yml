@@ -1,0 +1,53 @@
+name: Inspect first optimization reset behavior (read-only)
+on:
+  push:
+    branches: [fix/fresh-first-optimization-baseline-20261123]
+    paths:
+      - .github/workflows/liftorbit-fresh-baseline-audit-20261123.yml
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only audit of app state transitions, button handlers, and KPI baseline
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current')
+          files=['auth-runtime.js','restart-optimizer-ui.js','async-plan-transport.js','language-ui.js']
+          terms=['Start optimization again','Start optimisation again','start optimization again','Начать оптимизацию заново',
+           'id="opt"','id="start','startAgain','startOver','startNew','restartOptimization','resetOptimization',
+           'function renderPlan(', 'function ppProjectAfterPlan(', 'function renderKpisWithDelta(', 'window.__PP_KPI_SELECTED_REFERENCE_V2__',
+           'pp.kpi.first-best.v1.','__ppOptimizerCommittedPlan','__ppTabPlan','pp:optimizer-started',
+           'function ppFixedFirstBestKpiDelta','function ppSelectedPlanKpiReferenceV2','continue_run','function clear',
+           'function startOptimization','function startOpt','function reset','__PP_CONTINUATION_SEED_V2__',
+           'window.__PP_UNIFIED_GANTT_V2__']
+          for name in files:
+            p=root/name
+            if not p.is_file():continue
+            src=p.read_text()
+            print('AUDIT_FILE',name,'BYTES',len(src))
+            for term in terms:
+              found=[]
+              at=0
+              while (at:=src.lower().find(term.lower(),at))>=0:
+                found.append(at);at+=len(term)
+              if not found:continue
+              print('AUDIT_MATCH',name,repr(term),'COUNT',len(found))
+              for off in found[:2]:
+                lo=max(0,off-280);hi=min(len(src),off+1350)
+                print('AUDIT_CONTEXT',name,'AT',off,repr(src[lo:hi][:1700]))
+          PY
