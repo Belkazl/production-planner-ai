@@ -30,14 +30,19 @@ for(const forbidden of [
     args:["--no-sandbox","--disable-dev-shm-usage"]});
  try{
   const page=await browser.newPage();
-  await page.setContent('<!doctype html><html lang="en"><body>'+
+  const html='<!doctype html><html lang="en"><body>'+
    '<main id="planView"><div id="ganttScroll"><div id="ppGanttToolV2">'+
    '<div class="pg2-row"><div class="pg2-bar">OLD PLAN</div></div></div></div>'+
    '<div id="meta">OLD</div><div id="valid">OLD</div><div id="validator">OLD</div>'+
    '<div id="dur">4300</div><div id="cycles">22</div><div id="waitKpi">500</div><div id="idleKpi">600</div>'+
    '<div id="durDelta">+7%</div><div id="cyclesDelta">+6%</div>'+
    '<div id="waitDelta">+5%</div><div id="idleDelta">+3%</div>'+
-   '<button id="opt">Continue optimization</button></main></body></html>');
+   '<button id="opt">Continue optimization</button></main></body></html>';
+  // A real HTTPS origin is needed for localStorage; route every request in
+  // memory so this unit test never touches the live LiftOrbit server.
+  await page.route("https://unit.liftorbit.test/**",route=>
+    route.fulfill({status:200,contentType:"text/html",body:html}));
+  await page.goto("https://unit.liftorbit.test/",{waitUntil:"domcontentloaded"});
   await page.evaluate(()=>{
    const p={id:"TEST-PROJECT",revision:4,model:{
     orders:[{id:"O1",quantity:10}],equipment:[{id:"E1"}],
