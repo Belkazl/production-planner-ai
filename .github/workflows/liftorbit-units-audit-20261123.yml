@@ -35,7 +35,7 @@ jobs:
               elif p.is_dir():print("TOP_DIR",p.name)
           candidates=[p for p in root.rglob("*") if p.is_file() and p.suffix in (".js",".ts",".tsx",".html",".mjs") and p.stat().st_size<4000000]
           print("CANDIDATE_COUNT",len(candidates))
-          for name in ("build-bridge.ts","bootstrap.ts","restart-optimizer-html.js","Dockerfile"):
+          for name in ("build-bridge.ts","bootstrap.ts","restart-optimizer-html.js","restart-optimizer.ts","Dockerfile"):
               p=root/name
               if p.exists():
                   print("STRUCT_SOURCE",name)
