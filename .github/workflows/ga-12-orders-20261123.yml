@@ -1,0 +1,19 @@
+name: Repeat GA on 12-order 23100m2 five-employee representative model
+on:
+  push:
+    branches: [diagnose/ga-4335-repeats-20261123]
+    paths:
+      - .github/workflows/ga-12-orders-20261123.yml
+      - ops/ovh/ga-4335-diagnostic-20261123/12orders.mjs
+permissions: {contents: read}
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Two independent real GA large-12-order results and progress traces
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-4335-diagnostic-20261123/12orders.mjs
