@@ -1,0 +1,48 @@
+name: Read auth gateway HTML route for unit source activation
+on:
+  push:
+    branches: [diagnose/units-auth-gateway-html-20261123]
+    paths: [.github/workflows/inspect-auth-units-html-20261123.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect auth and planner route source read-only on OVH
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/known_hosts"
+          chmod 600 "$d/key" "$d/known_hosts"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          for name in ["auth-runtime.js","tenant-model-runtime.js","auth-bridge.ts","language-ui.js","language-build.ts","Dockerfile","ga-execution-budget.ts"]:
+           p=root/name
+           print("FILE",name,"exists",p.exists())
+           if not p.exists():continue
+           lines=p.read_text(errors="replace").splitlines()
+           terms=re.compile(r'etalon-modules-compat|x-liftorbit-ui|text/html|new Response\(|serve.*html|render.*html|auth.*html|index\.html|upstream|inject|replace\(.*body|\.replace\(.{0,50}</body>|function .*Html\(|const .*HTML|await.*\.text\(\)',re.I)
+           hits=[i for i,line in enumerate(lines) if terms.search(line)]
+           print("LINES",len(lines),"MATCHES",len(hits))
+           seen=set()
+           for i in hits[:95]:
+            for j in range(max(0,i-2),min(len(lines),i+4)):
+             if j in seen:continue
+             seen.add(j)
+             line=lines[j]
+             if re.search(r'(secret|private.key|password|bearer|authorization|api[_-]?key|token)',line,re.I):line='[REDACTED]'
+             print(f'{j+1:04d} {line[:290]}')
+          PY
