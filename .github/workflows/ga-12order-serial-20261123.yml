@@ -1,0 +1,19 @@
+name: Serial repeat GA 12 orders 5 employees live OVH
+on:
+  push:
+    branches: [diagnose/ga-12order-serial-20261123]
+    paths:
+      - .github/workflows/ga-12order-serial-20261123.yml
+      - ops/ovh/ga-12order-serial-20261123/**
+permissions: {contents: read}
+jobs:
+  serial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Two nonconcurrent fresh full-volume GA jobs with slow progress reads
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-12order-serial-20261123/live.mjs
