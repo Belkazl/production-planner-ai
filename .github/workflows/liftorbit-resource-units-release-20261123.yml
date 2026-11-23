@@ -43,11 +43,11 @@ jobs:
           node - "$d/old-html.js" "$d/old-build.ts" "$d/new-html.js" "$d/new-build.ts" <<'JS'
           const fs=require("node:fs"),assert=require("node:assert/strict");
           const [oh,ob,nh,nb]=process.argv.slice(2).map(p=>fs.readFileSync(p,"utf8"));
-          const original="new Response(ppStartOverHtml(ppGaPollHtml).replace('</body>'";
-          const changed="new Response(ppResourceUnitsHtml(ppStartOverHtml(ppGaPollHtml)).replace('</body>'";
-          assert.equal(nb.replace(changed,original),ob);
-          assert(nh.startsWith(oh));
-          assert.equal(nh.slice(oh.length).split("function ppResourceUnitsHtml(input){").length,2);
+          assert.equal(nb,ob,"GA build pipeline must be unchanged");
+          assert(nh.includes("return ppResourceUnitsHtml(html);"));
+          assert.equal(nh.replace("return ppResourceUnitsHtml(html);","return html;").slice(0,oh.length),oh,
+             "existing native HTML behavior preserved until final unit transformer");
+          assert.equal(nh.split("function ppResourceUnitsHtml(input){").length,2);
           assert(nh.includes('ppNormalizeRequirementUnits(next)'));
           assert(!oh.includes('ppNormalizeRequirementUnits(next)'));
           console.log('UNITS_SAFE_TWO_FILE_PREDEPLOY_DIFF_PASS');
