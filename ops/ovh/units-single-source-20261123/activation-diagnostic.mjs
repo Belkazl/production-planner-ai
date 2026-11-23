@@ -20,6 +20,28 @@ try{
   "window.__ppFreshReferencePlan=d","id=\"ppOptimizerStartOver\"",
   "PP_RESOURCE_UNITS","PP_START_OVER_INLINE","function renderMaterials(){"];
  const flags=Object.fromEntries(markers.map(x=>[x,html.includes(x)]));
+ const routes=await page.evaluate(async()=>{
+  const results=[];
+  for(const path of ["/","/?ppGantt=legacy","/?ppGantt=equiponly","/?ppOptGuard=off","/__bridge_health"]){
+   try{
+    const response=await fetch(path,{credentials:"same-origin",cache:"no-store"});
+    const body=await response.text();
+    results.push({path,status:response.status,headers:Object.fromEntries(response.headers),
+      length:body.length,marks:{
+       native:body.includes("function rr(r){"),
+       units:body.includes("function ppCanonicalRequirementUnit"),
+       incumbent:body.includes("function ppIncumbentCurrentPlan(){let saved=null;"),
+       freshHtml:body.includes("window.__ppFreshRestartPending"),
+       restart:body.includes("pp-restart-optimizer-ui"),
+       ganttScroll:body.includes('id="ganttScroll"'),
+       ops:body.includes("function renderMaterials(){"),
+       g2:body.includes('id="ppGanttToolV2"')
+      },head:body.slice(0,120)});
+   }catch(e){results.push({path,error:String(e).slice(0,160)})}
+  }
+  return results;
+ });
+ console.log("UNITS_ROUTE_DIAGNOSTIC",JSON.stringify(routes).slice(0,14000));
  const i=html.indexOf("function ppIncumbentCurrentPlan()");
  const j=html.indexOf("function rr(r){");
  console.log("UNITS_LIVE_HTML_FLAGS",JSON.stringify({status:r.status(),bytes:html.length,headers:r.headers(),
