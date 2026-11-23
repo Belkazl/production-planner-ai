@@ -2,7 +2,7 @@ import {readFileSync,writeFileSync} from "node:fs";
 const [oldFile,newFile]=process.argv.slice(2);
 if(!oldFile||!newFile)throw Error("FRESH_REFERENCE_PATHS_REQUIRED");
 let text=readFileSync(oldFile,"utf8");
-const old="   const incumbent=floor();";
+const old="  const incumbent=floor();";
 const next=[
  "   // A completed, account-owned result from the NEW worker is the first",
  "   // comparison reference. The old project.lastPlan must never seed this.",
@@ -15,7 +15,7 @@ const next=[
  "      window.__ppFreshReferenceProject=freshProject.id;",
  "      return response; // no old incumbent on the first new iteration",
  "   }",
- "   const incumbent=floor();"
+ "  const incumbent=floor();"
 ].join("\n");
 if(text.split(old).length!==2)throw Error("FRESH_REFERENCE_ANCHOR_DRIFT");
 if(!text.includes("const currentFreshPlan=window.__ppFreshReferencePlan;")||
