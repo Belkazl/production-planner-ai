@@ -44,7 +44,13 @@ jobs:
           print('COMPILE_MODULE_FULL')
           for i,line in enumerate(p.read_text().splitlines(),1):print(f'{i:04d} {line[:210]}')
           print('EXPECTED_COMPILED_IN_HOST',Path('/tmp/production_planner.py').exists())
-          print('OVH_BUILD_TREE_SOURCE_CANDIDATES')
+          import subprocess
+          for cmd in [['docker','ps','--format','{{.Names}}'],['podman','ps','--format','{{.Names}}']]:
+            try:
+              r=subprocess.run(cmd,capture_output=True,text=True,timeout=10)
+              print('CONTAINER_ACCESS',cmd[0],'rc',r.returncode,'names',r.stdout[:1800], 'errtype',r.stderr[:150])
+            except Exception as e:print('CONTAINER_ACCESS',cmd[0],type(e).__name__)
+          print('SOURCE_DIRS')
           for x in sorted((root.parent).glob('*')):
             print('FILE',x.name,'isdir',x.is_dir())
           PY
