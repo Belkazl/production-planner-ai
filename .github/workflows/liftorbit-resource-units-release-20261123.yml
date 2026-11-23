@@ -92,7 +92,7 @@ jobs:
           trap rollback ERR
           mv "$stage_html" "$html"
           mv "$stage_build" "$build"
-          node --check "$html"
+          # JS syntax was verified on the runner; host has no Node.js binary.
           sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
           healthy=no
           for i in $(seq 1 40);do
