@@ -42,8 +42,8 @@ function ppNormalizeRequirementUnits(draft){
 }
 `;
  swap("function rr(r){",helpers+"\nfunction rr(r){","insert_canonical_helpers");
- const oldUnit=`'<td><input class="pp-edit-input" data-rf="unit" value="'+esc(r.unit||(t==='employee'?'чел.':t==='equipment'?'шт.':'кг'))+'"></td>'`;
- const newUnit=`'<td><input class="pp-edit-input" data-rf="unit" value="'+esc(ppCanonicalRequirementUnit(r))+'" readonly aria-readonly="true" title="Единица задана типом ресурса или справочником материалов"></td>'`;
+ const oldUnit=`<input class="pp-edit-input" data-rf="unit" value="'+esc(r.unit||(t==='employee'?'чел.':t==='equipment'?'шт.':'кг'))+'">`;
+ const newUnit=`<input class="pp-edit-input" data-rf="unit" value="'+esc(ppCanonicalRequirementUnit(r))+'" readonly aria-readonly="true" title="Единица задана типом ресурса или справочником материалов">`;
  swap(oldUnit,newUnit,"read_only_derived_unit");
  const oldRefresh=`if(t==='material'){u.value=u.value||'кг';c.disabled=false;if(c.value==='during_operation')c.value='per_operation'}else{u.value=t==='employee'?'чел.':'шт.';c.value='during_operation';c.disabled=true}`;
  const newRefresh=`if(t==='material'){c.disabled=false;if(c.value==='during_operation')c.value='per_operation'}else{c.value='during_operation';c.disabled=true}u.value=ppCanonicalRequirementUnit({resource_type:t,resource_ref:ref.value,match_mode:m});u.readOnly=true`;
