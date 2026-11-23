@@ -23,7 +23,7 @@ try{
  const body=await page.content();
  assert(body.includes("function rr(r){"),"full native Production editor source available");
  assert(body.includes("function renderMaterials(){"));
- const transformed=transform(body);
+ const transformed=process.env.PP_UNITS_LIVE==='1'?body:transform(body);
  assert(transformed.includes("function ppCanonicalRequirementUnit"));
  assert(transformed.includes("readonly aria-readonly=\"true\""));
  assert(transformed.includes("ppNormalizeRequirementUnits(next)"));
@@ -56,7 +56,7 @@ try{
   return r.status;
  },{id,projects});
  assert.equal(stored,200,"isolated project save");
- await page.route("**/","route" in {}?()=>{}:async route=>{
+ if(process.env.PP_UNITS_LIVE!=="1")await page.route("**/",async route=>{
   if(route.request().isNavigationRequest()&&new URL(route.request().url()).pathname==="/"){
    const resp=await route.fetch();
    let html=await resp.text();
