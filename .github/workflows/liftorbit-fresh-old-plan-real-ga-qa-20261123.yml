@@ -1,0 +1,18 @@
+name: Real GA fresh restart must ignore valid prior stored plan
+on:
+  push:
+    branches: [qa/fresh-old-plan-real-ga-20261123]
+    paths:
+      - .github/workflows/liftorbit-fresh-old-plan-real-ga-qa-20261123.yml
+      - ops/ovh/fresh-old-plan-real-ga-20261123/**
+permissions: {contents: read}
+jobs:
+  real_ga:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Actual Start optimization again with stored old 1-minute plan, complete worker and verify Gantt
+        run: node ops/ovh/fresh-old-plan-real-ga-20261123/live.mjs
