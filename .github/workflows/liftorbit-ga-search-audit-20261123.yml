@@ -1,0 +1,55 @@
+name: LiftOrbit inspect GA candidate selection and incumbent 20261123
+on:
+  push:
+    branches: [fix/ga-search-verification-20261123]
+    paths: [.github/workflows/liftorbit-ga-search-audit-20261123.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect actual OVH compiled GA and adapter (read only)
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import ast,re,hashlib
+          root=Path.home()/'liftorbit-migration/sources/current/ga/ga_workers'
+          for name in ['full_runtime_adapter.py','compile_legacy_ga.py']:
+            p=root/name; lines=p.read_text().splitlines()
+            print('FILE',name,len(lines))
+            if name=='full_runtime_adapter.py':
+              for a,b in [(1,120),(235,292),(334,403),(437,519)]:
+                print('SPAN',a,b)
+                for i in range(a,min(len(lines),b)+1): print(f'{i:04d} {lines[i-1][:190]}')
+            else:
+              for i,s in enumerate(lines):
+                if 'def ' in s or 'path' in s and 'legacy' in s: print(f'{i+1}: {s[:170]}')
+          import sys
+          sys.path.insert(0,str(root.parent))
+          from ga_workers.full_runtime_adapter import _namespace
+          ga=_namespace()
+          for name in ['optimize','_pp_schedule_sequence','_pp_progress_best','_pp_progress_candidate']:
+            import inspect
+            fn=ga.get(name)
+            print('ENGINE_FN',name,'exists',callable(fn))
+            if not callable(fn):continue
+            try:
+              text=inspect.getsource(fn)
+              print(text[:21000] if name=='optimize' else text[:6500])
+            except Exception as ex:print('GET_SOURCE_ERR',repr(ex))
+          PY
