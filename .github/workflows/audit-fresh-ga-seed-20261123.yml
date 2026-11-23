@@ -32,6 +32,10 @@ jobs:
             root/"sources/current/ga/ga_workers/manager.py",
             root/"sources/current/ga/ga_workers/server.py",
             root/"sources/current/ga/ga_workers/fixture.py",
+            root/"sources/current/ga/ga_workers/full_runtime_adapter.py",
+            root/"sources/current/ga/ga_workers/recovered_adapter.py",
+            root/"sources/current/ga/ga_workers/legacy_adapter.py",
+            root/"sources/current/ga/ga_workers/continuation.py",
             root/"sources/current/ga/ga_workers/adapter.py",
             root/"sources/current/ga/ga_workers/engine.py",
             root/"sources/ovh-app/current/python-ga-upstream.mjs",
@@ -46,6 +50,6 @@ jobs:
             lines=p.read_text(errors="replace").splitlines()
             print("TOTAL_LINES",len(lines))
             found=[i for i,line in enumerate(lines) if patterns.search(line)]
-            for i in found[:165]:
+            for i in found[:240]:
               print(f"{i+1}: {lines[i][:220]}")
           PY
