@@ -80,5 +80,76 @@ try{
  console.log("UNITS_PATCHED_BROWSER_CONTEXT",JSON.stringify(diag).slice(0,3000));
  assert(diag.unitPatch,"new unit source in loaded browser");
  assert.equal(errors.length,0,"modified HTML must not break browser scripts "+JSON.stringify(errors.slice(0,4)));
+ // Exercise the real native Production and Materials editors, not synthetic HTML.
+ const captured=[];
+ await page.route("**/api/project/model/import",async route=>{
+  const body=JSON.parse(route.request().postData()||"{}");
+  captured.push(body.model);
+  await route.fulfill({status:200,contentType:"application/json",
+   body:JSON.stringify({ok:true,model:body.model,model_ready:true})});
+ });
+ model.technical_processes.push({id:"TP-2",name:"Packing",operations:[{
+  id:"OP-2",sequence:1,name:"Pack",duration_min:10,resource_requirements:[
+   {id:"RR-M2",resource_type:"material",match_mode:"specific",resource_ref:"M2",
+    quantity:4,unit:"кг",consumption_rule:"per_operation"}
+  ]}]});
+ const rendered=await page.evaluate(m=>{
+  model=m;modelReady=true;renderSection("Производство");
+  return [...document.querySelectorAll("#sectionView [data-r]")].map(row=>({
+   id:row.dataset.id,
+   type:row.querySelector("[data-rf=resource_type]")?.value,
+   unit:row.querySelector("[data-rf=unit]")?.value,
+   readonly:row.querySelector("[data-rf=unit]")?.readOnly,
+   quantity:row.querySelector("[data-rf=quantity]")?.value,
+   consumption:row.querySelector("[data-rf=consumption_rule]")?.value
+  }));
+ },model);
+ const unitOf=(id)=>rendered.find(x=>x.id===id);
+ assert.equal(unitOf("RR-M1").unit,"кг");
+ assert.equal(unitOf("RR-E").unit,"шт.");
+ assert.equal(unitOf("RR-L").unit,"чел.");
+ assert(rendered.every(x=>x.readonly),"all Production unit controls must be read-only");
+ assert.equal(unitOf("RR-M1").quantity,"18.5");
+ assert.equal(unitOf("RR-M1").consumption,"per_m2");
+ console.log("UNITS_EDITOR_READONLY_AND_CANONICAL_DISPLAY_PASS",JSON.stringify(rendered));
+ const dynamic=await page.evaluate(()=>{
+  const row=document.querySelector('#sectionView [data-r][data-id="RR-M1"]');
+  const sel=row.querySelector("[data-rf=resource_ref]");
+  sel.value="M2";sel.dispatchEvent(new Event("change",{bubbles:true}));
+  const afterBoxes=row.querySelector("[data-rf=unit]").value;
+  sel.value="M1";sel.dispatchEvent(new Event("change",{bubbles:true}));
+  const afterPowder=row.querySelector("[data-rf=unit]").value;
+  row.querySelector("[data-rf=unit]").value="invalid manual value";
+  row.querySelector("[data-rf=unit]").dispatchEvent(new Event("input",{bubbles:true}));
+  return {afterBoxes,afterPowder};
+ });
+ assert.equal(dynamic.afterBoxes,"шт.");
+ assert.equal(dynamic.afterPowder,"кг");
+ console.log("UNITS_MATERIAL_SELECTION_AUTOMATIC_UPDATE_PASS",JSON.stringify(dynamic));
+ await page.locator('#sectionView [data-save]').click();
+ await page.waitForTimeout(350);
+ assert.equal(captured.length,1,"Production save captured");
+ const first=captured[0];
+ const req=(m,p,op)=>m.technical_processes.find(x=>x.id===p).operations.find(x=>x.id===op).resource_requirements;
+ const one=req(first,"TP-1","OP-1");
+ assert.deepEqual(one.map(x=>x.unit),["кг","шт.","чел."]);
+ assert.equal(one[0].quantity,18.5);
+ assert.equal(one[0].consumption_rule,"per_m2");
+ assert.equal(req(first,"TP-2","OP-2")[0].unit,"шт.","even other technical processes must be normalized");
+ console.log("UNITS_ALL_TECH_PROCESSES_NORMALIZED_ON_PRODUCTION_SAVE_PASS");
+ await page.evaluate(()=>renderSection("Материалы"));
+ await page.locator('#matBody [data-id="M1"] [data-f=unit]').fill("г");
+ await page.locator('#sectionView [data-save]').click();
+ await page.waitForTimeout(350);
+ assert.equal(captured.length,2,"Materials save captured");
+ const second=captured[1];
+ assert.equal(second.materials.find(x=>x.id==="M1").unit,"г");
+ assert.equal(req(second,"TP-1","OP-1")[0].unit,"г");
+ assert.equal(req(second,"TP-1","OP-1")[0].quantity,18.5,
+  "changing unit must not silently convert quantity");
+ assert.equal(req(second,"TP-1","OP-1")[0].consumption_rule,"per_m2",
+  "material consumption mode unchanged");
+ assert.equal(req(second,"TP-2","OP-2")[0].unit,"шт.");
+ console.log("UNITS_MATERIAL_EDIT_PROPAGATES_WITHOUT_QUANTITY_CONVERSION_PASS");
  console.log("UNITS_PATCHED_NATIVE_JS_EXECUTION_PASS");
 }finally{await browser.close()}
