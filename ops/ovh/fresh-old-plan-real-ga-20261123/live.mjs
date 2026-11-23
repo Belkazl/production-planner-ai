@@ -208,6 +208,7 @@ try{
  assert.equal(ui.minutes,full.result.duration_minutes,
    "rendered KPI must equal NEW worker result and never old 1-minute plan");
  assert(ui.bars>15,"Gantt must render the newly generated operations");
+ assert.equal(ui.reference,full.result.duration_minutes,"fresh backend result must become next comparison baseline");
  assert.equal(ui.preserved,sentinel,"saved plans must not change");
  console.log("FRESH_OLD_REAL_GA_END_TO_END_PASS",JSON.stringify({
    newMinutes:ui.minutes,oldMinutes:1,fullOperations:ui.bars,
