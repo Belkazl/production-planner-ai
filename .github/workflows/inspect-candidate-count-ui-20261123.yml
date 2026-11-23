@@ -1,0 +1,49 @@
+name: Inspect optimizer candidate counter and worker validity rejection on OVH
+on:
+  push:
+    branches: [diagnose/ga-4335-repeats-20261123]
+    paths: [.github/workflows/inspect-candidate-count-ui-20261123.yml]
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Read current frontend labels and backend counters without writing
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          root=Path.home()/"liftorbit-migration/sources"
+          names=[
+            root/"ovh-app/current/baselines/2026-10-10/aps-setup-bridge/index.ts",
+            root/"ovh-app/current/baselines/2026-10-10/aps-setup-bridge/index.html",
+            root/"current/ga/ga_workers/full_runtime_adapter.py",
+          ]
+          for p in names:
+            print('SOURCE',p.name,'exists',p.exists())
+            if not p.exists():continue
+            lines=p.read_text(errors="replace").splitlines()
+            hits=[i for i,line in enumerate(lines) if
+              any(k in line.lower() for k in ["valid candidates","valid_candidates","candidate count","candidate_count","validcandidate","best found","ga_feasible_initial_incumbent","candidate_seq","best_seq","_live_scheduler_preview"])]
+            print('HITS',len(hits))
+            shown=set()
+            for i in hits[:45]:
+              for j in range(max(0,i-2),min(len(lines),i+3)):
+                if j in shown:continue
+                shown.add(j)
+                print(f'{j+1}: {lines[j][:245]}')
+          PY
