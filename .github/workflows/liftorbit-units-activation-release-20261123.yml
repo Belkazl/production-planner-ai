@@ -47,7 +47,6 @@ jobs:
           assert(newCode.includes('function ppCanonicalRequirementUnit(req,sourceModel)'));
           assert(newCode.includes('ppNormalizeRequirementUnits(next)'));
           const context={};vm.runInNewContext(newCode+";this.transform=ppStartOverHtml;",context);
-          const native='function rr(r){ <input data-rf="unit" value="'+String.fromCharCode(39)+'+esc(r.unit||(t===\'employee\'?\'чел.\':t===\'equipment\'?\'шт.\':\'кг\'))+'+String.fromCharCode(39)+'"> } function renderMaterials(){';
           assert.equal(context.transform('login-only-html'),'login-only-html');
           // Full browser acceptance tests validate the actual native editor script.
           console.log('UNIT_COMPAT_GUARD_ONE_LINE_PREFLIGHT_PASS');
