@@ -1,0 +1,19 @@
+name: Verify Gantt equals fresh full-size backend GA plan
+on:
+  push:
+    branches: [diagnose/ga-4335-repeats-20261123]
+    paths:
+      - .github/workflows/ga-4335-gantt-verify-20261123.yml
+      - ops/ovh/ga-4335-diagnostic-20261123/gantt.mjs
+permissions: {contents: read}
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real browser fresh optimization plus final Gantt and backend equivalence
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-4335-diagnostic-20261123/gantt.mjs
