@@ -1,0 +1,20 @@
+name: Diagnose full-volume repeat GA objective on OVH
+on:
+  push:
+    branches: [diagnose/ga-4335-repeats-20261123]
+    paths:
+      - .github/workflows/ga-4335-diagnostic-20261123.yml
+      - ops/ovh/ga-4335-diagnostic-20261123/**
+permissions: {contents: read}
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Two full-volume fresh GA runs in isolated test account
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/ga-4335-diagnostic-20261123/live.mjs
