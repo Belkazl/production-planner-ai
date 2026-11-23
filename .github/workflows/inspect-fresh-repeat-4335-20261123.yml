@@ -36,21 +36,26 @@ jobs:
           for folder in [ui,root/"planner",ga]:
             print('DIR',folder)
             for p in sorted(folder.glob("*"))[:60]:print('CHILD',p.name)
-          pats={
-            "restart-optimizer-ui.js":r'optimizer-reset|ppOptimizerStartOver|__ppFreshRestartPending|freshRestart|__ppOptimizerCommittedPlan|cached|original|__ppFreshReferencePlan|__ppFreshDisplayBaseline',
-            "full_runtime_adapter.py":r'continuing=|seed=|hint=|order_ids=|_pp_schedule_sequence|load_resume_plan|fresh_ga_seeded|ga\[.optimize.\]|best_checkpoint|result=copy|progress\(',
-            "continuation.py":r'best_order|def load_resume_plan|state\.update',
+          ranges={
+            "restart-optimizer-ui.js":[(62,196),(419,644),(1420,1600)],
+            "restart-optimizer-server.js":[(1,190)],
+            "restart-optimizer.ts":[(1,175)],
+            "full_runtime_adapter.py":[(375,424),(470,532)],
           }
-          for f in files:
-            print("FILE",f.name,'exists',f.exists())
-            if not f.exists():continue
-            lines=f.read_text(errors="replace").splitlines()
-            hits=[i for i,l in enumerate(lines) if re.search(pats.get(f.name,''),l,re.I)]
-            print("LINES",len(lines),"MATCHES",len(hits))
-            seen=set()
-            for i in hits[:75]:
-              for j in range(max(0,i-3),min(len(lines),i+5)):
-                if j in seen: continue
-                seen.add(j)
-                print(f"{j+1:04d} {lines[j][:260]}")
+          for name,spans in ranges.items():
+            p=(ui/name) if name.endswith(".js") or name.endswith(".ts") else (ga/name)
+            if not p.exists(): continue
+            lines=p.read_text(errors="replace").splitlines()
+            print("FILE_SPANS",name,"TOTAL",len(lines))
+            for a,b in spans:
+              print("SPAN",a,b)
+              for n in range(a,min(b,len(lines))+1):
+                print(f"{n:04d} {lines[n-1][:260]}")
+          p=ui/"python-ga-upstream.mjs"
+          print("BACKEND_MATCHES")
+          lines=p.read_text(errors="replace").splitlines()
+          import re
+          for i,s in enumerate(lines):
+            if re.search(r'optimizer-reset|resume_plan|resume_state|continue_run|/api/plan|/api/optimizer-reset',s,re.I):
+              print(f"{i+1:04d} {s[:220]}")
           PY
