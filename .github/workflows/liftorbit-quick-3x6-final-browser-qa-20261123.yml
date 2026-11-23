@@ -1,0 +1,18 @@
+name: Verify installed LiftOrbit Quick 3x6 live browser
+on:
+  push:
+    branches: [main, qa/quick-depth-3x6-acceptance-20261123]
+    paths:
+      - .github/workflows/liftorbit-quick-3x6-final-browser-qa-20261123.yml
+      - ops/ovh/quick-depth-3x6-acceptance-20261123/chromium.mjs
+permissions: {contents: read}
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify production Quick 3x6 selection, actual GA POST, persistence, EN/RU and untouched modes
+        run: node ops/ovh/quick-depth-3x6-acceptance-20261123/chromium.mjs
