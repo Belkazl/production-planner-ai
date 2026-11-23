@@ -36,26 +36,19 @@ jobs:
           for folder in [ui,root/"planner",ga]:
             print('DIR',folder)
             for p in sorted(folder.glob("*"))[:60]:print('CHILD',p.name)
-          ranges={
-            "restart-optimizer-ui.js":[(62,196),(419,644),(1420,1600)],
-            "restart-optimizer-server.js":[(1,190)],
-            "restart-optimizer.ts":[(1,175)],
-            "full_runtime_adapter.py":[(375,424),(470,532)],
-          }
-          for name,spans in ranges.items():
-            p=(ui/name) if name.endswith(".js") or name.endswith(".ts") else (ga/name)
-            if not p.exists(): continue
-            lines=p.read_text(errors="replace").splitlines()
-            print("FILE_SPANS",name,"TOTAL",len(lines))
-            for a,b in spans:
-              print("SPAN",a,b)
-              for n in range(a,min(b,len(lines))+1):
-                print(f"{n:04d} {lines[n-1][:260]}")
-          p=ui/"python-ga-upstream.mjs"
-          print("BACKEND_MATCHES")
-          lines=p.read_text(errors="replace").splitlines()
+          from pathlib import Path
           import re
-          for i,s in enumerate(lines):
-            if re.search(r'optimizer-reset|resume_plan|resume_state|continue_run|/api/plan|/api/optimizer-reset',s,re.I):
-              print(f"{i+1:04d} {s[:220]}")
+          p=ui/"restart-optimizer-html.js"
+          print('HTML_PATCH_FILE',len(p.read_text().splitlines()))
+          for i,line in enumerate(p.read_text().splitlines(),1):print(f'HTML {i:04d} {line[:280]}')
+          p=ui/"baselines/2026-10-10/aps-setup-bridge/index.ts"
+          ls=p.read_text(errors="replace").splitlines()
+          hits=[i for i,line in enumerate(ls) if re.search(r'ppFreshObjectiveFloor|ppIncumbentCurrentPlan|ppIncumbentDecision|ppDec=|__ppFreshRestartPending',line)]
+          print('INDEX_FOUND',len(hits),'total lines',len(ls))
+          for i in hits[:32]:
+            for j in range(max(0,i-2),min(len(ls),i+4)):
+              print(f'INDEX {j+1:04d} {ls[j][:240]}')
+          p=ui/"Dockerfile"
+          for i,line in enumerate(p.read_text().splitlines(),1):
+            if i<100: print(f'DOCKER {i:04d} {line[:245]}')
           PY
