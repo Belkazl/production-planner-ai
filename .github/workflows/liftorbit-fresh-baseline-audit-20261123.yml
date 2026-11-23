@@ -51,3 +51,15 @@ jobs:
                 lo=max(0,off-280);hi=min(len(src),off+1350)
                 print('AUDIT_CONTEXT',name,'AT',off,repr(src[lo:hi][:1700]))
           PY
+          echo "=== FRESH RESTART FULL LOGIC, SELECTED BASELINE AND SCHEDULE RESET ==="
+          ssh -i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          base=Path('/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current')
+          ui=(base/'restart-optimizer-ui.js').read_text()
+          auth=(base/'auth-runtime.js').read_text()
+          ranges=[('FRESH',ui,0,14300),('KPI_BASELINE',ui,31900,38500),('KPI_SELECTED',ui,38600,45100),('AUTH_LEGACY',auth,19900,23700)]
+          for title,src,i,j in ranges:
+              print('FULL_SOURCE_RANGE',title,i,j)
+              for n,line in enumerate(src[i:j].splitlines()):
+                  print('S',title,n,repr(line[:330]))
+          PY
