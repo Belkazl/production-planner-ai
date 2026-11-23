@@ -38,7 +38,7 @@ try{
      .map(x=>({text:x.textContent.trim().slice(0,50),html:x.outerHTML.slice(0,450)})).slice(0,24);
    return {scriptCount:scripts.length,chars:text.length,matches,nav};
  });
- console.log("UNITS_EDITOR_SOURCE_AUDIT",JSON.stringify(diag).slice(0,85000));
+ console.log("UNITS_EDITOR_SOURCE_AUDIT",JSON.stringify({matches:diag.matches.filter(x=>["function rr(","function eopts(","function bindProd(","function save(","function mats(","function procs("].includes(x.term)),nav:diag.nav}));
  const clickNav=async(text)=>{
   const clicked=await page.evaluate(t=>{
    const matches=[...document.querySelectorAll("button,a,[role=tab],.nav-item")].filter(x=>x.textContent?.trim()===t);
