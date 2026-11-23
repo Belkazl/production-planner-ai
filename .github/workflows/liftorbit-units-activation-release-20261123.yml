@@ -1,0 +1,121 @@
+name: Activate native Production units for current OVH compatibility HTML
+on:
+  push:
+    branches: [main, fix/units-native-guard-20261123]
+    paths:
+      - .github/workflows/liftorbit-units-activation-release-20261123.yml
+      - ops/ovh/units-activation-20261123/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-unit-compat-guard-activation
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch exactly one compatible-HTML guard and deploy with rollback
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/known_hosts"
+          chmod 600 "$d/key" "$d/known_hosts"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp_call "$USER@$HOST:$root/current/restart-optimizer-html.js" "$d/old.js"
+          node ops/ovh/units-activation-20261123/patch.mjs "$d/old.js" "$d/new.js"
+          node --check "$d/new.js"
+          node - "$d/old.js" "$d/new.js" <<'JS'
+          const fs=require('node:fs'),assert=require('node:assert/strict'),vm=require('node:vm');
+          const [oldCode,newCode]=process.argv.slice(2).map(p=>fs.readFileSync(p,'utf8'));
+          const old='if(!html.includes("function ppIncumbentCurrentPlan(){let saved=null;"))return html;';
+          const changed='if(!html.includes("function ppIncumbentCurrentPlan(){let saved=null;"))return ppResourceUnitsHtml(html);';
+          assert.equal(newCode.replace(changed,old),oldCode);
+          assert(newCode.includes('function ppCanonicalRequirementUnit(req,sourceModel)'));
+          assert(newCode.includes('ppNormalizeRequirementUnits(next)'));
+          const context={};vm.runInNewContext(newCode+";this.transform=ppStartOverHtml;",context);
+          assert.equal(context.transform('login-only-html'),'login-only-html');
+          // Full browser acceptance tests validate the actual native editor script.
+          console.log('UNIT_COMPAT_GUARD_ONE_LINE_PREFLIGHT_PASS');
+          JS
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo UNIT_COMPAT_GUARD_READONLY_PREFLIGHT_PASS
+            exit 0
+          fi
+          old_sha=$(sha256sum "$d/old.js"|cut -d' ' -f1)
+          new_sha=$(sha256sum "$d/new.js"|cut -d' ' -f1)
+          stage="$root/restart-optimizer-html.unit-activation-20261123.next"
+          scp_call "$d/new.js" "$USER@$HOST:$stage"
+          ssh_call "$USER@$HOST" bash -s -- "$old_sha" "$new_sha" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration/sources/ovh-app"
+          target="$root/current/restart-optimizer-html.js"
+          stage="$root/restart-optimizer-html.unit-activation-20261123.next"
+          backup="$HOME/liftorbit-migration/patch-backups/units-native-activation-20261123"
+          sha(){ sha256sum "$1"|cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1" || { echo UNIT_ACTIVATION_SOURCE_DRIFT;exit 5; }
+          test "$(sha "$stage")" = "$2" || { echo UNIT_ACTIVATION_STAGE_BAD;exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/restart-optimizer-html.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-html.js" "$target" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo UNIT_ACTIVATION_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for i in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo UNIT_ACTIVATION_DEPLOY_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$root/current/restart-optimizer-html.js" "$d/deployed.js"
+          test "$(sha256sum "$d/deployed.js"|cut -d' ' -f1)" = "$new_sha"
+          echo UNIT_ACTIVATION_DEPLOYED_SHA_VERIFIED
+      - name: Public health
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          good=no
+          for n in $(seq 1 12);do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [ "$code" = 200 ] && [ "$auth" = 401 ];then good=yes;break;fi
+            sleep 5
+          done
+          test "$good" = yes
+          echo UNIT_ACTIVATION_PUBLIC_HEALTH_PASS
+  browser:
+    if: github.ref == 'refs/heads/main'
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 11
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify live native Production and Materials units, selectors and save behavior
+        env:
+          PP_UNITS_LIVE: "1"
+        run: node ops/ovh/units-single-source-20261123/preflight.mjs

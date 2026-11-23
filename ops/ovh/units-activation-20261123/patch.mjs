@@ -1,0 +1,15 @@
+import {readFileSync,writeFileSync} from "node:fs";
+import assert from "node:assert/strict";
+const [oldFile,newFile]=process.argv.slice(2);
+assert(oldFile&&newFile,"UNIT_ACTIVATION_SOURCE_REQUIRED");
+const s=readFileSync(oldFile,"utf8");
+const old='if(!html.includes("function ppIncumbentCurrentPlan(){let saved=null;"))return html;';
+const fixed='if(!html.includes("function ppIncumbentCurrentPlan(){let saved=null;"))return ppResourceUnitsHtml(html);';
+assert.equal(s.split(old).length,2,"UNIT_ACTIVATION_COMPAT_GUARD_DRIFT");
+assert(s.includes("return ppResourceUnitsHtml(html);"),"canonical unit transformer missing from main file");
+assert(s.includes("function ppResourceUnitsHtml(input){"),"canonical unit transform function missing");
+assert(s.includes("ppNormalizeRequirementUnits(next)"),"unit propagation missing");
+const out=s.replace(old,fixed);
+assert.equal(out.replace(fixed,old),s,"unit activation is strictly one guard change");
+writeFileSync(newFile,out);
+console.log("UNITS_NATIVE_GUARD_ACTIVATION_PATCH_PASS");
