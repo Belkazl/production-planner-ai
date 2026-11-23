@@ -1,0 +1,140 @@
+name: LiftOrbit GA optimize fresh verified baseline OVH
+on:
+  push:
+    branches: [main, fix/ga-search-verification-20261123]
+    paths:
+      - .github/workflows/liftorbit-ga-fresh-baseline-search-release-20261123.yml
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-ga-fresh-baseline-search-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Patch, validate and safely deploy OVH Python GA adapter
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh_call() { ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call() { scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          target=/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers/full_runtime_adapter.py
+          scp_call "$USER@$HOST:$target" "$d/old.py"
+          python3 - "$d/old.py" "$d/new.py" <<'PY'
+          from pathlib import Path
+          import sys,ast
+          s=Path(sys.argv[1]).read_text()
+          old="""                state['best_seq']=1
+                          print('GA_FEASIBLE_INITIAL_INCUMBENT_READY',flush=True)"""
+          new="""                state['best_seq']=1
+                          # On a truly fresh duration run, the validated plan was
+                          # previously only a fallback AFTER the genetic search.
+                          # Put its order sequence into this run's own GA population.
+                          # Never read a previous job or account; continue semantics
+                          # and other objectives remain unchanged.
+                          if not continuing and objective=='duration':
+                              try:
+                                  load_resume_plan(checked,normalized,objective,pins,ga)
+                                  state['fresh_ga_seeded']=True
+                                  print('GA_FRESH_VERIFIED_INCUMBENT_SEEDED',flush=True)
+                              except ContinuationError:
+                                  print('GA_FRESH_SEED_UNAVAILABLE',flush=True)
+                          print('GA_FEASIBLE_INITIAL_INCUMBENT_READY',flush=True)"""
+          assert s.count(old)==1,'INITIAL_PLAN_ANCHOR_DRIFT'
+          s=s.replace(old,new)
+          old2="        try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)"
+          new2="""        try:state['result']=ga['optimize'](gens,population,seed,
+                      continuing or state.get('fresh_ga_seeded',False),objective)"""
+          assert s.count(old2)==1,'OPTIMIZE_CALL_ANCHOR_DRIFT'
+          s=s.replace(old2,new2)
+          assert s.count("load_resume_plan(checked,normalized,objective,pins,ga)")==1
+          assert s.count("continuing or state.get('fresh_ga_seeded',False)")==1
+          assert "seed=1729 if continuing else secrets.randbits(32)" in s
+          assert "elif opts.get('resume_state') or opts.get('resume_plan')" in s
+          ast.parse(s)
+          Path(sys.argv[2]).write_text(s)
+          print('GA_FRESH_BASELINE_SEED_SOURCE_PATCH_PASS')
+          PY
+          python3 -m py_compile "$d/new.py"
+          # Behavior test for exact safe seeding bridge using the real continuation
+          # implementation in an isolated test, not production account data.
+          scp_call "$USER@$HOST:/home/liftorbit-ci/liftorbit-migration/sources/current/ga/ga_workers/continuation.py" "$d/continuation.py"
+          python3 - "$d/continuation.py" <<'PY'
+          import sys,types
+          from pathlib import Path
+          import ast
+          ns={'__name__':'ga_continuation_test'}
+          # Module only imports math/hashlib/json; no storage/network.
+          s=Path(sys.argv[1]).read_text()
+          exec(compile(s,'continuation.py','exec'),ns)
+          load=ns['load_resume_plan']
+          model={'orders':[{'id':'A'},{'id':'B'},{'id':'C'}]}
+          plan={'valid':True,'order_sequence':['C','A','B'],
+                'duration_minutes':4335,'optimization_run':1,'total_generations':0}
+          ga={'_PP_GENERIC_STATE':{}}
+          load(plan,model,'duration',[],ga)
+          assert ga['_PP_GENERIC_STATE']['best_order']==['C','A','B']
+          assert ga['_PP_GENERIC_STATE']['best_duration']==4335
+          # A new fresh worker has an empty cache and must not inherit any
+          # previous result when the current run has not calculated its own plan.
+          assert {} != ga['_PP_GENERIC_STATE']
+          assert {} == {'_PP_GENERIC_STATE':{}}['_PP_GENERIC_STATE']
+          print('GA_FRESH_BASELINE_SEED_TEST_PASS')
+          PY
+          if [ "$GITHUB_REF" != "refs/heads/main" ];then
+            echo GA_FRESH_BASELINE_SEARCH_PREFLIGHT_PASS
+            exit 0
+          fi
+          old_sha=$(sha256sum "$d/old.py" | cut -d' ' -f1)
+          new_sha=$(sha256sum "$d/new.py" | cut -d' ' -f1)
+          stage=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/ga-fresh-baseline-seed-20261123.next
+          scp_call "$d/new.py" "$USER@$HOST:$stage"
+          ssh_call "$USER@$HOST" bash -s -- "$old_sha" "$new_sha" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          target="$root/sources/current/ga/ga_workers/full_runtime_adapter.py"
+          stage="$root/sources/ovh-app/ga-fresh-baseline-seed-20261123.next"
+          backup="$root/patch-backups/ga-fresh-baseline-seed-20261123"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1"
+          test "$(sha "$stage")" = "$2"
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/full_runtime_adapter.py"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/full_runtime_adapter.py" "$target" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_FRESH_BASELINE_SEARCH_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$target"
+          python3 -m py_compile "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/deploy-private.log" 2>&1
+          healthy=no
+          for i in $(seq 1 35);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo GA_FRESH_BASELINE_SEARCH_OVH_DEPLOYED_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$target" "$d/deployed.py"
+          test "$(sha256sum "$d/deployed.py" | cut -d' ' -f1)" = "$new_sha"
+          echo GA_FRESH_BASELINE_SEARCH_DEPLOYED_BYTES_VERIFIED

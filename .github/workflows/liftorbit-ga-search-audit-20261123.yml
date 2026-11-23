@@ -1,0 +1,65 @@
+name: LiftOrbit inspect GA candidate selection and incumbent 20261123
+on:
+  push:
+    branches: [fix/ga-search-verification-20261123]
+    paths: [.github/workflows/liftorbit-ga-search-audit-20261123.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect actual OVH compiled GA and adapter (read only)
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import ast,re,hashlib
+          root=Path.home()/'liftorbit-migration/sources/current/ga/ga_workers'
+          for name in ['full_runtime_adapter.py','compile_legacy_ga.py']:
+            p=root/name; lines=p.read_text().splitlines()
+            print('FILE',name,len(lines))
+            if name=='full_runtime_adapter.py':
+              for a,b in [(1,120),(235,292),(334,403),(437,519)]:
+                print('SPAN',a,b)
+                for i in range(a,min(len(lines),b)+1): print(f'{i:04d} {lines[i-1][:190]}')
+            else:
+              for i,s in enumerate(lines):
+                if 'def ' in s or 'path' in s and 'legacy' in s: print(f'{i+1}: {s[:170]}')
+          from pathlib import Path
+          p=root/'compile_legacy_ga.py'
+          print('COMPILE_MODULE_FULL')
+          for i,line in enumerate(p.read_text().splitlines(),1):print(f'{i:04d} {line[:210]}')
+          print('EXPECTED_COMPILED_IN_HOST',Path('/tmp/production_planner.py').exists())
+          import subprocess
+          for cmd in [['docker','ps','--format','{{.Names}}'],['podman','ps','--format','{{.Names}}']]:
+            try:
+              r=subprocess.run(cmd,capture_output=True,text=True,timeout=10)
+              print('CONTAINER_ACCESS',cmd[0],'rc',r.returncode,'names',r.stdout[:1800], 'errtype',r.stderr[:150])
+            except Exception as e:print('CONTAINER_ACCESS',cmd[0],type(e).__name__)
+          p=root/'continuation.py'
+          for i,line in enumerate(p.read_text().splitlines()[24:122],25):print('CONTINUATION',i,line[:220])
+          p=Path('/usr/local/sbin/liftorbit-ops')
+          print('OPS_SCRIPT_EXISTS',p.exists(),'READABLE',os.access(p,os.R_OK) if 'os' in globals() else None)
+          if p.exists():
+            try:
+              for i,line in enumerate(p.read_text().splitlines()[:145],1):
+                print('OPS_SCRIPT',i,line[:180] if not any(w in line.lower() for w in ['secret','password','token','key=','database_url']) else '[REDACTED]')
+            except Exception as e:print('OPS_SCRIPT_READ_ERROR',type(e).__name__)
+          print('SOURCE_DIRS')
+          for x in sorted((root.parent).glob('*')):
+            print('FILE',x.name,'isdir',x.is_dir())
+          PY
