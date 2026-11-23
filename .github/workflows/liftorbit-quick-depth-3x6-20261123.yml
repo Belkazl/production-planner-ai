@@ -1,0 +1,132 @@
+name: LiftOrbit Quick 3 generations x 6 candidates production release
+on:
+  push:
+    branches: [main, fix/quick-depth-3x6-20261123]
+    paths:
+      - .github/workflows/liftorbit-quick-depth-3x6-20261123.yml
+      - ops/ovh/quick-depth-3x6-20261123/chromium.mjs
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-quick-3x6-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Guard one-line Quick preset only, then deploy to OVH on main
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/known_hosts"
+          chmod 600 "$d/key" "$d/known_hosts"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=20 "$@"; }
+          target=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current/restart-optimizer-ui.js
+          scp_call "$USER@$HOST:$target" "$d/old.js"
+          node - "$d/old.js" "$d/new.js" <<'JS'
+          const fs=require('node:fs'),assert=require('node:assert/strict');
+          const input=fs.readFileSync(process.argv[2],'utf8');
+          const old='  quick:Object.freeze({generations:10,population:12}),';
+          const fresh='  quick:Object.freeze({generations:3,population:6}),';
+          assert.equal(input.split(old).length,2,'exactly one current 10x12 Quick preset');
+          assert.equal(input.split(fresh).length,1,'new preset not already installed');
+          const next=input.replace(old,fresh);
+          assert.equal(next.replace(fresh,old),input,'exactly one isolated source change');
+          for(const mode of ['standard','thorough','maximum']){
+            const re=new RegExp('^\\s*'+mode+':Object\\.freeze\\(\\{generations:[0-9]+,population:[0-9]+\\}\\),?','gm');
+            const orig=input.match(re)||[],changed=next.match(re)||[];
+            assert.equal(orig.length,1,'expected one '+mode+' preset');
+            assert.deepEqual(changed,orig,mode+' preset must not change');
+          }
+          for(const mark of ['window.__PP_OPTIMIZER_DEPTH__=','window.__PP_GA_OBJECTIVE_FLOOR_V1__',
+             'ppOptimizerDepthSelect','generations:config.generations,population:config.population']){
+            assert(input.includes(mark),'preserve UI/GA contract '+mark);
+            assert(next.includes(mark),'preserve UI/GA contract after '+mark);
+          }
+          fs.writeFileSync(process.argv[3],next);
+          console.log('QUICK_3X6_EXACT_ONE_PRESET_CHANGED_PASS');
+          JS
+          node --check "$d/new.js"
+          old_sha=$(sha256sum "$d/old.js" | cut -d' ' -f1)
+          new_sha=$(sha256sum "$d/new.js" | cut -d' ' -f1)
+          test "$old_sha" != "$new_sha"
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo QUICK_3X6_SOURCE_PREFLIGHT_PASS
+            exit 0
+          fi
+          stage=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/restart-optimizer-ui.quick-3x6.next
+          scp_call "$d/new.js" "$USER@$HOST:$stage"
+          ssh_call "$USER@$HOST" bash -s -- "$old_sha" "$new_sha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration"
+          target="$root/sources/ovh-app/current/restart-optimizer-ui.js"
+          stage="$root/sources/ovh-app/restart-optimizer-ui.quick-3x6.next"
+          backup="$root/patch-backups/quick-3x6-20261123"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1" || { echo QUICK_3X6_SOURCE_DRIFT; exit 5; }
+          test "$(sha "$stage")" = "$2" || { echo QUICK_3X6_UPLOAD_CORRUPT; exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/restart-optimizer-ui.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/restart-optimizer-ui.js" "$target" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo QUICK_3X6_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for attempt in $(seq 1 35); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then healthy=yes; break; fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo QUICK_3X6_OVH_DEPLOYED_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$target" "$d/deployed.js"
+          test "$(sha256sum "$d/deployed.js" | cut -d' ' -f1)" = "$new_sha"
+          echo QUICK_3X6_PRODUCTION_FILE_SHA_VERIFIED
+      - name: Verify public HTTPS and guest authentication boundary
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pass=no
+          for attempt in $(seq 1 12); do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [ "$health" = 200 ] && [ "$guest" = 401 ];then pass=yes;break;fi
+            sleep 5
+          done
+          test "$pass" = yes
+          echo QUICK_3X6_PUBLIC_HEALTH_PASS
+  browser_acceptance:
+    if: github.ref == 'refs/heads/main'
+    needs: [release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver without disturbing real accounts
+        shell: bash
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify Quick 3x6 actual POST, persistence, languages and other modes
+        shell: bash
+        run: node ops/ovh/quick-depth-3x6-20261123/chromium.mjs
