@@ -1,0 +1,50 @@
+name: Inspect GA background tab behavior read only OVH
+on:
+  push:
+    branches: [diagnose/tab-background-freeze-20261123]
+    paths: [.github/workflows/inspect-ga-background-tab-20261123.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Find browser visibility throttling and server GA cancellation logic
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources"
+          ui=root/"ovh-app/current"
+          worker=root/"current/ga/ga_workers"
+          paths=[ui/x for x in ["restart-optimizer-ui.js","async-plan-transport.js","stop-ui.js","python-ga-upstream.mjs","ga-execution-budget.ts","worker-manager.ts","nonblocking-db-shim.js","auth-runtime.js","ga-python-state-store.mjs","bootstrap.ts"]]
+          paths += [worker/x for x in ["manager.py","server.py","full_runtime_adapter.py"]]
+          terms=re.compile(r"visibilitychange|visibilityState|document\.hidden|addEventListener\(['\"](?:blur|focus|pagehide|beforeunload|freeze|resume|visibilitychange)|onvisibilitychange|requestAnimationFrame|setInterval|setTimeout|EventSource|last_heartbeat|heartbeat|on_disconnect|abort\(|aborter|timed_out|cancel|timeout|keepalive|watchdog|stale|ttl|worker\.terminate|stopRequested",re.I)
+          for p in paths:
+            if not p.exists():continue
+            lines=p.read_text(errors="replace").splitlines()
+            matches=[i for i,l in enumerate(lines) if terms.search(l)]
+            print("FILE",p.name,"TOTAL",len(lines),"MATCHES",len(matches))
+            seen=set()
+            for i in matches[:100]:
+              for j in range(max(0,i-1),min(len(lines),i+3)):
+                if j in seen:continue
+                seen.add(j)
+                s=lines[j]
+                if re.search(r"secret|password|api.?key|private.?key|bearer",s,re.I):s="[REDACTED]"
+                print(f"{j+1:04d} {s[:270]}")
+          PY
