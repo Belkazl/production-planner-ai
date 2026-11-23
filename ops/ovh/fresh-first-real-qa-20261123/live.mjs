@@ -93,6 +93,9 @@ try{
  await page.waitForFunction(()=>window.__PP_STOP_DEBUG__?.().reconnecting===false,
   null,{timeout:45000});
  const before=await page.evaluate(({sentinel})=>{
+  // Account bootstrap hydrates localStorage from its server copy on reload;
+  // install the untouched-saved-plan sentinel after that bootstrap.
+  localStorage.setItem("prodplan.saved.plans.v2",sentinel);
   try{window.__PP_OPTIMIZER_DEPTH__?.set("quick")}catch(_){}
   window.__freshQa={cleared:null};
   window.addEventListener("pp:fresh-gantt-cleared",()=>{
