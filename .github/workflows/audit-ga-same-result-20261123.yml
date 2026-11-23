@@ -1,0 +1,42 @@
+name: Audit why fresh GA results repeat on OVH
+on:
+  push:
+    branches: [diagnose/ga-same-result-20261123]
+    paths: [.github/workflows/audit-ga-same-result-20261123.yml]
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect live worker algorithm and seed flow read-only
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/ssh/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/ssh/kh"
+          chmod 600 "$RUNNER_TEMP/ssh/"*
+          ssh -i "$RUNNER_TEMP/ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/ssh/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          root=Path.home()/"liftorbit-migration/sources/current/ga/ga_workers"
+          for name in ["full_runtime_adapter.py","compile_legacy_ga.py","recovered_adapter.py","continuation.py"]:
+            p=root/name
+            s=p.read_text()
+            lines=s.splitlines()
+            print("FILE",name,"LINES",len(lines),"SHA",hashlib.sha256(s.encode()).hexdigest())
+            if name=="full_runtime_adapter.py":
+              for a,b in [(290,335),(332,520)]:
+                for n in range(a,min(b,len(lines))+1):print(f"{n}: {lines[n-1][:220]}")
+            else:
+              found=[i for i,line in enumerate(lines) if re.search(r'def optimize|def run|seed|random|cache|best_order|compile|exec\(|initial|population|_PP_GA_CACHE|_pp_ga',line,re.I)]
+              for i in found[:95]:print(f"{i+1}: {lines[i][:190]}")
+          PY
