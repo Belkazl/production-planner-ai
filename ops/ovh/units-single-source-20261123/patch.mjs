@@ -10,17 +10,13 @@ assert(oldHtml.includes("window.__ppFreshReferencePlan=d"),"preserve old plan re
 assert(!oldHtml.includes("ppResourceUnitsHtml"),"unit transformer must not be already installed");
 assert(unit.startsWith("function ppResourceUnitsHtml(input){"),"units function source");
 assert(unit.includes("ppNormalizeRequirementUnits(next)"),"whole-model reconciliation");
-const newHtml=oldHtml+"\n\n"+unit.trim()+"\n";
-const from="new Response(ppStartOverHtml(ppGaPollHtml).replace('</body>'";
-const to="new Response(ppResourceUnitsHtml(ppStartOverHtml(ppGaPollHtml)).replace('</body>'";
-assert.equal(oldBuild.split(from).length,2,"one single old HTML build transform call");
-assert(!oldBuild.includes(to),"new call not already installed");
-const newBuild=oldBuild.replace(from,to);
-assert.equal(newBuild.replace(to,from),oldBuild,"only one source build change");
-assert.equal(newHtml.slice(0,oldHtml.length),oldHtml,"old working HTML transformer unchanged");
-for(const mark of ["ppStartOverHtml","ppFreshPlanResult(req,state,out)","ppResetOptimizer(req)","PP_START_OVER_INLINE"]){
- assert(oldBuild.includes(mark)&&newBuild.includes(mark),mark+" must remain");
-}
+const finalReturn="\n return html;\n}";
+assert.equal(oldHtml.split(finalReturn).length,2,"unique native HTML final return");
+const newHtml=oldHtml.replace(finalReturn,"\n return ppResourceUnitsHtml(html);\n}")+"\n\n"+unit.trim()+"\n";
+// Keep the downstream build pipeline exact: GA execution budget anchors the
+// original ppStartOverHtml(...) call. Apply units inside that existing function.
+const newBuild=oldBuild;
+assert.equal(newHtml.replace("return ppResourceUnitsHtml(html);","return html;").slice(0,oldHtml.length),oldHtml,"only final return changed before adding helper");
 writeFileSync(newHtmlPath,newHtml);
 writeFileSync(newBuildPath,newBuild);
 console.log("RESOURCE_UNITS_GUARDED_TWO_FILE_PATCH_PASS",JSON.stringify({oldHtmlChars:oldHtml.length,newHtmlChars:newHtml.length,buildChars:newBuild.length}));
