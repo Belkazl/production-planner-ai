@@ -39,17 +39,12 @@ jobs:
             else:
               for i,s in enumerate(lines):
                 if 'def ' in s or 'path' in s and 'legacy' in s: print(f'{i+1}: {s[:170]}')
-          import sys
-          sys.path.insert(0,str(root.parent))
-          from ga_workers.full_runtime_adapter import _namespace
-          ga=_namespace()
-          for name in ['optimize','_pp_schedule_sequence','_pp_progress_best','_pp_progress_candidate']:
-            import inspect
-            fn=ga.get(name)
-            print('ENGINE_FN',name,'exists',callable(fn))
-            if not callable(fn):continue
-            try:
-              text=inspect.getsource(fn)
-              print(text[:21000] if name=='optimize' else text[:6500])
-            except Exception as ex:print('GET_SOURCE_ERR',repr(ex))
+          from pathlib import Path
+          p=root/'compile_legacy_ga.py'
+          print('COMPILE_MODULE_FULL')
+          for i,line in enumerate(p.read_text().splitlines(),1):print(f'{i:04d} {line[:210]}')
+          print('EXPECTED_COMPILED_IN_HOST',Path('/tmp/production_planner.py').exists())
+          print('OVH_BUILD_TREE_SOURCE_CANDIDATES')
+          for x in sorted((root.parent).glob('*')):
+            print('FILE',x.name,'isdir',x.is_dir())
           PY
