@@ -1,7 +1,7 @@
 name: LiftOrbit single source for resource units on OVH
 on:
   push:
-    branches: [main, fix/single-source-resource-units-20261123]
+    branches: [main, fix/single-source-resource-units-20261123, fix/units-preserve-build-anchors-20261123]
     paths:
       - .github/workflows/liftorbit-resource-units-release-20261123.yml
       - ops/ovh/units-single-source-20261123/**
