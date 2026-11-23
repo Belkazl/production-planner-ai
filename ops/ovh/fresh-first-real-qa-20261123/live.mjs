@@ -109,7 +109,19 @@ try{
   });
   if(typeof window.renderPlan==="function")window.renderPlan(
    JSON.parse(localStorage.getItem("prodplan.projects.v2"))[0].lastPlan);
+  const stage=document.getElementById("ppGanttToolV2");
+  let seededOldBar=false;
+  // The synthetic previous plan may be rejected by the strict native
+  // validator. Model an already visible old Gantt bar in this isolated QA.
+  if(stage&&!stage.querySelector(".pg2-bar")){
+   const row=document.createElement("div");row.className="pg2-row";
+   const lane=document.createElement("div");lane.className="pg2-lane";
+   const bar=document.createElement("div");bar.className="pg2-bar";
+   bar.textContent="OLD PLAN";lane.appendChild(bar);row.appendChild(lane);
+   stage.appendChild(row);seededOldBar=true;
+  }
   return {bars:document.querySelectorAll("#ppGanttToolV2 .pg2-bar").length,
+   stagePresent:!!stage,seededOldBar,
    saved:localStorage.getItem("prodplan.saved.plans.v2"),
    depth:window.__PP_OPTIMIZER_DEPTH__?.get?.().mode};
  },{sentinel});
