@@ -40,7 +40,6 @@ jobs:
           s=Path(sys.argv[1]).read_text()
           old="""                state['best_seq']=1
                           print('GA_FEASIBLE_INITIAL_INCUMBENT_READY',flush=True)"""
-          old="\n".join(x[10:] if x.startswith("          ") else x for x in old.split("\n"))
           new="""                state['best_seq']=1
                           # On a truly fresh duration run, the validated plan was
                           # previously only a fallback AFTER the genetic search.
@@ -55,7 +54,6 @@ jobs:
                               except ContinuationError:
                                   print('GA_FRESH_SEED_UNAVAILABLE',flush=True)
                           print('GA_FEASIBLE_INITIAL_INCUMBENT_READY',flush=True)"""
-          new="\n".join(x[10:] if x.startswith("          ") else x for x in new.split("\n"))
           assert s.count(old)==1,'INITIAL_PLAN_ANCHOR_DRIFT'
           s=s.replace(old,new)
           old2="        try:state['result']=ga['optimize'](gens,population,seed,continuing,objective)"
