@@ -20,7 +20,7 @@ try{
    const scripts=[...document.scripts].map(x=>x.textContent||"");
    const text=scripts.join("\n");
    const terms=[
-      "function collectAndSave(name)", "function materialRow(", "function operationRow(",
+      "function collectAndSave(name)", "function materialRow(", "function operationRow(", "function rr(", "function eopts(", "function bindProd(", "function save(", "function mats(", "function procs(", "function reqs(",
       "function resourceRow(", "function requirementRow(", "function reqRow(",
       "function collectAndSave(", "data-f=\\\"unit\\\"","data-f=\"unit\"",
       "data-f=\\\"resource_type\\\"","resource_requirements",
@@ -32,13 +32,13 @@ try{
    for(const term of terms){
       let i=text.indexOf(term);
       if(i>=0)matches.push({term,index:i,count:text.split(term).length-1,
-        before:text.slice(Math.max(0,i-500),i),after:text.slice(i,i+1600)});
+        before:text.slice(Math.max(0,i-500),i),after:text.slice(i,i+8000)});
    }
    const nav=[...document.querySelectorAll("button,a,[role=tab],.nav-item")].filter(x=>/Производство|Материалы|Production|Materials/.test(x.textContent||""))
      .map(x=>({text:x.textContent.trim().slice(0,50),html:x.outerHTML.slice(0,450)})).slice(0,24);
    return {scriptCount:scripts.length,chars:text.length,matches,nav};
  });
- console.log("UNITS_EDITOR_SOURCE_AUDIT",JSON.stringify(diag).slice(0,42000));
+ console.log("UNITS_EDITOR_SOURCE_AUDIT",JSON.stringify(diag).slice(0,85000));
  const clickNav=async(text)=>{
   const clicked=await page.evaluate(t=>{
    const matches=[...document.querySelectorAll("button,a,[role=tab],.nav-item")].filter(x=>x.textContent?.trim()===t);
