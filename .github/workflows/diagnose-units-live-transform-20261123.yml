@@ -1,0 +1,18 @@
+name: Diagnose active native unit HTML transform
+on:
+  push:
+    branches: [diagnose/units-live-transform-skipped-20261123]
+    paths:
+      - .github/workflows/diagnose-units-live-transform-20261123.yml
+      - ops/ovh/units-single-source-20261123/activation-diagnostic.mjs
+permissions: {contents: read}
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Read actually served HTML flags in isolated account
+        run: node ops/ovh/units-single-source-20261123/activation-diagnostic.mjs
