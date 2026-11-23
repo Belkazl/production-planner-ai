@@ -1,0 +1,22 @@
+name: LiftOrbit fresh baseline real browser OVH QA
+on:
+  push:
+    branches: [qa/fresh-first-baseline-real-browser-20261123]
+    paths:
+      - .github/workflows/liftorbit-fresh-baseline-real-browser-20261123.yml
+      - ops/ovh/fresh-first-real-qa-20261123/**
+permissions: {contents: read}
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real disposable OVH login, previously shown Gantt, fresh reset and GA start
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node --check ops/ovh/fresh-first-real-qa-20261123/live.mjs
+          node ops/ovh/fresh-first-real-qa-20261123/live.mjs
+          echo FRESH_FIRST_BASELINE_REAL_OVH_BROWSER_PASS
