@@ -38,6 +38,9 @@ CODE_KEYS = {
     'PP_SETUP_FINAL_PATCH_B64', 'PP_CAP_BATCH_BOOT_V2',
     'PP_RESTORE_ETALON_BOOT_V1', 'PP_START_CMD_GOOD',
     'PP_GENERIC_RESTORE_LAUNCH_V2',
+    'PP_GENERIC_RESTORE_BOOT_V1', 'PP_CAP_BATCH_BOOT_V3',
+    'PP_CAP_BATCH_BOOT_V4', 'PP_CAP_BATCH_BOOT_V5',
+    'CAP_BATCH_PATCH', 'D_TIMING_INSTALL', 'D_START_GOOD',
 }
 CODE_NAME = re.compile(r'^PP_(?=.*(?:REAL_OPT|OBJECTIVE|BATCH|JOINT|SPLIT|MINI))[A-Z0-9_]+(?:_B64|_CODE|_PATCH(?:_V[0-9]+)?|_INSTALL|_LAUNCH_V[0-9]+)$')
 SENSITIVE_NAME = re.compile(r'TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|DATABASE|PRIVATE_KEY|COOKIE|AUTH_KEY')
@@ -161,7 +164,7 @@ def code_metadata(text):
 
 
 def config_lines(label, config):
-    selected = [key for key in config if SAFE_KEY.fullmatch(key) and (key in CODE_KEYS or re.search(r'BATCH|JOINT|SPLIT|MINI|REAL_OPT|OBJECTIVE|GENERIC_RESTORE', key))]
+    selected = [key for key in config if key in CODE_KEYS or (SAFE_KEY.fullmatch(key) and re.search(r'BATCH|JOINT|SPLIT|MINI|REAL_OPT|OBJECTIVE|GENERIC_RESTORE', key))]
     for key in sorted(selected)[:100]:
         yield f'BATCH_BUILD_CONFIG_KEY label={label} name={key}'
         if SENSITIVE_NAME.search(key) or not (key in CODE_KEYS or CODE_NAME.fullmatch(key)):
@@ -344,6 +347,7 @@ def inspect_source_names():
 def allowed_line(line):
     labels = r'(?:root|sources|current|ga|app_root|app)'
     configs = r'(?:gateway|ga-worker|auth-app)'
+    config_key = r'(?:PP_[A-Z0-9_]{1,120}|CAP_BATCH_PATCH|D_TIMING_INSTALL|D_START_GOOD)'
     unavailable = r'(?:missing|denied|symlink_refused|unreadable|outside_project|unexpected_owner)'
     patterns = [
         rf'BATCH_BUILD_FILE compile status=(?:ok|not_regular|too_large|changed|{unavailable}) bytes=[0-9]+ sha256=(?:[0-9a-f]{{64}}|none)',
@@ -356,10 +360,10 @@ def allowed_line(line):
         r'BATCH_BUILD_SOURCE label=(?:ga|app) file=[A-Za-z0-9_./-]{1,240}',
         rf'BATCH_BUILD_SCAN label=(?:ga|app) status=(?:ok names=[0-9]+ truncated=[01]|{unavailable})',
         rf'BATCH_BUILD_CONFIG label={configs} status=(?:ok|unsupported_file|unsupported_shape|unavailable|{unavailable})',
-        rf'BATCH_BUILD_CONFIG_KEY label={configs} name=PP_[A-Z0-9_]{{1,120}}',
-        rf'BATCH_BUILD_CODE label={configs} key=PP_[A-Z0-9_]{{1,120}} status=(?:too_large|ok bytes=[0-9]+ sha256=[0-9a-f]{{64}})',
-        rf'BATCH_BUILD_CODE_AST label={configs} key=PP_[A-Z0-9_]{{1,120}} (?:status=unavailable|fragments=[0-9]+ symbols=[0-9]+)',
-        rf'BATCH_BUILD_CODE_SYMBOL label={configs} key=PP_[A-Z0-9_]{{1,120}} kind=(?:function|call|binding|ref) name=[A-Za-z_][A-Za-z0-9_.]{{0,100}} detail=[A-Za-z0-9_.,-]{{1,1700}}',
+        rf'BATCH_BUILD_CONFIG_KEY label={configs} name={config_key}',
+        rf'BATCH_BUILD_CODE label={configs} key={config_key} status=(?:too_large|ok bytes=[0-9]+ sha256=[0-9a-f]{{64}})',
+        rf'BATCH_BUILD_CODE_AST label={configs} key={config_key} (?:status=unavailable|fragments=[0-9]+ symbols=[0-9]+)',
+        rf'BATCH_BUILD_CODE_SYMBOL label={configs} key={config_key} kind=(?:function|call|binding|ref) name=[A-Za-z_][A-Za-z0-9_.]{{0,100}} detail=[A-Za-z0-9_.,-]{{1,1700}}',
         r'BATCH_BUILD_ENV_KEYS status=not_configured',
         r'BATCH_BUILD_DONE',
         r'BATCH_BUILD_ERROR status=unavailable',
@@ -397,6 +401,15 @@ def main():
         assert not any('BATCH_BUILD_CODE label=gateway key=PP_REAL_OPT_TOKEN_B64 ' in line for line in lines)
         assert not any('DATABASE_URL' in line for line in lines)
         assert not allowed_line('BATCH_BUILD_CODE_SYMBOL label=gateway key=PP_REAL_OPT_CODE kind=function name=optimize detail=' + sentinel + '\n' + sentinel)
+        extra_keys = ('CAP_BATCH_PATCH', 'D_TIMING_INSTALL', 'D_START_GOOD', 'PP_GENERIC_RESTORE_BOOT_V1', 'PP_CAP_BATCH_BOOT_V3', 'PP_CAP_BATCH_BOOT_V4', 'PP_CAP_BATCH_BOOT_V5')
+        aliases = list(config_lines('gateway', {key: outer for key in extra_keys} | {'D_PRIVATE_SCALAR': sentinel}))
+        assert all(allowed_line(line) for line in aliases)
+        assert all(any(f'BATCH_BUILD_CODE label=gateway key={key} status=ok ' in line for line in aliases) for key in extra_keys)
+        assert any('key=CAP_BATCH_PATCH kind=function name=_ppjb_joint_optimize' in line for line in aliases)
+        assert not any('D_PRIVATE_SCALAR' in line or sentinel in line for line in aliases)
+        worker_hash = next(line.split('sha256=')[1] for line in lines if line.startswith('BATCH_BUILD_CODE label=gateway key=PP_CAPACITY_BATCHING_PATCH_CODE status=ok '))
+        gateway_hash = next(line.split('sha256=')[1] for line in aliases if line.startswith('BATCH_BUILD_CODE label=gateway key=CAP_BATCH_PATCH status=ok '))
+        assert worker_hash == gateway_hash
         print('BATCH_BUILD_SELF_TEST_PASS')
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--filter':
