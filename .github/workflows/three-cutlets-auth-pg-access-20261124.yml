@@ -1,0 +1,59 @@
+name: Inspect Postgres auth storage access without writes
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-auth-pg-access-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect safe config metadata and listener availability
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          import json,socket,re
+          from pathlib import Path
+          root=Path.home()/"liftorbit-migration/production/current"
+          for name in ("postgres.json","postgres-me4i.json","auth-app.json","auth-gateway.json","gateway-v2.json"):
+            path=root/name
+            if not path.exists():continue
+            x=json.loads(path.read_text())
+            print("CONFIG_FILE",name,"TOP_TYPE",type(x).__name__)
+            if isinstance(x,dict):
+              print("CONFIG_KEYS",name,sorted(x.keys()))
+              for key,value in x.items():
+                if isinstance(value,dict):
+                  print("CONFIG_NESTED_KEYS",name,key,sorted(value.keys()))
+                  if any(k in key.lower() for k in ("env","environment")):
+                    print("CONFIG_ENV_KEYS",name,key,sorted(value.keys()))
+                elif isinstance(value,list):
+                  print("CONFIG_LIST_FIELDS",name,key,len(value))
+                  if any(k in key.lower() for k in ("port","mapping","mount","network")):
+                    for item in value[:8]:
+                      if isinstance(item,dict):print("PORT_ITEM",name,key,{k:v for k,v in item.items() if k in ("containerPort","hostPort","host_ip","host_port","container_port","protocol","name")})
+                elif any(k in key.lower() for k in ("port","image","name","host")) and "password" not in key.lower() and "url" not in key.lower():
+                  print("CONFIG_PUBLIC_FIELD",name,key,str(value)[:140])
+          sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+          targets=[5432,5433,15432,15433,25432,25433,18082,18083,18084,18085]
+          for port in targets:
+            try:
+              sock=socket.create_connection(("127.0.0.1",port),timeout=0.25);sock.close();print("LOCAL_TCP_LISTENER",port,True)
+            except OSError:pass
+          print("DONE")
+          PY
