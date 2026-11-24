@@ -29,6 +29,12 @@ jobs:
           from pathlib import Path
           import re
           root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          shim=root/"nonblocking-db-shim.js"
+          print("NONBLOCKING_SHIM_FOUND",shim.exists())
+          if shim.exists():
+            for i,line in enumerate(shim.read_text(errors="replace").splitlines(),1):
+              if i>120:break
+              print("DB_SHIM_SRC",i,line[:250])
           b=root/"language-build.ts"
           print("NONBLOCKING_DB_TRANSFORM_SOURCE",b.exists())
           if b.exists():
