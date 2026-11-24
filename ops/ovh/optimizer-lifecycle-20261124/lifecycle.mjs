@@ -345,6 +345,12 @@ export function ppOptimizerLifecycleHtml(html) {
       'if(my===generation&&running&&!requestStop){stop.disabled=stopPending;timer=setTimeout(()=>poll(my),1750);}');
     stopSource = region(stopSource, 'async function ppConfirmStoppedAfterAmbiguousResponse(){', '\nfunction ppReconcileStoppedUi(expectedGeneration){',
       ppConfirmStoppedAfterAmbiguousResponse.toString() + '\n');
+    stopSource = one(stopSource,
+      ' if(note&&/optimization_stopped|ga_worker_cancelled|ga_client_wait_timeout|AbortError|^ga_error$/i.test(note.textContent||""))',
+      ' if(note&&/^(?:AbortError:\\s*)?The operation was aborted\\.?$/i.test((note.textContent||"").trim()))\n' +
+      '  note.textContent=String(window.__PP_LANGUAGE__?.current||document.documentElement.lang||"en").toLowerCase().startsWith("en")\n' +
+      '   ?"Optimization stopped.":"Оптимизация остановлена.";\n' +
+      ' else if(note&&/optimization_stopped|ga_worker_cancelled|ga_client_wait_timeout|AbortError|^ga_error$/i.test(note.textContent||""))');
     stopSource = one(stopSource, ' const my=++generation;\n running=true;requestStop=false;items=[];stop.disabled=false;',
       ' const my=++generation;\n currentRunJobId=null;stopPending=false;\n running=true;requestStop=false;items=[];stop.disabled=false;');
     stopSource = region(stopSource, 'stop.onclick=async function(){', '\nconst ppFetchOriginal=window.fetch.bind(window);',

@@ -65,9 +65,15 @@ verify intermediate progress and Stop through their normal controls. A bounded
 fallback reason without emitting IDs, model data or private source.
 
 The final public result also receives a copied `operation_interleave` diagnostic
-object after normal ownership validation. Its only fields are `version`,
+object after normal ownership validation. Its fields are `version`,
 `eligible`, `improved_candidates` (native candidate evaluations improved by this
-decoder), and `fallback_reason` (the first fixed code, or null). The state belongs
+decoder), `fallback_reason` (the first fixed code, or null), and
+`model_field_mismatches`. For ineligible models the latter identifies all six
+schema scopes, up to eight known extra field names per scope, and only each
+field's kind and aggregated `empty`/`zero` booleans. Unknown names become
+`other:true`; field or record limits set `truncated:true`. No field values,
+arbitrary names, model IDs or inner object keys are exposed. This diagnostic
+does not make any unsupported field eligible. The state belongs
 to that run's GA namespace, never to a global module object. Original simulation
 objects and GA counters are unchanged; the UI does not receive a warning or a
 new control.

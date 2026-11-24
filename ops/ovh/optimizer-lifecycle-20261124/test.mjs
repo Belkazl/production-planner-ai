@@ -50,6 +50,18 @@ test('auth patch preserves handler bytes and existing trailing import helper, in
     const helper = '\n' + ppOptimizerLifecycleHtml.toString() + '\n';
     assert.equal(patched.replace(helper, '').replace('ppOptimizerLifecycleHtml(ppNonBlockingDbSyncHtml(enhanced))', 'ppNonBlockingDbSyncHtml(enhanced)'), before);
     new vm.Script(patched);
+    const upgradeStart = helper.indexOf("    stopSource = one(stopSource,\n      ' if(note&&/optimization_stopped");
+    const upgradeEnd = helper.indexOf("    stopSource = one(stopSource, ' const my=++generation;", upgradeStart);
+    assert(upgradeStart >= 0 && upgradeEnd > upgradeStart);
+    const previousHelper = helper.slice(0, upgradeStart) + helper.slice(upgradeEnd);
+    const installed = join(dir, 'installed.js'), upgraded = join(dir, 'upgraded.js');
+    writeFileSync(installed, patched.replace(helper, previousHelper));
+    run(installed, upgraded);
+    assert.equal(readFileSync(upgraded, 'utf8'), patched, 'known deployed helper upgrades without changing other source');
+    writeFileSync(installed, patched.replace(helper, previousHelper.replace('PP_OPTIMIZER_LIFECYCLE_SOURCE_DRIFT', 'PP_OPTIMIZER_LIFECYCLE_SOURCE_CHANGED')));
+    const rejected = spawnSync(process.execPath, [join(here, 'patch.mjs'), installed, join(dir, 'rejected.js')], {encoding: 'utf8'});
+    assert.notEqual(rejected.status, 0, 'an unknown installed helper must fail closed');
+    assert(!existsSync(join(dir, 'rejected.js')));
   } finally { rmSync(dir, {recursive: true, force: true}); }
 });
 
@@ -108,11 +120,12 @@ async function harness(options = {}) {
   w.requestAnimationFrame = fn => w.setTimeout(() => fn(clock), 16);
   w.cancelAnimationFrame = w.clearTimeout;
   w.__PP_UNIFIED_GANTT_V2__ = {activeMode: 0};
-  w.__ppOptimizerCommittedPlan = previous; w.__ppTabPlan = previous; w.__ppGenericPlan = previous;
+  const baseline = options.fresh ? null : previous;
+  w.__ppOptimizerCommittedPlan = baseline; w.__ppTabPlan = baseline; w.__ppGenericPlan = baseline;
   w.rendered = []; w.kpis = [];
   w.renderPlan = plan => { w.rendered.push(plan); w.shown = plan; };
   w.renderKpisWithDelta = plan => w.kpis.push(plan.duration_minutes);
-  w.eval('var hasResult=true; var model={objective:"duration",orders:[{id:"A"}],equipment:[{id:"E"}]};');
+  w.eval('var hasResult=' + !options.fresh + '; var model={objective:"duration",orders:[{id:"A"}],equipment:[{id:"E"}]};');
   w.fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input.url, w.location.href);
     const request = {path: url.pathname, query: Object.fromEntries(url.searchParams), method: init?.method || 'GET', init};
@@ -161,7 +174,10 @@ async function harness(options = {}) {
         w.__ppOptimizerCommittedPlan = plan; w.__ppTabPlan = plan; w.__ppGenericPlan = plan;
         w.renderPlan(plan); w.renderKpisWithDelta(plan);
       }
-    } catch (error) { if (error.name !== 'AbortError') logs.push([error]); }
+    } catch (error) {
+      w.document.getElementById('validator').textContent = error.message;
+      if (error.name !== 'AbortError') logs.push([error]);
+    }
     finally { w.__ppOptimizationInFlight = false; button.disabled = false; button.classList.remove('pp-opt-running'); }
   };
   w.eval(scriptOf(transformed, 'ppAsyncPlanTransport'));
@@ -432,5 +448,33 @@ test('a replaced-job 409 releases its SSE run and late old terminal cleanup cann
     h.w.dispatchEvent(new h.w.CustomEvent('pp:ga-transport-ended', {detail: {job_id: nextId, run_epoch: nextEpoch}}));
     assert.equal(h.w.__PP_SSE_PROGRESS_V1__.state.completed, true);
     assert.equal(h.w.__PP_SSE_PROGRESS_V1__.state.percent, 100);
+  } finally { h.close(); }
+});
+
+test('confirmed Stop normalizes the native abort message without changing fresh reset or previous-plan restoration', {skip: !available}, async () => {
+  for (const fresh of [true, false]) {
+    const h = await harness({fresh});
+    try {
+      const run = await h.start(); h.server.stopMode = 'completed';
+      const stopping = await h.stop(); await stopping.promise; await h.advance(80); await run.promise;
+      assert.equal(h.w.document.getElementById('validator').textContent, 'Optimization stopped.');
+      assert.equal(h.w.__PP_STOP_DEBUG__().stopped, true);
+      assert.equal(h.w.__PP_STOP_DEBUG__().running, false);
+      assert.equal(h.w.__ppOptimizerCommittedPlan, fresh ? null : h.previous);
+      if (fresh) assert.equal(h.w.rendered.length, 0, 'fresh reset stays empty after Stop');
+      else assert.equal(h.w.shown, h.previous);
+      assert(!h.w.rendered.some(plan => plan.duration_minutes === 8));
+    } finally { h.close(); }
+  }
+});
+
+test('an abort without a confirmed user Stop retains the native error', {skip: !available}, async () => {
+  const h = await harness();
+  try {
+    const run = await h.start();
+    h.w.__ppCurrentOptimizationAbort.abort('unconfirmed_abort');
+    await run.promise; await h.advance(80);
+    assert.equal(h.w.__PP_STOP_DEBUG__().stopped, false);
+    assert.equal(h.w.document.getElementById('validator').textContent, 'The operation was aborted.');
   } finally { h.close(); }
 });

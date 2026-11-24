@@ -16,6 +16,30 @@ EPS = 1e-7
 MAX_OPERATIONS = 64
 VERSION = "operation-interleave-v1-20261124"
 DIAGNOSTIC_KEY = "_PP_OPERATION_INTERLEAVE_DIAGNOSTIC"
+FIELD_SCOPES = frozenset({"model", "equipment", "process", "operation", "requirement", "order"})
+FIELD_ALLOWED = {
+    "model": ("scheduler_mode", "start", "quantity_unit", "objective", "equipment", "autoclaves", "employees", "materials", "material", "setup_rules", "shifts", "orders", "technical_processes", "name", "description"),
+    "equipment": ("id", "name", "kind", "capacity", "capacity_unit", "description"),
+    "process": ("id", "name", "operations", "description"),
+    "operation": ("id", "name", "sequence", "duration_min", "resource_requirements", "description"),
+    "requirement": ("id", "type", "resource_type", "match_mode", "resource_ref", "resource_refs", "quantity", "unit", "consumption_rule", "kind"),
+    "order": ("id", "name", "quantity", "unit", "technical_process_id", "description"),
+}
+# Diagnostic vocabulary only: none of these extra fields become eligible.
+# Unknown names and every field value are excluded from public diagnostics.
+KNOWN_FIELD_NAMES = frozenset({
+    "_meta", "_assistant_reply", "_ai_error", "createdAt", "updatedAt", "created_at", "updated_at",
+    "version", "schema_version", "model_version", "core_version", "model_ready", "revision", "metadata",
+    "id", "name", "title", "description", "notes", "settings", "constraints", "parameters", "production_parameters",
+    "equipment", "autoclaves", "employees", "operators", "operator_count", "materials", "material", "shifts", "calendar",
+    "operations", "resource_requirements", "resources", "requirements", "capabilities", "capacity", "capacity_unit",
+    "unit", "quantity_unit", "quantity", "area", "batch_size", "batch_count", "batching", "kind", "type", "enabled", "active",
+    "technical_process_id", "technical_process_name", "process_id", "duration", "duration_min", "duration_minutes",
+    "duration_per_unit", "duration_rule", "timing", "timing_profile", "prep_min", "setup_min", "post_min", "cycle_min", "wait_min",
+    "start", "finish", "release_min", "release_date", "ready_at", "due_min", "due_date", "deadline", "priority",
+    "availability", "available_from", "shift", "predecessors", "dependencies", "lag_min", "parallel", "allow_overlap",
+    "material_id", "locked_operations", "manual_locks", "fixed_operations", "pinned_operations", "manual_locked",
+})
 DIAGNOSTIC_REASONS = frozenset({
     "objective_not_supported", "manual_pins", "native_hooks_missing", "runtime_contract_unsupported",
     "native_validation_rejected", "unsupported_fields", "unsupported_object", "nonresource_model",
@@ -53,10 +77,96 @@ def _same(a, b):
     return abs(_number(a) - _number(b)) <= EPS
 
 
-def _keys(value, allowed):
+def _field_reason(scope, extra):
+    _require(scope in FIELD_SCOPES, "runtime_contract_unsupported")
+    known = sorted(extra & KNOWN_FIELD_NAMES)
+    reported = known[:8]
+    if extra - KNOWN_FIELD_NAMES or len(known) > 8:
+        reported.append("other")
+    return "unsupported_fields@" + scope + ":" + ",".join(reported)
+
+
+def _safe_reason(reason):
+    text = str(reason)
+    if text in DIAGNOSTIC_REASONS:
+        return text
+    if text.startswith("unsupported_fields@") and text.count(":") == 1:
+        prefix, names = text.split(":", 1)
+        scope = prefix[len("unsupported_fields@"):]
+        fields = names.split(",")
+        if scope in FIELD_SCOPES and 1 <= len(fields) <= 9 and len(fields) == len(set(fields)) and all(name in KNOWN_FIELD_NAMES or name == "other" for name in fields):
+            return text
+    return "runtime_contract_unsupported"
+
+
+def _keys(value, allowed, scope):
     _require(isinstance(value, dict), "unsupported_object")
     extra = set(value) - set(allowed) - {"__ppid"}
-    _require(not extra, "unsupported_fields:" + ",".join(sorted(map(str, extra))[:5]))
+    if extra:
+        raise Unsupported(_field_reason(scope, extra))
+
+
+def _model_field_mismatches(model):
+    """Bounded schema-only diagnostics; no IDs, arbitrary keys, or values."""
+    collected = {scope: {"fields": {}, "other": False, "truncated": False, "seen": 0} for scope in FIELD_SCOPES}
+
+    def inspect(value, scope):
+        state = collected[scope]
+        if state["seen"] >= 256:
+            state["truncated"] = True
+            return False
+        state["seen"] += 1
+        if not isinstance(value, dict):
+            return True
+        for key in set(value) - set(FIELD_ALLOWED[scope]) - {"__ppid"}:
+            if key not in KNOWN_FIELD_NAMES:
+                state["other"] = True
+                continue
+            item = value[key]
+            kind = "null" if item is None else "boolean" if isinstance(item, bool) else "number" if isinstance(item, (int, float)) else "string" if isinstance(item, str) else "array" if isinstance(item, list) else "object" if isinstance(item, dict) else "other"
+            empty = item is None or isinstance(item, (str, list, dict)) and len(item) == 0
+            zero = isinstance(item, (int, float)) and not isinstance(item, bool) and item == 0
+            previous = state["fields"].get(key)
+            if previous is None:
+                state["fields"][key] = {"key": key, "kind": kind, "empty": empty, "zero": zero}
+            else:
+                previous["kind"] = previous["kind"] if previous["kind"] == kind else "mixed"
+                previous["empty"] = previous["empty"] and empty
+                previous["zero"] = previous["zero"] and zero
+        return True
+
+    def rows(value, scope):
+        if not isinstance(value, list):
+            return []
+        if len(value) > 256:
+            collected[scope]["truncated"] = True
+        return value[:256]
+
+    inspect(model, "model")
+    if isinstance(model, dict):
+        for machine in rows(model.get("equipment") or model.get("autoclaves"), "equipment"):
+            inspect(machine, "equipment")
+        for process in rows(model.get("technical_processes"), "process"):
+            inspect(process, "process")
+            if not isinstance(process, dict):
+                continue
+            for operation in rows(process.get("operations"), "operation"):
+                if not inspect(operation, "operation"):
+                    collected["requirement"]["truncated"] = True
+                    break
+                if isinstance(operation, dict):
+                    for requirement in rows(operation.get("resource_requirements"), "requirement"):
+                        if not inspect(requirement, "requirement"):
+                            break
+        for order in rows(model.get("orders"), "order"):
+            inspect(order, "order")
+    result = []
+    for scope in ("model", "equipment", "process", "operation", "requirement", "order"):
+        state = collected[scope]
+        keys = sorted(state["fields"])
+        if keys or state["other"] or state["truncated"]:
+            result.append({"scope": scope, "fields": [state["fields"][key] for key in keys[:8]], "other": state["other"], "truncated": state["truncated"] or len(keys) > 8})
+    return result
 
 
 def _identifier(value):
@@ -77,7 +187,7 @@ def _diagnostic(event, **fields):
 
 
 def _model_spec(model):
-    _keys(model, ("scheduler_mode", "start", "quantity_unit", "objective", "equipment", "autoclaves", "employees", "materials", "material", "setup_rules", "shifts", "orders", "technical_processes", "name", "description"))
+    _keys(model, FIELD_ALLOWED["model"], "model")
     _require(model.get("scheduler_mode") == "resource", "nonresource_model")
     for key in ("employees", "materials", "material", "setup_rules", "shifts"):
         _require(_empty(model.get(key)), "unsupported_" + key)
@@ -86,27 +196,27 @@ def _model_spec(model):
     _require(isinstance(equipment, list) and equipment, "equipment_missing")
     machines = set()
     for machine in equipment:
-        _keys(machine, ("id", "name", "kind", "capacity", "capacity_unit", "description"))
+        _keys(machine, FIELD_ALLOWED["equipment"], "equipment")
         mid = _identifier(machine.get("id"))
         _require(mid not in machines and _same(machine.get("capacity"), 1), "nonunary_capacity")
         machines.add(mid)
     processes = {}
     for process in model.get("technical_processes") or []:
-        _keys(process, ("id", "name", "operations", "description"))
+        _keys(process, FIELD_ALLOWED["process"], "process")
         pid = _identifier(process.get("id"))
         _require(pid not in processes, "duplicate_process")
         operations = process.get("operations")
         _require(isinstance(operations, list) and operations, "process_operations_missing")
         spec, sequences = {}, set()
         for operation in operations:
-            _keys(operation, ("id", "name", "sequence", "duration_min", "resource_requirements", "description"))
+            _keys(operation, FIELD_ALLOWED["operation"], "operation")
             oid = _identifier(operation.get("id"))
             sequence, duration = _number(operation.get("sequence")), _number(operation.get("duration_min"))
             _require(oid not in spec and sequence not in sequences and sequence > 0 and duration > 0, "operation_invalid")
             requirements = operation.get("resource_requirements")
             _require(isinstance(requirements, list) and len(requirements) == 1, "not_one_equipment_requirement")
             req = requirements[0]
-            _keys(req, ("id", "type", "resource_type", "match_mode", "resource_ref", "resource_refs", "quantity", "unit", "consumption_rule", "kind"))
+            _keys(req, FIELD_ALLOWED["requirement"], "requirement")
             _require(req.get("resource_type", req.get("type")) == "equipment" and req.get("type", "equipment") == "equipment", "nonequipment_requirement")
             _require(_same(req.get("quantity"), 1), "nonunit_requirement")
             _require(req.get("consumption_rule", "during_operation") == "during_operation", "unsupported_consumption")
@@ -116,7 +226,7 @@ def _model_spec(model):
         processes[pid] = spec
     orders = {}
     for order in model.get("orders") or []:
-        _keys(order, ("id", "name", "quantity", "unit", "technical_process_id", "description"))
+        _keys(order, FIELD_ALLOWED["order"], "order")
         oid, pid = _identifier(order.get("id")), _identifier(order.get("technical_process_id"))
         quantity = _number(order.get("quantity"))
         _require(oid not in orders and pid in processes and quantity >= 1 and quantity.is_integer(), "unsupported_order")
@@ -326,24 +436,24 @@ def install_operation_interleave(ga, model, objective="duration", pins=None):
     validate = ga.get("_pp_validate_generic")
     if getattr(original, "_pp_operation_interleave_version", None) == VERSION and isinstance(ga.get(DIAGNOSTIC_KEY), dict):
         return True
-    diagnostic = {"version": VERSION, "eligible": False, "improved_candidates": 0, "fallback_reason": None}
+    diagnostic = {"version": VERSION, "eligible": False, "improved_candidates": 0, "fallback_reason": None, "model_field_mismatches": []}
     ga[DIAGNOSTIC_KEY] = diagnostic
 
     def record_fallback(reason):
-        code = str(reason).split(":", 1)[0]
-        if code not in DIAGNOSTIC_REASONS:
-            code = "runtime_contract_unsupported"
+        code = _safe_reason(reason)
         if diagnostic["fallback_reason"] is None:
             diagnostic["fallback_reason"] = code
 
     if objective != "duration" or pins or not callable(original) or not callable(validate):
         record_fallback("objective_not_supported" if objective != "duration" else "manual_pins" if pins else "native_hooks_missing")
+        diagnostic["model_field_mismatches"] = _model_field_mismatches(model)
         return False
     try:
         spec = _model_spec(model)
         model_snapshot = copy.deepcopy(model)
     except (Unsupported, ValueError, TypeError, KeyError, OverflowError) as exc:
         record_fallback(str(exc) if isinstance(exc, Unsupported) else "runtime_contract_unsupported")
+        diagnostic["model_field_mismatches"] = _model_field_mismatches(model)
         _diagnostic("ineligible", reason=diagnostic["fallback_reason"])
         return False
 

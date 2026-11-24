@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 import unittest
 
-from operation_interleave import install_operation_interleave, _slot, DIAGNOSTIC_KEY, VERSION
-from patch import patch, CALL, IMPORT, FINAL, FINAL_ANCHOR
+from operation_interleave import install_operation_interleave, _slot, _safe_reason, DIAGNOSTIC_KEY, VERSION
+from patch import patch, CALL, IMPORT, FINAL, LEGACY_FINAL, FINAL_ANCHOR
 
 
 def model(durations=None, quantities=None):
@@ -235,6 +235,7 @@ def run(payload,progress):
         self.assertLess(result.index(FINAL_ANCHOR), result.index(FINAL))
         self.assertEqual(result.replace(IMPORT + "\n", "", 1).replace(CALL, "", 1).replace(FINAL, "", 1), source)
         self.assertEqual(patch(result.replace(FINAL, "", 1)), result)
+        self.assertEqual(patch(result.replace(FINAL, LEGACY_FINAL, 1)), result)
         with self.assertRaisesRegex(RuntimeError, "DRIFT"):
             patch(source.replace("    if pins:", "    if something_else:"))
 
@@ -246,7 +247,7 @@ def run(payload,progress):
         self.assertTrue(install_operation_interleave(second, m))
         first['_pp_schedule_sequence'](m, sequence)
         self.assertIsNot(first[DIAGNOSTIC_KEY], second[DIAGNOSTIC_KEY])
-        self.assertEqual(first[DIAGNOSTIC_KEY], {'version': VERSION, 'eligible': True, 'improved_candidates': 1, 'fallback_reason': None})
+        self.assertEqual(first[DIAGNOSTIC_KEY], {'version': VERSION, 'eligible': True, 'improved_candidates': 1, 'fallback_reason': None, 'model_field_mismatches': []})
         self.assertEqual(second[DIAGNOSTIC_KEY]['improved_candidates'], 0)
         scope = {'copy': copy}; exec('def attach(ga,result):\n' + FINAL + '    return result\n', scope)
         original = {'algorithm': 'native', 'optimization_run': 9, 'total_generations': 200}
@@ -255,7 +256,7 @@ def run(payload,progress):
         self.assertEqual(snapshot['optimization_run'], 9)
         first[DIAGNOSTIC_KEY]['improved_candidates'] = 2
         self.assertEqual(snapshot['operation_interleave']['improved_candidates'], 1)
-        self.assertEqual(set(snapshot['operation_interleave']), {'version', 'eligible', 'improved_candidates', 'fallback_reason'})
+        self.assertEqual(set(snapshot['operation_interleave']), {'version', 'eligible', 'improved_candidates', 'fallback_reason', 'model_field_mismatches'})
 
     def test_diagnostics_report_only_first_known_code_without_sensitive_values(self):
         m = model(); sequence = [order['id'] for order in m['orders']]
@@ -272,9 +273,78 @@ def run(payload,progress):
         bad = model(); bad['private-account-token-field'] = 'DO_NOT_EXPOSE'
         other = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
         self.assertFalse(install_operation_interleave(other, bad))
-        self.assertEqual(other[DIAGNOSTIC_KEY], {'version': VERSION, 'eligible': False, 'improved_candidates': 0, 'fallback_reason': 'unsupported_fields'})
+        self.assertEqual(other[DIAGNOSTIC_KEY], {'version': VERSION, 'eligible': False, 'improved_candidates': 0, 'fallback_reason': 'unsupported_fields@model:other', 'model_field_mismatches': [{'scope': 'model', 'fields': [], 'other': True, 'truncated': False}]})
         serial = json.dumps(other[DIAGNOSTIC_KEY])
         self.assertNotIn('private-account', serial); self.assertNotIn('DO_NOT_EXPOSE', serial)
+
+    def test_field_diagnostics_locate_all_scopes_without_relaxing_eligibility(self):
+        cases = [
+            ('model', lambda m: m, '_meta'),
+            ('equipment', lambda m: m['equipment'][0], 'capabilities'),
+            ('process', lambda m: m['technical_processes'][0], 'revision'),
+            ('operation', lambda m: m['technical_processes'][0]['operations'][0], 'timing_profile'),
+            ('requirement', lambda m: m['technical_processes'][0]['operations'][0]['resource_requirements'][0], 'capacity'),
+            ('order', lambda m: m['orders'][0], 'area'),
+        ]
+        for scope, target, field in cases:
+            m = model(); target(m)[field] = {'PRIVATE_VALUE': 'must_not_appear'}
+            before = copy.deepcopy(m)
+            ga = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
+            self.assertFalse(install_operation_interleave(ga, m))
+            self.assertEqual(ga[DIAGNOSTIC_KEY]['fallback_reason'], 'unsupported_fields@' + scope + ':' + field)
+            self.assertIs(ga['_pp_schedule_sequence'], fixture_native_decoder)
+            self.assertEqual(m, before)
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(ga[DIAGNOSTIC_KEY]))
+
+    def test_field_diagnostics_are_bounded_and_reject_unlisted_names(self):
+        m = model(); m.update({'_meta': {}, 'revision': 1, 'constraints': [], 'SECRET_UNKNOWN_KEY': 'SECRET_VALUE'})
+        ga = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
+        self.assertFalse(install_operation_interleave(ga, m))
+        reason = ga[DIAGNOSTIC_KEY]['fallback_reason']
+        self.assertEqual(reason, 'unsupported_fields@model:_meta,constraints,revision,other')
+        self.assertEqual(_safe_reason(reason), reason)
+        for malicious in ('unsupported_fields@model:SECRET_UNKNOWN_KEY', 'unsupported_fields@SECRET_SCOPE:_meta', 'unsupported_fields@model:_meta:SECRET_VALUE'):
+            self.assertEqual(_safe_reason(malicious), 'runtime_contract_unsupported')
+
+    def test_all_model_scopes_report_only_aggregated_safe_shapes(self):
+        m = model(); m['_meta'] = {}; m['constraints'] = []
+        m['equipment'][0]['capabilities'] = {}; m['equipment'][1]['capabilities'] = {'SECRET_INNER_KEY': 'SECRET_INNER_VALUE'}
+        for process in m['technical_processes']:
+            process['revision'] = 0
+            process['operations'][0]['timing_profile'] = []
+            process['operations'][1]['timing_profile'] = None
+            for operation in process['operations']:
+                operation['resource_requirements'][0]['capacity'] = 0
+        for order in m['orders']:
+            order['area'] = 1
+        original = copy.deepcopy(m)
+        ga = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
+        self.assertFalse(install_operation_interleave(ga, m))
+        self.assertEqual(m, original)
+        shapes = ga[DIAGNOSTIC_KEY]['model_field_mismatches']
+        self.assertEqual(len(shapes), 6)
+        scopes = {item['scope']: item for item in shapes}
+        self.assertEqual(scopes['equipment']['fields'], [{'key': 'capabilities', 'kind': 'object', 'empty': False, 'zero': False}])
+        self.assertEqual(scopes['operation']['fields'], [{'key': 'timing_profile', 'kind': 'mixed', 'empty': True, 'zero': False}])
+        self.assertEqual(scopes['process']['fields'], [{'key': 'revision', 'kind': 'number', 'empty': False, 'zero': True}])
+        self.assertTrue(all(not item['truncated'] for item in shapes))
+        serialized = json.dumps(shapes)
+        for secret in ('SECRET_INNER_KEY', 'SECRET_INNER_VALUE', 'job-0', 'machine-0'):
+            self.assertNotIn(secret, serialized)
+
+    def test_shape_diagnostics_have_fixed_field_and_record_bounds(self):
+        m = model()
+        for key in ('_meta', '_assistant_reply', '_ai_error', 'createdAt', 'updatedAt', 'created_at', 'updated_at', 'version', 'schema_version', 'model_version'):
+            m[key] = None
+        m['orders'] = [copy.deepcopy(m['orders'][0]) for _ in range(300)]
+        ga = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
+        self.assertFalse(install_operation_interleave(ga, m))
+        shapes = ga[DIAGNOSTIC_KEY]['model_field_mismatches']
+        self.assertLessEqual(len(shapes), 6)
+        self.assertTrue(all(len(item['fields']) <= 8 for item in shapes))
+        scopes = {item['scope']: item for item in shapes}
+        self.assertTrue(scopes['model']['truncated'])
+        self.assertTrue(scopes['order']['truncated'])
 
     def test_exported_live_ga_contract_when_private_fixture_is_available(self):
         folder = Path('/tmp/liftorbit-text-import-test')

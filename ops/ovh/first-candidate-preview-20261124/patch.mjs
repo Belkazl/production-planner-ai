@@ -75,13 +75,69 @@ const cancelBinding=String.raw`    // pp_first_candidate_preview_v1: a delayed S
     }
 `;
 
+const STOP_CHOICES_MARKER="pp_scoped_stop_verified_choices_v2";
+const oldStopTail=String.raw`      if(requestedId!==null){
+        const active=await currentJob(principal);
+        if(active?.id!==job.id)return {error:'job_mismatch',http_status:409};
+      }
+      await save(principal,job);
+      return requestedId!==null ? {ok:true,stopped:true,job_id:job.id,phase:'cancelled',running:false} : r.body;`;
+const newStopTail=String.raw`      // pp_scoped_stop_verified_choices_v2: preserve the native chooser's
+      // complete verified options without exposing worker/resume internals.
+      if(requestedId===null){await save(principal,job);return r.body;}
+      const stoppedModel=await readAccountModel(req);
+      const active=await currentJob(principal);
+      if(active?.id!==job.id||active?.modelKey!==job.modelKey)
+        return {error:'job_mismatch',http_status:409};
+      if(hashModel(stoppedModel)!==job.modelKey)
+        return {error:'account_model_changed_since_run',http_status:409,job_id:job.id};
+      const checkedChoice=raw=>{
+        if(!raw||raw._pp_verified_checkpoint_v1!==true||raw.valid!==true||raw.partial===true)
+          return null;
+        return verifiedWorkerCheckpoint(raw,stoppedModel);
+      };
+      const publicChoice=plan=>{
+        if(!plan)return null;
+        const keys=['ok','valid','partial','operations','generic_operations','batches',
+          'setup_operations','setup_operation_count','start','finish','duration_minutes',
+          'operator_wait_minutes','machine_idle_minutes','batch_count','order_sequence',
+          'validation_errors','errors','warnings','messages','violations','conflicts'];
+        return Object.fromEntries(keys.filter(key=>Object.hasOwn(plan,key)).map(key=>[key,plan[key]]));
+      };
+      const stoppedBest=checkedChoice(r.body.best_preview)||checkedChoice(job.best);
+      const stoppedVariants=[];
+      for(const row of (Array.isArray(r.body.variants)?r.body.variants:[]).slice(0,30)){
+        const checked=checkedChoice(row?.plan||row);
+        if(checked)stoppedVariants.push({plan:publicChoice(checked)});
+      }
+      if(stoppedBest)job.best=stoppedBest;
+      await save(principal,job);
+      const publishModel=await readAccountModel(req);
+      const publishJob=await currentJob(principal);
+      if(publishJob?.id!==job.id||publishJob?.modelKey!==job.modelKey)
+        return {error:'job_mismatch',http_status:409};
+      if(hashModel(publishModel)!==job.modelKey)
+        return {error:'account_model_changed_since_run',http_status:409,job_id:job.id};
+      return {ok:true,stopped:true,job_id:job.id,phase:'cancelled',running:false,
+        best_preview:publicChoice(stoppedBest),variants:stoppedVariants};`;
+function upgradeStopChoices(source){
+  if(!source.includes("const verifiedWorkerCheckpoint = (raw,model) =>"))
+    throw Error("FIRST_PREVIEW_VERIFIED_CHECKPOINT_GUARD_MISSING");
+  if(source.includes(STOP_CHOICES_MARKER)){
+    if(source.split(newStopTail).length!==2||source.includes(oldStopTail))
+      throw Error("FIRST_PREVIEW_STOP_CHOICES_INSTALLED_DRIFT");
+    return source;
+  }
+  return changeFunction(source,"cancel",body=>once(body,oldStopTail,newStopTail,"stop_choices_v1_upgrade"));
+}
+
 export function patchUpstream(source){
   if(source.includes(MARKER)){
     for(const marker of ["async function progress(req, expectedJob=null)",
       "firstPreviewPending", "await progress(req,job)",
-      "requestedId!==null ? {ok:true,stopped:true,job_id:job.id"])
+      "const requestedId=new URL(req.url).searchParams.get('job_id');"])
       if(!source.includes(marker))throw Error("FIRST_PREVIEW_PARTIAL_INSTALL");
-    return source;
+    return upgradeStopChoices(source);
   }
   for(const marker of ["account(req)","readAccountModel(req)","account_plan_mismatch",
     "state.modelKey!==hashModel(model)","const boundedPreview = (plan,model)",
@@ -169,7 +225,7 @@ export function patchUpstream(source){
       "preview_first_worker_change");
     return body;
   });
-  return source;
+  return upgradeStopChoices(source);
 }
 
 export function patchBuild(source){

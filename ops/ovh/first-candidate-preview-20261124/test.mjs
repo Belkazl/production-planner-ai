@@ -40,6 +40,7 @@ function harness({phase="running",available=true}={}){
     status:phase,progress:2,result:phase==="completed"?planFor("one"):null}],
     ["two",{job_id:otherId,model_hash:modelHash(models.get("two")),status:"running",progress:2}]]);
   const ticks=new Map(),controllers=new Map();
+  const hooks={afterCancel:null,afterSave:null};
   let tickId=0,seq=0,statusReads=0,cancelCalls=0,eventConnections=0,held=null;
   const timers={setInterval(fn,ms){assert.equal(ms,4000);ticks.set(++tickId,fn);return tickId;},
     clearInterval(id){ticks.delete(id)}};
@@ -50,7 +51,7 @@ function harness({phase="running",available=true}={}){
     const r=records.get(id);
     return {job_id:id,status:r.phase,progress:r.progress,stage:r.phase==="running"?"optimizing":r.phase,
       best_preview:r.available?r.plan:null,candidate_preview:r.phase==="running"&&r.available?r.plan:null,
-      result:r.phase==="completed"?r.plan:undefined,error:null};
+      result:r.phase==="completed"?r.plan:undefined,error:null,variants:r.variants||[]};
   }
   const bridge=factory({enabled:true,origin:"http://ga-worker.railway.internal:8080",token:"test-token-".repeat(8),
     upstreamUrl:req=>req.url,sessionKey:async req=>req.headers.get("x-test-account"),
@@ -58,8 +59,11 @@ function harness({phase="running",available=true}={}){
     readAccountModel:async req=>models.get(req.headers.get("x-test-account")),hashModel:modelHash,
     checkPlan:(plan,model)=>plan.operations.every(op=>model.orders.some(o=>o.id===op.order)),
     stateStore:{load:async account=>persisted.get(account)||null,
-      save:async(account,state)=>persisted.set(account,{job_id:state.id,model_hash:state.modelKey,
-        status:state.state,result:state.result,best_preview:state.best,progress:state.progress})},
+      save:async(account,state)=>{
+        persisted.set(account,{job_id:state.id,model_hash:state.modelKey,
+          status:state.state,result:state.result,best_preview:state.best,progress:state.progress});
+        await hooks.afterSave?.(account,state);
+      }},
     fetchImpl:async(url,options)=>{
       const path=new URL(url).pathname,principal=options.headers["x-authenticated-account"];
       if(path==="/internal/jobs"&&options.method==="POST"){
@@ -76,6 +80,7 @@ function harness({phase="running",available=true}={}){
       if(path.endsWith("/cancel")){
         cancelCalls++;
         if(!["completed","failed","timed_out"].includes(record.phase))record.phase="cancelled";
+        await hooks.afterCancel?.();
         return Response.json(snapshot(id));
       }
       statusReads++;
@@ -86,7 +91,7 @@ function harness({phase="running",available=true}={}){
   const request=(path,account="one",method="GET")=>new Request("https://app.liftorbit.app"+path,
     {method,headers:{"x-test-account":account}});
   const get=(path,account="one")=>bridge.fetch(request(path,account));
-  return {bridge,records,persisted,models,get,request,ticks,
+  return {bridge,records,persisted,models,get,request,ticks,hooks,
     statusReads:()=>statusReads,cancelCalls:()=>cancelCalls,eventConnections:()=>eventConnections,
     async subscribe(id=jobId,account="one"){
       const res=await get("/api/plan-events?job_id="+id,account),reader=res.body.getReader();
@@ -121,6 +126,21 @@ test("source patch is parseable, idempotent and fails closed on missing guards",
   assert.throws(()=>patchUpstream(baseline.replace("state.modelKey!==hashModel(model)","true")),/REQUIRED_GUARD/);
   assert.throws(()=>patchUpstream(baseline.replace("previewTimer=setInterval(()=>{void sendPreview()},4000);","changed();")),/SOURCE_DRIFT/);
 });
+test("installed v1 source upgrades exactly to verified Stop choices and rejects tail drift",()=>{
+  const start=patched.indexOf("      // pp_scoped_stop_verified_choices_v2:");
+  const end=patched.indexOf("\n    }catch{return {error:'worker_cancel_failed'}}",start);
+  assert(start>0&&end>start);
+  const previous=String.raw`      if(requestedId!==null){
+        const active=await currentJob(principal);
+        if(active?.id!==job.id)return {error:'job_mismatch',http_status:409};
+      }
+      await save(principal,job);
+      return requestedId!==null ? {ok:true,stopped:true,job_id:job.id,phase:'cancelled',running:false} : r.body;`;
+  const legacy=patched.slice(0,start)+previous+patched.slice(end);
+  assert.equal(patchUpstream(legacy),patched);
+  assert.throws(()=>patchUpstream(legacy.replace("return requestedId!==null ? {ok:true,stopped:true,job_id:job.id",
+    "return requestedId!==null ? {ok:true,changed:true,job_id:job.id")),/stop_choices_v1_upgrade/);
+});
 
 test("authorized completed progress exposes the native job id",async()=>{
   const h=harness({phase:"completed"});
@@ -147,10 +167,51 @@ test("scoped Stop cannot cancel another or newer job, and returns actual cancell
   const wrong=await h.bridge.cancel(h.request("/api/optimizer-stop?job_id="+otherId,"one","POST"));
   assert.equal(wrong.error,"job_mismatch");assert.equal(wrong.http_status,409);assert.equal(h.cancelCalls(),0);
   const stopped=await h.bridge.cancel(h.request("/api/optimizer-stop?job_id="+jobId,"one","POST"));
-  assert.deepEqual(stopped,{ok:true,stopped:true,job_id:jobId,phase:"cancelled",running:false});
+  assert.deepEqual(stopped,{ok:true,stopped:true,job_id:jobId,phase:"cancelled",running:false,
+    best_preview:null,variants:[]});
   assert.equal(h.cancelCalls(),1);
   const state=await (await h.get("/api/plan-progress?job_id="+jobId)).json();
   assert.equal(state.job_id,jobId);assert.equal(state.phase,"cancelled");
+});
+test("scoped Stop retains only verified full owned choices and omits resume and internal context",async()=>{
+  const h=harness(),record=h.records.get(jobId);
+  const good={...planFor("one"),_pp_verified_checkpoint_v1:true,
+    resume_state:{version:0,order_sequence:["one-CUTLET"]},
+    internal_context:{marker:"TEST_ONLY_INTERNAL_CONTEXT"},account_id:"TEST_ONLY_ACCOUNT_CONTEXT"};
+  record.plan=good;
+  record.variants=[{index:1,plan:good},{plan:{...good,partial:true}},
+    {plan:{...planFor("two"),_pp_verified_checkpoint_v1:true}},
+    {plan:{...good,_pp_verified_checkpoint_v1:false}}];
+  const stopped=await h.bridge.cancel(h.request("/api/optimizer-stop?job_id="+jobId,"one","POST"));
+  assert.equal(stopped.job_id,jobId);assert.equal(stopped.stopped,true);
+  assert.equal(stopped.best_preview.valid,true);assert.equal(stopped.best_preview.partial,false);
+  assert.equal(stopped.best_preview.operations.length,16);assert.equal(stopped.variants.length,1);
+  for(const choice of [stopped.best_preview,...stopped.variants.map(row=>row.plan)]){
+    assert.equal(choice.resume_state,undefined);assert.equal(choice._pp_verified_checkpoint_v1,undefined);
+    assert.equal(choice.internal_context,undefined);assert.equal(choice.account_id,undefined);
+    assert(choice.operations.every(row=>row.order==="one-CUTLET"));
+  }
+  assert.equal(h.persisted.get("one").best_preview._pp_verified_checkpoint_v1,true,
+    "the internal persisted checkpoint retains continuation evidence");
+});
+test("scoped Stop keeps the previously verified checkpoint when the cancel snapshot omits it",async()=>{
+  const h=harness(),record=h.records.get(jobId);
+  record.plan={...record.plan,_pp_verified_checkpoint_v1:true};
+  await h.get("/api/plan-progress?job_id="+jobId);
+  record.available=false;
+  const stopped=await h.bridge.cancel(h.request("/api/optimizer-stop?job_id="+jobId,"one","POST"));
+  assert.equal(stopped.best_preview?.operations.length,16);assert.equal(stopped.best_preview?.resume_state,undefined);
+});
+test("a model change during cancellation or persistence suppresses all Stop choices",async()=>{
+  for(const timing of ["afterCancel","afterSave"]){
+    const h=harness();
+    h.records.get(jobId).plan._pp_verified_checkpoint_v1=true;
+    h.hooks[timing]=async()=>{h.models.get("one").orders.push({id:"model-changed"});};
+    const stopped=await h.bridge.cancel(h.request("/api/optimizer-stop?job_id="+jobId,"one","POST"));
+    assert.equal(stopped.http_status,409);assert.equal(stopped.error,"account_model_changed_since_run");
+    assert.equal(stopped.best_preview,undefined);assert.equal(stopped.variants,undefined);
+    assert.equal(stopped.job_id,jobId);
+  }
 });
 test("model changes block scoped Stop without cancelling the worker",async()=>{
   const h=harness();h.models.get("one").orders.push({id:"changed"});
