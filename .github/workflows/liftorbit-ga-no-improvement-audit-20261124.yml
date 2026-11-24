@@ -35,6 +35,16 @@ jobs:
            if p.exists():
             print("GA_FOLDER",area)
             for f in sorted(p.glob("*.py")):print("GA_PYTHON_FILE",f.relative_to(root),f.stat().st_size)
+          for filename in ["python-ga-upstream.mjs","ga_python_workers/ga_workers/full_runtime_adapter.py","ga_python_workers/ga_workers/compile_legacy_ga.py"]:
+           p=root/filename
+           if not p.exists():continue
+           lines=p.read_text(errors="replace").splitlines()
+           print("SEED_AUDIT",filename)
+           for i,line in enumerate(lines):
+            if re.search(r'(seed\s*=|\bseed\b|rng|random\.Random|np\.random|secrets|randomSeed|continue_run)',line,re.I):
+              if filename.endswith("compile_legacy_ga.py") and i>300:continue
+              if re.search(r'(password|private.key|authorization|bearer|secret|api[_-]?key)',line,re.I):line="[REDACTED]"
+              print(f"SEED_SRC {i+1:04d} {line[:300]}")
           patterns={
            "python-ga-upstream.mjs":[r'continu',r'resume',r'random',r'seed',r'order_sequence',r'args\.generations',r'args\.population',r'max_score',r'best_score'],
            "restart-optimizer-ui.js":[r'function readyContinue',r'function accepted',r'function ppSelectedPlan',r'function save\(',r'function markContinue',r'__PP_GA_',r'resume_plan',r'resume_state',r'quick:Object',r'function ppOneSse',r'function ppFresh',r'__ppOptimizerCommittedPlan',r'ppIncumbentDecision'],
