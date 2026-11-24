@@ -7,12 +7,13 @@ import types
 old=pathlib.Path(sys.argv[1]).read_text()
 new=pathlib.Path(sys.argv[2]).read_text()
 assert new!=old
-assert new.replace("""    # The same accepted order is a starting point, not a fixed random stream.
-    # Quick mode (3 generations x 6 candidates) otherwise repeats the same
-    # search neighbourhood on EVERY Continue and cannot discover new variants.
-    # Independent fresh and continued jobs receive new server-side RNG seeds.
-    # The validated incumbent, objective, pins and configured work count stay.
-    seed=secrets.randbits(32)""","    seed=1729 if continuing else secrets.randbits(32)")==old
+originals=[line for line in old.splitlines() if line.strip()=="seed=1729 if continuing else secrets.randbits(32)"]
+assert len(originals)==1
+old_line=originals[0]
+indent=old_line[:len(old_line)-len(old_line.lstrip())]
+new_line=indent+"seed=secrets.randbits(32)"
+assert new.replace(new_line,old_line)==old, "only existing worker RNG assignment changed"
+
 tree=ast.parse(new)
 seeds=[node for node in ast.walk(tree)
        if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="seed" for t in node.targets)]
