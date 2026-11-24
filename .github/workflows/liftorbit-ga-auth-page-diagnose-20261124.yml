@@ -1,0 +1,55 @@
+name: Diagnose missing GA client in auth compatibility HTML
+on:
+  push:
+    branches: [fix/ga-no-deadline-auth-page-20261124]
+    paths:
+      - .github/workflows/liftorbit-ga-auth-page-diagnose-20261124.yml
+      - ops/ovh/ga-no-deadline-20261124/auth-page-diagnostic.mjs
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Inspect authenticated page scripts, headers and client flag
+        run: node ops/ovh/ga-no-deadline-20261124/auth-page-diagnostic.mjs
+      - name: Inspect actual auth HTML builder and planner script injection
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          for name,spans in [
+            ("auth-runtime.js",[(95,170)]),
+            ("build-bridge.ts",[(1,105)]),
+            ("restart-optimizer.ts",[(1,95)]),
+            ("auth-bridge.ts",[(1,100)]),
+          ]:
+            p=root/name
+            if not p.exists():continue
+            lines=p.read_text(errors="replace").splitlines()
+            print("GA_AUTH_SRC",name,len(lines))
+            for lo,hi in spans:
+              for i in range(lo-1,min(hi,len(lines))):
+                l=lines[i]
+                if re.search("password|private.key|authorization|bearer|credential|secret|api[_-]?key",l,re.I):l="[REDACTED]"
+                print("GA_AUTH_LINE",name,i+1,l[:320])
+          PY
