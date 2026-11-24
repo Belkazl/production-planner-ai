@@ -1,0 +1,32 @@
+name: Audit native batching build metadata without mutation
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-batching-build-audit-20261124.yml
+      - ops/ovh/batching-build-audit-20261124/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify syntax and metadata-only output filtering
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/batching-build-audit-20261124/audit.sh
+          bash ops/ovh/batching-build-audit-20261124/audit.sh --self-test
+      - name: Read owned source metadata without running build code
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/batching-build-audit-20261124/audit.sh
