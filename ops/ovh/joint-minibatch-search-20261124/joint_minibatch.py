@@ -367,9 +367,11 @@ def _model_specs(ga, model, default_partitions):
         _require(oid and oid not in specs and oid in default_partitions, 'joint_model_order_identity')
         _require(abs(math.fsum(default_partitions[oid]) - quantity) <= EPS * max(1, quantity),
                  'joint_native_quantity_contract')
+        explicit_unit = order.get('unit') or order.get('quantity_unit') or model.get('quantity_unit')
         native_unit = ga.get('_pp_batch_order_unit')
-        unit = _unit(native_unit(order) if callable(native_unit) else order.get('unit', model.get('quantity_unit')))
-        discrete = unit in {'шт', 'pcs', 'piece', 'pieces', 'unit', 'units'}
+        unit = _unit(explicit_unit if explicit_unit else native_unit(order) if callable(native_unit) else '')
+        discrete = unit in {'шт', 'штука', 'штуки', 'штук', 'pc', 'pcs', 'piece', 'pieces',
+                            'item', 'items', 'unit', 'units', 'count'}
         _require(not discrete or quantity.is_integer(), 'joint_model_fractional_piece')
         native_maximum = ga['_pp_order_batch_capacity'](model, order)
         maximum = quantity if native_maximum is None else _number(native_maximum)
@@ -432,7 +434,8 @@ def _cache_cost(sim):
     return rows, size
 
 
-def install_joint_minibatch_search(ga, model, objective='duration', pins=None, source=None, verify_constraints=None):
+def install_joint_minibatch_search(ga, model, objective='duration', pins=None, source=None,
+                                  verify_constraints=None, format_result=None):
     """Install after native model setup, before pin wrappers and continuation."""
     declared, ready = ga.get('_pp_generic_declared'), ga.get('_pp_generic_ready')
     _require(callable(declared) and callable(ready), 'joint_native_routing_missing')
@@ -451,7 +454,8 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
         from .constraints import _verify as verify_constraints
     normalized = copy.deepcopy(model)
     pins = copy.deepcopy(pins or [])
-    runtime = {'active': None, 'defaults': {}, 'pending_seed': None, 'incumbents': OrderedDict()}
+    runtime = {'active': None, 'defaults': {}, 'pending_seed': None, 'best_genome': None,
+               'incumbents': OrderedDict()}
 
     def choose_sizes(order, defaults):
         oid = str(order.get('id'))
@@ -478,7 +482,8 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
     pinned_orders = {str(pin.get('order')) for pin in pins}
     frozen = {oid: default.mapping()[oid] for oid in pinned_orders if oid in specs}
     state = {'version': VERSION, 'evaluated': 0, 'feasible': 0, 'rejected': 0,
-             'peak_cache_entries': 0, 'peak_cache_rows': 0, 'peak_cache_bytes': 0}
+             'peak_cache_entries': 0, 'peak_cache_rows': 0, 'peak_cache_bytes': 0,
+             'evaluating': False}
 
     def load_incumbent(value):
         # Validate the complete candidate before changing any process state.
@@ -496,7 +501,7 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
             if not isinstance(sequence, list) or set(map(str, sequence)) != set(specs):
                 return None
             candidate = validate_genome(_batch_signature(result, tuple(map(str, sequence))), specs, frozen)
-            if candidate not in runtime['incumbents']:
+            if candidate not in runtime['incumbents'] and candidate != runtime['best_genome']:
                 return None
             _pins_accept(candidate, pins)
             return copy.deepcopy(candidate.json())
@@ -512,6 +517,10 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
         previous = ga['_PP_GENERIC_STATE']
         run = int(previous.get('run') or 0) + 1 if continue_run else 1
         prior_trials = int(previous.get('total_trials') or 0) if continue_run else 0
+        if runtime['pending_seed'] is None:
+            for pin in pins:
+                if pin.get('batch_quantity') is None and len(default.mapping()[str(pin.get('order'))]) > 1:
+                    raise JointContractError('joint_pin_partition_unavailable')
         seeds = seed_genomes(specs, frozen)
         if continue_run and runtime['pending_seed'] is not None:
             seeds.insert(0, runtime['pending_seed'])
@@ -531,6 +540,7 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
         best = None
         attempts = 0
         history = []
+        previous.update(run=run, total_trials=prior_trials)
         ga['_pp_progress_begin'](generations * population, 'optimizing')
         try:
             for _generation in range(generations):
@@ -543,6 +553,7 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
                         cache.move_to_end(genome)
                     else:
                         runtime['active'] = genome
+                        state['evaluating'] = True
                         try:
                             sim = ga['_pp_schedule_sequence'](copy.deepcopy(candidate_model), list(genome.sequence))
                             evaluate_feasibility(ga, normalized, genome, sim, pins, verify_constraints)
@@ -557,6 +568,7 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
                             evaluated = None; state['rejected'] += 1
                         finally:
                             runtime['active'] = None
+                            state['evaluating'] = False
                         rows, size = _cache_cost(evaluated[1]) if evaluated is not None else (0, 32)
                         if rows <= MAX_CACHE_ROWS and size <= MAX_CACHE_BYTES:
                             while cache and (len(cache) >= MAX_CACHE or cache_rows + rows > MAX_CACHE_ROWS or cache_bytes + size > MAX_CACHE_BYTES):
@@ -571,16 +583,23 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
                     if evaluated is not None:
                         score, sim = evaluated
                         ranked.append((score, genome))
+                        # Register the exact, fully verified candidate before
+                        # adapter progress callbacks export a checkpoint seed.
+                        runtime['incumbents'][genome] = True
+                        runtime['incumbents'].move_to_end(genome)
+                        if len(runtime['incumbents']) > 64:
+                            runtime['incumbents'].popitem(last=False)
+                        sim['order_sequence'] = list(genome.sequence)
                         ga['_pp_progress_candidate'](normalized, sim, objective)
                         if best is None or score < best[0]:
                             best = (score, genome, copy.deepcopy(sim))
-                            runtime['incumbents'][genome] = True
-                            if len(runtime['incumbents']) > 64:
-                                runtime['incumbents'].popitem(last=False)
+                            runtime['best_genome'] = genome
+                            previous.update(best_order=list(genome.sequence), best_duration=float(sim['duration_minutes']))
                             ga['_pp_progress_best'](normalized, sim, objective)
                     ga['_pp_progress_step']()
                 ranked.sort(key=lambda pair: pair[0])
                 history.append(best[2]['duration_minutes'] if best is not None else None)
+                previous['total_trials'] = prior_trials + _generation + 1
                 parents = [genome for _, genome in ranked[:max(2, population // 3)]] or seeds
                 next_generation = [best[1]] if best is not None else [seeds[0]]
                 while len(next_generation) < population:
@@ -596,7 +615,7 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
             score, genome, sim = best
             # Reuse the native formatter; only search counters and exact genes
             # are owned by this extension. Native KPI calculations are retained.
-            result = ga['_pp_progress_preview'](normalized, copy.deepcopy(sim), objective)
+            result = format_result(copy.deepcopy(sim)) if format_result is not None else ga['_pp_progress_preview'](normalized, copy.deepcopy(sim), objective)
             _require(isinstance(result, dict) and result.get('valid') is True, 'joint_native_formatter_contract')
             result = copy.deepcopy(result)
             result.update(ok=True, order_sequence=list(genome.sequence), optimization_run=run,
@@ -616,6 +635,7 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
             raise
         finally:
             runtime['active'] = None
+            state['evaluating'] = False
 
     state.update(load_incumbent=load_incumbent, export_incumbent=export_incumbent)
     ga[STATE_KEY] = state

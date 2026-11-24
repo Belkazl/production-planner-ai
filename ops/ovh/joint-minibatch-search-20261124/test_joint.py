@@ -203,6 +203,46 @@ class JointTests(unittest.TestCase):
                 capacity = 10 if row['equipment_ids'] == ['BIG'] else 5
                 self.assertLessEqual(row['batch_quantity'], capacity)
 
+    def test_explicit_piece_unit_overrides_unrecognized_native_alias(self):
+        m = model(); ga = namespace(m)
+        ga['_pp_batch_order_unit'] = lambda order: 'internal_amount_alias'
+        ga['_pp_batch_unit'] = lambda value: 'internal_amount_alias'
+        install(ga, m, source=EXPANSION)
+        result = ga['optimize'](12, 16)
+        self.assertEqual(result['duration_minutes'], 20)
+        self.assertTrue(all(float(quantity).is_integer() for vector in ga['seen_genomes'] for quantity in vector))
+        self.assertTrue(all(float(row['batch_quantity']).is_integer()
+                            for sim in ga['best_previews'] for row in sim['operations']))
+
+    def test_adapter_formatter_and_registered_candidate_callbacks_are_after_verification(self):
+        m = model(); ga = namespace(m)
+        native_formatter = ga['_pp_progress_preview']
+        formatted, exported, verification_flags = [], [], []
+        def broken_native_preview(*args):
+            raise AttributeError('synthetic recovered preview missing attribute')
+        ga['_pp_progress_preview'] = broken_native_preview
+        def verify(model, sim, pins, namespace):
+            verification_flags.append(namespace[joint.STATE_KEY]['evaluating'])
+            return verify_constraints(model, sim, pins, namespace)
+        def candidate(model, sim, objective):
+            self.assertFalse(ga[joint.STATE_KEY]['evaluating'])
+            plan = dict(sim, valid=True)
+            value = ga[joint.STATE_KEY]['export_incumbent'](plan)
+            self.assertIsNotNone(value)
+            exported.append(value)
+        def formatter(sim):
+            self.assertFalse(ga[joint.STATE_KEY]['evaluating'])
+            formatted.append(True)
+            return native_formatter(m, sim, 'duration')
+        ga['_pp_progress_candidate'] = candidate
+        joint.install_joint_minibatch_search(ga, m, source=EXPANSION,
+            verify_constraints=verify, format_result=formatter)
+        result = ga['optimize'](3, 8)
+        self.assertTrue(formatted)
+        self.assertTrue(exported)
+        self.assertTrue(all(verification_flags))
+        self.assertTrue(result['native_formatter_retained'])
+
     def test_invalid_candidate_never_reaches_fitness_or_best(self):
         m = model(); ga = namespace(m, invalid=True)
         install(ga, m, source=EXPANSION)
@@ -270,6 +310,12 @@ class JointTests(unittest.TestCase):
         with self.assertRaisesRegex(joint.JointContractError, 'joint_pin_batch_identity_required'):
             joint._pins_accept(joint.Genome(('O',), (('O', (5, 5)),)), [{'order': 'O'}])
 
+    def test_legacy_multibatch_pin_without_volume_or_v2_is_explicitly_rejected(self):
+        m = model(); ga = namespace(m)
+        install(ga, m, pins=[{'order': 'O', 'batch': 2}], source=EXPANSION)
+        with self.assertRaisesRegex(joint.JointContractError, 'joint_pin_partition_unavailable'):
+            ga['optimize'](1, 2)
+
     def test_v1_continuation_seed_and_generation_counters_are_preserved(self):
         m = model(); m['orders'].append({'id': 'P', 'quantity': 5, 'unit': 'шт.'})
         ga = namespace(m)
@@ -318,7 +364,7 @@ class JointTests(unittest.TestCase):
         path = Path(__file__).with_name('patch.py')
         spec = importlib.util.spec_from_file_location('joint_patch', path)
         patcher = importlib.util.module_from_spec(spec); spec.loader.exec_module(patcher)
-        source = "from pathlib import Path\nSOURCE = Path('/tmp/production_planner.py')\ndef run(payload,progress):\n    opts={}\n    objective=opts.get('objective') or 'duration'\n    if pins:\n        try: pins=make_constrained_scheduler(ga,pins,normalized)\n        except Exception: raise\n"
+        source = "from pathlib import Path\nSOURCE = Path('/tmp/production_planner.py')\ndef _live_scheduler_preview(sim,model,objective,ga,pins,checkpoint=False):\n    return sim\ndef run(payload,progress):\n    opts={}\n    objective=opts.get('objective') or 'duration'\n    if pins:\n        try: pins=make_constrained_scheduler(ga,pins,normalized)\n        except Exception: raise\n"
         output = patcher.patch(source)
         self.assertEqual(patcher.patch(output), output)
         self.assertEqual(output.replace(patcher.IMPORT + '\n', '').replace(patcher.CALL, ''), source)

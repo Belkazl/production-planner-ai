@@ -5,7 +5,8 @@ import sys
 
 
 IMPORT = 'from .joint_minibatch import install_joint_minibatch_search\n'
-CALL = '    install_joint_minibatch_search(ga, normalized, objective=objective, pins=pins)\n'
+CALL = ('    install_joint_minibatch_search(ga, normalized, objective=objective, pins=pins,\n'
+        '        format_result=lambda sim: _live_scheduler_preview(sim, normalized, objective, ga, pins, checkpoint=True))\n')
 SOURCE = "SOURCE = Path('/tmp/production_planner.py')"
 ANCHOR = '    if pins:\n        try: pins=make_constrained_scheduler(ga,pins,normalized)'
 
@@ -18,7 +19,8 @@ def patch(source):
         return source
     if 'install_joint_minibatch_search' in source:
         raise ValueError('JOINT_MINIBATCH_UNKNOWN_INSTALLATION')
-    for token in (SOURCE, ANCHOR, "objective=opts.get('objective') or 'duration'", 'def run(payload,progress):'):
+    for token in (SOURCE, ANCHOR, "objective=opts.get('objective') or 'duration'", 'def run(payload,progress):',
+                  'def _live_scheduler_preview('):
         if source.count(token) != 1:
             raise ValueError('JOINT_MINIBATCH_ADAPTER_ANCHOR_DRIFT')
     if not source.index("objective=opts.get('objective') or 'duration'") < source.index(ANCHOR):

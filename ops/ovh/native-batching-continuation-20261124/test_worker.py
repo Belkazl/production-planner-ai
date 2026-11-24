@@ -1,4 +1,5 @@
 import copy
+import ast
 import hashlib
 import importlib.util
 import json
@@ -74,9 +75,12 @@ from pathlib import Path
 from .continuation import load_resume_state, export_resume_state, ContinuationError
 SOURCE = Path('/tmp/production_planner.py')
 
-def _live_scheduler_preview(preview,model,objective,ga,pins):
-    preview['resume_state']=export_resume_state(preview,model,objective,pins)
-    return preview
+def _live_scheduler_preview(sim, model, objective, ga, pins, checkpoint=False):
+    if not isinstance(sim,dict) or not isinstance(sim.get('ctx'),dict):
+        return None
+    plan=dict(sim)
+    plan['resume_state']=export_resume_state(plan,model,objective,pins)
+    return plan
 
 def run(payload,progress):
     ga=_namespace()
@@ -86,6 +90,23 @@ def run(payload,progress):
     pins=[]
     continuing=True
 CONTINUE_BODY
+    def captured_progress_best(model_arg,sim_arg,objective_arg):
+        out=original_progress_best(model_arg,sim_arg,objective_arg)
+        try:
+            now_check=time.monotonic()
+            if now_check-state['best_checked_at']>=1.5 or not state.get('verified_checkpoint'):
+                state['best_checked_at']=now_check
+                live=_live_scheduler_preview(sim_arg,normalized,objective_arg,ga,pins,checkpoint=True)
+                if live is not None:
+                    old=state.get('verified_checkpoint')
+                    if (old is None or objective_arg!='duration' or
+                        float(live['duration_minutes'])<=float(old['duration_minutes'])+1e-8):
+                        state['best_preview']=live
+                        state['best_seq']=int(state.get('best_seq') or 0)+1
+                        if live.get('_pp_verified_checkpoint_v1'):
+                            state['verified_checkpoint']=live
+        except Exception:pass
+        return out
     result=ga['optimize'](gens,population,seed,continuing,objective)
     _assert_owned(result,normalized)
     result['resume_state']=export_resume_state(result,normalized,objective,pins)
@@ -254,6 +275,51 @@ class PatchTests(unittest.TestCase):
                 self.assertIn(patcher.NEW_GUARD, updated)
                 self.assertNotIn(patcher.OLD_GUARD, updated)
             self.assertIn("from .continuation import fingerprint" if "portable={" in old else "load_resume_plan", updated)
+
+    def test_first_verified_joint_checkpoint_upgrades_equal_duration_without_waiting(self):
+        updated = patcher.patch(adapter_fixture(False))
+        names = {"_pp_joint_preview_evaluating", "_pp_joint_checkpoint_needs_genome",
+                 "_live_scheduler_preview", "captured_progress_best"}
+        nodes = [node for node in ast.walk(ast.parse(updated)) if isinstance(node, ast.FunctionDef)
+                 and node.name in names]
+        ga, _ = engine(genome())
+        ga[joint.STATE_KEY].update(evaluating=False, feasible=1)
+        earlier = dict(result(), resume_state={"version": 1}, _pp_verified_checkpoint_v1=True)
+        state = {"verified_checkpoint": earlier, "best_preview": earlier, "best_checked_at": 0.0}
+        context = {"ga": ga, "pins": [], "normalized": model(), "state": state,
+                   "time": types.SimpleNamespace(monotonic=lambda: 0.1),
+                   "export_resume_state": joint.export_joint_resume_state,
+                   "original_progress_best": lambda *_: "original-return"}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), "<public-preview-fixture>", "exec"), context)
+        sim = dict(result(), ctx={}, _pp_verified_checkpoint_v1=True)
+        self.assertEqual(context["captured_progress_best"](model(), sim, "duration"), "original-return")
+        self.assertEqual(state["verified_checkpoint"]["resume_state"]["version"], 2)
+        self.assertEqual(state["verified_checkpoint"]["resume_state"]["batch_genome"], genome())
+        self.assertEqual(state["verified_checkpoint"]["duration_minutes"], 30)
+        seq = state["best_seq"]
+        context["captured_progress_best"](model(), sim, "duration")
+        self.assertEqual(state["best_seq"], seq, "normal throttle resumes after the v2 promotion")
+
+        state.update(verified_checkpoint=dict(earlier, duration_minutes=20), best_preview=earlier,
+                     best_checked_at=0.0)
+        context["captured_progress_best"](model(), sim, "duration")
+        self.assertEqual(state["verified_checkpoint"]["duration_minutes"], 20,
+                         "promotion cannot discard an earlier shorter verified checkpoint")
+
+    def test_decode_in_progress_cannot_publish_or_force_a_checkpoint(self):
+        namespace = {}
+        exec(patcher.PREVIEW_HELPERS, namespace)
+        ga, _ = engine(genome())
+        ga[joint.STATE_KEY].update(evaluating=True, feasible=1)
+        self.assertTrue(namespace["_pp_joint_preview_evaluating"](ga))
+        self.assertFalse(namespace["_pp_joint_checkpoint_needs_genome"](ga, {"resume_state": {"version": 1}}))
+        updated = patcher.patch(adapter_fixture(False))
+        preview = next(node for node in ast.parse(updated).body if isinstance(node, ast.FunctionDef)
+                       and node.name == "_live_scheduler_preview")
+        namespace["export_resume_state"] = lambda *_args, **_kwargs: self.fail("unverified preview exported")
+        exec(compile(ast.Module(body=[preview], type_ignores=[]), "<public-preview-fixture>", "exec"), namespace)
+        self.assertIsNone(namespace["_live_scheduler_preview"](dict(result(), ctx={}), model(), "duration", ga, []))
+        self.assertFalse(namespace["_pp_joint_preview_evaluating"]({}))
 
     def test_patch_rejects_unknown_guards_scopes_and_partial_installs(self):
         old = adapter_fixture(True)

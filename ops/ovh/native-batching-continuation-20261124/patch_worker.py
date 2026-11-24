@@ -15,6 +15,69 @@ IMPORT = (
 ANCHOR = "SOURCE = Path('/tmp/production_planner.py')"
 OLD_GUARD = "native_state.get('version') != 1"
 NEW_GUARD = "native_state.get('version') not in (1, 2)"
+OLD_CHECKPOINT_GATE = "if now_check-state['best_checked_at']>=1.5 or not state.get('verified_checkpoint'):"
+NEW_CHECKPOINT_GATE = ("if (now_check-state['best_checked_at']>=1.5 or not state.get('verified_checkpoint') or\n"
+                       "                    _pp_joint_checkpoint_needs_genome(ga,state.get('verified_checkpoint'))):")
+PREVIEW_CHECK = "    if _pp_joint_preview_evaluating(ga):\n        return None\n"
+PREVIEW_HELPERS = '''# pp_joint_preview_verified_v1: publish only a feasibility-checked joint gene.
+def _pp_joint_preview_evaluating(ga):
+    joint=ga.get('_PP_JOINT_BATCH_STATE') if isinstance(ga,dict) else None
+    return (isinstance(joint,dict) and joint.get('version')=='joint-minibatch-v1-20261124'
+            and joint.get('evaluating') is True)
+
+
+def _pp_joint_checkpoint_needs_genome(ga,checkpoint):
+    joint=ga.get('_PP_JOINT_BATCH_STATE') if isinstance(ga,dict) else None
+    if (not isinstance(joint,dict) or joint.get('version')!='joint-minibatch-v1-20261124'
+            or joint.get('evaluating') is True or type(joint.get('feasible')) is not int
+            or joint['feasible']<1):
+        return False
+    saved=checkpoint.get('resume_state') if isinstance(checkpoint,dict) else None
+    return not (isinstance(saved,dict) and saved.get('version')==2
+                and saved.get('joint_schema')=='joint-minibatch-v1-20261124')
+
+
+'''
+
+
+def _patch_preview(source):
+    if 'pp_joint_preview_verified_v1' in source:
+        if (source.count(PREVIEW_HELPERS) != 1 or source.count(PREVIEW_CHECK) != 1
+                or source.count(NEW_CHECKPOINT_GATE) != 1 or OLD_CHECKPOINT_GATE in source):
+            raise RuntimeError('JOINT_CONTINUATION_PREVIEW_PARTIAL_INSTALLATION')
+        return source
+    if any(token in source for token in ('_pp_joint_preview_evaluating', '_pp_joint_checkpoint_needs_genome')):
+        raise RuntimeError('JOINT_CONTINUATION_PREVIEW_UNKNOWN_INSTALLATION')
+    tree = ast.parse(source)
+    helpers = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+               and node.name == '_live_scheduler_preview']
+    if len(helpers) != 1 or source.count(OLD_CHECKPOINT_GATE) != 1:
+        raise RuntimeError('JOINT_CONTINUATION_PREVIEW_ANCHOR_DRIFT')
+    helper = helpers[0]
+    if ([arg.arg for arg in helper.args.args] != ['sim', 'model', 'objective', 'ga', 'pins', 'checkpoint']
+            or len(helper.args.defaults) != 1 or not isinstance(helper.args.defaults[0], ast.Constant)
+            or helper.args.defaults[0].value is not False):
+        raise RuntimeError('JOINT_CONTINUATION_PREVIEW_SIGNATURE_DRIFT')
+    body = helper.body
+    if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+        body = body[1:]
+    expected_first = ast.parse("if not isinstance(sim,dict) or not isinstance(sim.get('ctx'),dict):\n    return None").body[0]
+    if not body or ast.dump(body[0]) != ast.dump(expected_first):
+        raise RuntimeError('JOINT_CONTINUATION_PREVIEW_FIRST_GUARD_DRIFT')
+    # The existing best-selection rule must admit an equal-duration upgrade and
+    # must continue protecting an earlier shorter verified checkpoint.
+    if source.count("float(live['duration_minutes'])<=float(old['duration_minutes'])+1e-8") != 1:
+        raise RuntimeError('JOINT_CONTINUATION_PREVIEW_BEST_ORDER_DRIFT')
+    lines = source.splitlines(keepends=True)
+    lines.insert(body[0].lineno - 1, PREVIEW_CHECK)
+    updated = ''.join(lines).replace(ANCHOR, PREVIEW_HELPERS + ANCHOR, 1)
+    updated = updated.replace(OLD_CHECKPOINT_GATE, NEW_CHECKPOINT_GATE, 1)
+    ast.parse(updated)
+    reversed_source = (updated.replace(PREVIEW_HELPERS, '', 1).replace(PREVIEW_CHECK, '', 1)
+                       .replace(NEW_CHECKPOINT_GATE, OLD_CHECKPOINT_GATE, 1))
+    if reversed_source != source:
+        raise RuntimeError('JOINT_CONTINUATION_PREVIEW_UNRELATED_CHANGE')
+    return updated
 
 
 def _export_calls(tree):
@@ -71,7 +134,7 @@ def patch(source):
                or not isinstance(node.keywords[0].value, ast.Name) or node.keywords[0].value.id != "ga"
                for node in exports):
             raise RuntimeError("JOINT_CONTINUATION_PARTIAL_EXPORT_INSTALLATION")
-        return source
+        return _patch_preview(source)
     if "from .joint_continuation" in source or any(node.keywords for node in exports + loads):
         raise RuntimeError("JOINT_CONTINUATION_UNRECOGNIZED_INSTALLATION")
     if source.count(ANCHOR) != 1 or source.count(OLD_GUARD) > 1:
@@ -100,13 +163,13 @@ def patch(source):
     if OLD_GUARD in updated:
         updated = updated.replace(OLD_GUARD, NEW_GUARD, 1)
     ast.parse(updated)
-    # Only the reviewed import, version guard and export argument may change.
+    # Only the reviewed import, version guard and load/export arguments change.
     reversed_source = updated.replace(IMPORT, "", 1).replace(NEW_GUARD, OLD_GUARD, 1)
     reversed_source = reversed_source.replace(",ga=ga)", ")")
     reversed_source = reversed_source.replace(",resume_plan=opts.get('resume_plan'))", ")")
     if reversed_source != source:
         raise RuntimeError("JOINT_CONTINUATION_UNRELATED_CHANGE")
-    return updated
+    return _patch_preview(updated)
 
 
 if __name__ == "__main__":
