@@ -1,0 +1,18 @@
+name: Audit synchronous storage on GA plan completion
+on:
+  push:
+    branches: [diagnose/ga-final-ui-freeze-20261124]
+    paths:
+      - .github/workflows/ga-final-storage-freeze-browser-20261124.yml
+      - ops/ovh/ga-final-freeze-20261124/db-shim-diagnostic.mjs
+permissions: {contents: read}
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Diagnose localStorage persistence and synchronous XHR on isolated account
+        run: node ops/ovh/ga-final-freeze-20261124/db-shim-diagnostic.mjs
