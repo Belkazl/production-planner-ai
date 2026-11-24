@@ -1,0 +1,69 @@
+name: Inspect live GA deadline and validator wiring
+on:
+  push:
+    branches: [fix/ga-no-runtime-deadline-20261124]
+    paths: [.github/workflows/ga-no-runtime-deadline-inspection-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect OVH source and config read-only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re,json
+          root=Path.home()/"liftorbit-migration"
+          app=root/"sources/ovh-app/current"
+          worker=root/"sources/current/ga/ga_workers"
+          paths=[
+            (app/"async-plan-transport.js",[(1,163)]),
+            (app/"python-ga-upstream.mjs",[(1,40),(310,399)]),
+            (worker/"manager.py",[(1,250)]),
+            (worker/"server.py",[(1,80)]),
+            (app/"ga-execution-budget.ts",[(1,115)]),
+            (app/"stop-ui.js",[(232,281)])
+          ]
+          for f,spans in paths:
+            if not f.exists():print("MISSING",str(f.relative_to(root)));continue
+            lines=f.read_text(errors="replace").splitlines()
+            print("FILE_START",str(f.relative_to(root)),len(lines))
+            for lo,hi in spans:
+             print("SPAN_START",f.name,lo,hi)
+             for i in range(lo-1,min(hi,len(lines))):
+              line=lines[i]
+              if re.search(r'password|private.key|authorization|bearer|credential|secret|api[_-]?key',line,re.I):line="[REDACTED]"
+              print("LINE",f.name,i+1,line[:300])
+          for f in (root/"production/current/ga-worker.json",app/"compose.yml",app/"docker-compose.yml",app/"Dockerfile"):
+            if not f.exists():continue
+            lines=f.read_text(errors="replace").splitlines()
+            print("CONFIG",str(f.relative_to(root)))
+            for i,l in enumerate(lines):
+             if any(k in l for k in ["PP_PY_GA_TIMEOUT_S","PY_GA_MAX_PROCS","GA_TIMEOUT","GA_ADAPTER","ga-worker","ga_workers","ga_python","timeout","MAX_WAIT","MAX_WAIT_MS"]):
+              safe=re.sub(r'(token|password|secret|key):?\s*\S+','[REDACTED]',l,flags=re.I)
+              print("CONFIG_LINE",i+1,safe[:220])
+          for f in [app/"restart-optimizer-ui.js",app/"auth-runtime.js",app/"bootstrap.ts",app/"language-ui.js"]:
+            if not f.exists():continue
+            lines=f.read_text(errors="replace").splitlines()
+            print("UI",f.name,len(lines))
+            hits=[i for i,l in enumerate(lines) if any(k in l for k in ['ga_client_wait_timeout','ga_progress_unavailable','validator','getElementById("valid")','getElementById("validator")','__PP_ASYNC_PLAN_TRANSPORT__','ppNonBlockingDbSyncHtml','__PP_SSE_PROGRESS_V1__','function ppOneSseProgressAndGantt','window.fetch=','textContent='])]
+            print("UI_HITS",f.name,len(hits))
+            for i in hits[:55]:
+              print("UI_LINE",i+1,lines[i][:260] if not re.search(r'password|token|secret|bearer',lines[i],re.I) else "[REDACTED]")
+          PY
