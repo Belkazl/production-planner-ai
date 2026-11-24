@@ -1,0 +1,18 @@
+name: Profile native full Gantt at GA completion
+on:
+  push:
+    branches: [diagnose/ga-final-ui-freeze-20261124]
+    paths:
+      - .github/workflows/ga-final-large-render-browser-20261124.yml
+      - ops/ovh/ga-final-freeze-20261124/large-render.mjs
+permissions: {contents: read}
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Profile 140-operation preview and 933-operation final plan in native editor
+        run: node ops/ovh/ga-final-freeze-20261124/large-render.mjs
