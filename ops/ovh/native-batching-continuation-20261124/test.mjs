@@ -4,6 +4,7 @@ import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {execFileSync} from "node:child_process";
+import {runInNewContext} from "node:vm";
 import {selectNativeResumeState, normalizeBatchGenome} from "./continuation.mjs";
 import {patchUpstream, classifyContinuationSource} from "./patch.mjs";
 import {patchUpstream as patchLifecycle} from "../first-candidate-preview-20261124/patch.mjs";
@@ -45,6 +46,52 @@ const native = (extra = {}) => ({
 const current = resume_state => ({id: jobId, modelKey, state: "completed", resume_state});
 const genome = () => ({version: 1, order_sequence: ["two", "one"], partitions: [
   {order_id: "two", sizes: [5, 5]}, {order_id: "one", sizes: [10, 5, 10, 5]}]});
+
+// Exact published build contract, including its original assertions. Source:
+// https://github.com/Belkazl/production-planner-ai/blob/c228648e41a4c65f2b9f1325c577a3ba03d6fb1b/tests/continuation-compat-contract.cjs
+// This suite checks the bridge against that unchanged contract. The unrelated
+// legacy baseline UI read uses its two known-positive markers; the standalone
+// selected-plan UI has its own actual-source execution tests in test_ui.mjs.
+const legacyBuildContract = String.raw`const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const base=fs.readFileSync("baselines/2026-10-10/aps-setup-bridge/index.ts","utf8");
+const bridge=fs.readFileSync("python-ga-upstream.mjs","utf8");
+assert(base.includes("resume_plan:cont&&ppInc"),"continue UI must send a compact incumbent seed");
+assert(base.includes("order_sequence:(Array.isArray(ppInc.order_sequence)"),"seed must carry or derive order sequence");
+assert(bridge.includes("const sameModel=current?.modelKey===modelKey"),"only the same account/model may seed continuity");
+assert(bridge.includes("normalizedContinuationSeed(ownedResult||verifiedBest,model,true)"),"must prefer validated own incumbent");
+assert(bridge.includes("if(!seed&&sameModel&&current?.resume_state)"),"legacy state with own sequence must be recoverable");
+assert(bridge.includes("if(!seed&&clientPlan)"),"saved-plan order seed must remain usable");
+assert(bridge.includes("delete args.resume_state"),"stale resume_state must not reach Python unchanged");
+assert(bridge.includes("args.resume_plan=seed"),"continuation must recompute with sanitized order seed");
+assert(bridge.includes("if(!seed)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409)"),"missing seed must fail closed, not silently restart");
+assert(bridge.includes("continuationError?state.error"),"continuation failures must preserve their safe error code");
+console.log("CONTINUATION_COMPAT_CONTRACT_PASS",JSON.stringify({
+ uiSeed:true,accountOwned:true,staleStateHandled:true,
+ clientSavedSeed:true,safePythonSeed:true,failClosed:true,errorCode:true
+}));
+`;
+
+function assertLegacyBuildContract(source) {
+  let passed = false;
+  runInNewContext(legacyBuildContract, {
+    require(name) {
+      if (name === "node:assert/strict") return assert;
+      assert.equal(name, "node:fs");
+      return {readFileSync(path, encoding) {
+        assert.equal(encoding, "utf8");
+        if (path === "python-ga-upstream.mjs") return source;
+        assert.equal(path, "baselines/2026-10-10/aps-setup-bridge/index.ts");
+        return "resume_plan:cont&&ppInc\norder_sequence:(Array.isArray(ppInc.order_sequence)";
+      }};
+    },
+    console: {log(marker) {
+      assert.equal(marker, "CONTINUATION_COMPAT_CONTRACT_PASS");
+      passed = true;
+    }}
+  }, {timeout: 1000});
+  assert.equal(passed, true);
+}
 
 function harness({state = native(), savedModelKey = modelKey, result = null, best = null, status = "completed", source = patched} = {}) {
   const requests = [], loads = [];
@@ -129,6 +176,29 @@ test("server native state wins over forged client state when the selected order 
   assert.equal(Object.hasOwn(options.resume_plan, "native_genome"), false);
   assert.equal(h.requests[0].principal, "owner");
   assert.deepEqual(h.loads, ["owner"]);
+});
+
+test("compact native hashes cannot bypass a missing or foreign order seed", async () => {
+  for (const order of [undefined, [], ["foreign"], [null]]) {
+    const saved = native();
+    if (order === undefined) delete saved.order_sequence;
+    else saved.order_sequence = order;
+    const rejected = harness({state: saved});
+    const response = await rejected.start({});
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, "continuation_seed_missing_or_invalid");
+    assert.equal(rejected.requests.length, 0);
+
+    const fallback = harness({state: saved});
+    assert.equal((await fallback.start({resume_plan: {order_sequence: ["one", "two"]}})).status, 202);
+    assert.equal(fallback.requests[0].body.options.resume_state, undefined);
+    assert.deepEqual(fallback.requests[0].body.options.resume_plan.order_sequence, ["one", "two"]);
+    assert.equal(fallback.requests[0].body.options.resume_plan.duration_minutes, 1e9);
+  }
+  const valid = harness({state: native({batch_genome: genome()})});
+  assert.equal((await valid.start({})).status, 202);
+  assert.deepEqual(valid.requests[0].body.options.resume_state.batch_genome, genome());
+  assert.deepEqual(valid.requests[0].body.options.resume_plan.order_sequence, genome().order_sequence);
 });
 
 test("Stop continuation retains the selected server verified joint checkpoint without scanning its plan", async () => {
@@ -282,11 +352,22 @@ test("only the three exact public continuation predecessors are accepted", async
   assert.throws(() => patchUpstream(original + "\n" + fixture), /SOURCE_DRIFT/);
 });
 
+test("all patched public predecessors retain the unchanged legacy build contract", () => {
+  for (const source of [original, fastFixture, fixture]) assertLegacyBuildContract(patchUpstream(source));
+  // Prove this gate detects the actual failed-build expression, rather than
+  // accepting either spelling or satisfying it with a non-executable marker.
+  assert.throws(() => assertLegacyBuildContract(patched.replace(
+    "if(!seed)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409)",
+    "if(!seed&&!nativeState)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409)"
+  )), /missing seed must fail closed/);
+});
+
 test("optional deployed bridge satisfies the exact source and syntax contract", {
   skip: !process.env.LIFTORBIT_NATIVE_CONTINUATION_FIXTURE_ROOT
 }, () => {
   const source = readFileSync(resolve(process.env.LIFTORBIT_NATIVE_CONTINUATION_FIXTURE_ROOT, "python-ga-upstream.mjs"), "utf8");
   const updated = patchUpstream(source);
   assert.equal(patchUpstream(updated), updated);
+  assertLegacyBuildContract(updated);
   execFileSync(process.execPath, ["--check", "--input-type=module"], {input: updated, stdio: ["pipe", "pipe", "pipe"]});
 });

@@ -174,6 +174,14 @@ public_health(){
   done
   return 1
 }
+wait_for_service_smoke(){
+  local attempt
+  for attempt in $(seq 1 36); do
+    if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then return 0; fi
+    if test "$attempt" -lt 36; then sleep 5; fi
+  done
+  return 1
+}
 verify_sources old
 verify_code_inputs
 sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1
@@ -209,7 +217,7 @@ rollback(){
     rollback_update_exit=6
   fi
   echo JOINT_RELEASE_ROLLBACK_UPDATE_EXIT "$rollback_update_exit"
-  if test "$restore_exit" -eq 0 && test "$rollback_update_exit" -eq 0 && sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then
+  if test "$restore_exit" -eq 0 && test "$rollback_update_exit" -eq 0 && wait_for_service_smoke; then
     echo JOINT_RELEASE_ROLLBACK_HEALTH_PASS
   else
     echo JOINT_RELEASE_ROLLBACK_HEALTH_UNCONFIRMED
@@ -227,12 +235,7 @@ echo JOINT_RELEASE_PHASE "$deployment_phase"
 sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
 deployment_phase=service_health
 echo JOINT_RELEASE_PHASE "$deployment_phase"
-ready=no
-for attempt in $(seq 1 36); do
-  if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then ready=yes; break; fi
-  sleep 5
-done
-test "$ready" = yes
+wait_for_service_smoke
 deployment_phase=verify_deployed_hashes
 echo JOINT_RELEASE_PHASE "$deployment_phase"
 verify_sources new

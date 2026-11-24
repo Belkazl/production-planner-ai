@@ -124,7 +124,9 @@ const newBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       const matchesSelection=(!selectedOrder||(nativeOrder&&
         JSON.stringify(nativeOrder.order_sequence)===JSON.stringify(selectedOrder.order_sequence)))&&
         (!selectedGenome||(nativeGenome&&JSON.stringify(nativeGenome)===JSON.stringify(selectedGenome)));
-      const nativeState=matchesSelection?nativeCandidate:null;
+      // A native state must also provide a usable model-owned order seed.
+      // Compact hashes alone cannot bypass the continuation fail-closed guard.
+      const nativeState=matchesSelection&&nativeOrder?nativeCandidate:null;
       let seed=nativeState?nativeOrder:null;
       let source=nativeState?"same_account_native_state":null;
       if(selectedGenome&&!nativeState){seed=selectedOrder;source="selected_unscored_batch_seed";}
@@ -154,7 +156,7 @@ const newBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       }
       delete args.resume_state;
       delete args.resume_plan;
-      if(!seed&&!nativeState)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409);
+      if(!seed)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409);
       if(nativeState)args.resume_state=nativeState;
       // Separate order-only fallback for old schemas or changed native hashes.
       // No batch fields or historical score are copied into this portable hint.

@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -195,6 +196,54 @@ class StageTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     stage.make_manifest(value, root)
                 self.assertFalse((root / 'manifest.tsv').exists())
+
+
+class RollbackHealthTests(unittest.TestCase):
+    def function(self, name):
+        # Extract only the reviewed shell functions. Never execute release.sh or
+        # its SSH/update path; sudo and sleep below are local in-memory stubs.
+        source = (HERE / 'release.sh').read_text()
+        begin = source.index(name + '(){\n')
+        end = source.index('\n}', begin) + 2
+        return source[begin:end]
+
+    def test_service_startup_wait_is_bounded_and_returns_real_health(self):
+        for ready_after, code, calls, pauses in ((3, 0, 3, 2), (999, 1, 36, 35)):
+            script = '''set -euo pipefail
+calls=0; pauses=0
+sudo(){ calls=$((calls+1)); test "$calls" -ge READY_AFTER; }
+sleep(){ test "$1" = 5; pauses=$((pauses+1)); }
+'''.replace('READY_AFTER', str(ready_after)) + self.function('wait_for_service_smoke') + '''
+if wait_for_service_smoke; then code=0; else code=$?; fi
+printf '%s %s %s\\n' "$code" "$calls" "$pauses"
+'''
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                                    env={'PATH': '/usr/bin:/bin'}, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), f'{code} {calls} {pauses}')
+
+    def test_rollback_startup_grace_preserves_original_release_failure(self):
+        for ready_after, health, calls, pauses in ((3, 'PASS', 3, 2), (999, 'UNCONFIRMED', 36, 35)):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'manifest.tsv').write_text('')
+                script = '''set -euo pipefail
+backup="$1"; manifest="$backup/manifest.tsv"; deployment_phase=update_services
+calls=0; pauses=0
+sudo(){
+  if test "$3" = update; then return 0; fi
+  if test "$3" != smoke; then return 97; fi
+  calls=$((calls+1)); test "$calls" -ge READY_AFTER
+}
+sleep(){ test "$1" = 5; pauses=$((pauses+1)); }
+trap 'printf "LOCAL_SMOKE_COUNTS %s %s\\n" "$calls" "$pauses"' EXIT
+'''.replace('READY_AFTER', str(ready_after))
+                script += self.function('wait_for_service_smoke') + '\n' + self.function('rollback') + '\nrollback 23\n'
+                result = subprocess.run(['bash', '-c', script, 'bash', directory],
+                                        capture_output=True, text=True, env={'PATH': '/usr/bin:/bin'}, timeout=5)
+                self.assertEqual(result.returncode, 23, result.stderr)
+                self.assertIn('JOINT_RELEASE_ROLLBACK_HEALTH_' + health, result.stdout)
+                self.assertIn(f'LOCAL_SMOKE_COUNTS {calls} {pauses}', result.stdout)
 
 
 if __name__ == '__main__':
