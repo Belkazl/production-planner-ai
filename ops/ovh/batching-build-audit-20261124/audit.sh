@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import subprocess
 import sys
 
 ROOT = Path('/home/liftorbit-ci/liftorbit-migration')
@@ -101,6 +102,34 @@ def inspect_isolation_metadata():
                 print(f'BATCH_BUILD_USERNS flag={name} status=ok value={value}')
         except OSError as error:
             print(f'BATCH_BUILD_USERNS flag={name} status={error_status(error)}')
+
+
+def rootless_isolation_probe(run=None, lstat=None):
+    # One ordinary, ephemeral capability check; no files, code inputs or services.
+    run = run or subprocess.run
+    lstat = lstat or os.lstat
+    command = ['/usr/bin/unshare', '--user', '--map-root-user', '--mount',
+               '--propagation', 'private', '--net', '--pid', '--fork', '--', '/bin/true']
+    try:
+        for path in ('/usr/bin/unshare', '/bin/true'):
+            info = lstat(path)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                    info.st_mode & (stat.S_ISUID | stat.S_ISGID | 0o022) or not info.st_mode & 0o111):
+                return 'error'
+        result = run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.PIPE, timeout=5, check=False,
+                     env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+        if result.returncode == 0:
+            return 'supported'
+        # Captured stderr stays private in memory and is never included in output.
+        message = result.stderr.lower() if isinstance(result.stderr, bytes) else b''
+        if b'operation not permitted' in message or b'permission denied' in message:
+            return 'denied'
+        return 'error'
+    except subprocess.TimeoutExpired:
+        return 'timeout'
+    except OSError as error:
+        return 'denied' if error.errno in (errno.EACCES, errno.EPERM) else 'error'
 
 
 def inside_project(path):
@@ -502,6 +531,7 @@ def allowed_line(line):
         r'BATCH_BUILD_BASE_AST status=(?:unavailable|ok functions=[0-9]+ calls=[0-9]+ aliases=[0-9]+)',
         r'BATCH_BUILD_CAP binary=(?:bwrap|unshare) status=(?:ok available=[01]|unavailable)',
         r'BATCH_BUILD_USERNS flag=(?:unprivileged_userns_clone|apparmor_restrict_unprivileged_userns|max_user_namespaces) status=(?:ok value=[0-9]{1,10}|invalid|missing|denied|symlink_refused|unreadable)',
+        r'BATCH_BUILD_USERNS_PROBE status=(?:supported|denied|timeout|error)',
         r'BATCH_BUILD_ENV_KEYS status=not_configured',
         r'BATCH_BUILD_DONE',
         r'BATCH_BUILD_ERROR status=unavailable',
@@ -575,6 +605,29 @@ def main():
         assert list(base_source_lines(base | {'PP_PY_GA_SOURCE_SHA256': '0' * 64})) == ['BATCH_BUILD_BASE status=hash_mismatch']
         assert list(base_source_lines(base | {'PP_RUNTIME_SRC_COUNT': '65'})) == ['BATCH_BUILD_BASE status=invalid_count']
         assert 'PP_SETUP_ACTIVE_PATCH_B64' in CODE_KEYS
+        from types import SimpleNamespace
+        root_binary = lambda _path: SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=0)
+        calls = []
+        def fake_run(command, **options):
+            calls.append((command, options))
+            return SimpleNamespace(returncode=0, stderr=b'')
+        assert rootless_isolation_probe(fake_run, root_binary) == 'supported'
+        assert len(calls) == 1
+        assert calls[0][0] == ['/usr/bin/unshare', '--user', '--map-root-user', '--mount', '--propagation', 'private', '--net', '--pid', '--fork', '--', '/bin/true']
+        assert calls[0][1]['timeout'] == 5
+        assert calls[0][1]['env'] == {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}
+        assert calls[0][1]['stderr'] == subprocess.PIPE and calls[0][1]['stdout'] == subprocess.DEVNULL
+        denied = lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stderr=b'unshare: Operation not permitted ' + sentinel.encode())
+        assert rootless_isolation_probe(denied, root_binary) == 'denied'
+        def timed_out(*_args, **_kwargs):
+            raise subprocess.TimeoutExpired('fixed-probe', 5, stderr=sentinel.encode())
+        assert rootless_isolation_probe(timed_out, root_binary) == 'timeout'
+        before_calls = len(calls)
+        assert rootless_isolation_probe(fake_run, lambda _path: SimpleNamespace(st_mode=stat.S_IFREG | 0o4755, st_uid=0)) == 'error'
+        assert rootless_isolation_probe(fake_run, lambda _path: SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=1000)) == 'error'
+        assert len(calls) == before_calls
+        assert allowed_line('BATCH_BUILD_USERNS_PROBE status=denied')
+        assert not allowed_line('BATCH_BUILD_USERNS_PROBE status=denied stderr=' + sentinel)
         print('BATCH_BUILD_SELF_TEST_PASS')
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--filter':
@@ -596,6 +649,8 @@ def main():
     inspect_source_names()
     inspect_configs()
     inspect_isolation_metadata()
+    # A denied/unsupported result is terminal for this probe. Never retry or fall back.
+    print('BATCH_BUILD_USERNS_PROBE status=' + rootless_isolation_probe())
     # No env file path has been confirmed. Do not probe guessed .env locations.
     print('BATCH_BUILD_ENV_KEYS status=not_configured')
     print('BATCH_BUILD_DONE')
