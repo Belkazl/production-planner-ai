@@ -1,0 +1,121 @@
+name: Fix final-optimization browser hang from synchronous DB writes
+on:
+  push:
+    branches: [main, fix/ga-final-nonblocking-storage-20261124]
+    paths:
+      - .github/workflows/liftorbit-ga-final-nonblocking-db-release-20261124.yml
+      - ops/ovh/ga-final-freeze-20261124/patch-auth.mjs
+      - ops/ovh/ga-final-freeze-20261124/async-db-qa.mjs
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-ga-final-nonblocking-storage
+  cancel-in-progress: false
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Guard source, preview then release on main, auto-rollback if browser QA fails
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$KEY" > "$dir/key"
+          printf '%s\n' "$KH" > "$dir/kh"
+          chmod 600 "$dir/key" "$dir/kh"
+          ssh_call(){ ssh -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$dir/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/kh" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp_call "$USER@$HOST:$root/current/auth-runtime.js" "$dir/auth-old.js"
+          scp_call "$USER@$HOST:$root/current/language-build.ts" "$dir/language-build.ts"
+          scp_call "$USER@$HOST:$root/current/nonblocking-db-shim.js" "$dir/nonblocking-db-shim.js"
+          node ops/ovh/ga-final-freeze-20261124/patch-auth.mjs "$dir/auth-old.js" "$dir/auth-new.js" "$dir/language-build.ts" "$dir/nonblocking-db-shim.js"
+          node --check "$dir/auth-new.js"
+          node - "$dir/auth-old.js" "$dir/auth-new.js" <<'JS'
+          const fs=require("node:fs"),assert=require("node:assert/strict");
+          const [a,b]=process.argv.slice(2).map(x=>fs.readFileSync(x,"utf8"));
+          const old="return new Response(ppResourceUnitsHtml(enhanced),{";
+          const fixed="return new Response(ppResourceUnitsHtml(ppNonBlockingDbSyncHtml(enhanced)),{";
+          assert.equal(b.replace(fixed,old),a);
+          assert.equal(b.split(fixed).length,2);
+          assert(a.includes('"x-liftorbit-ui":"etalon-modules-compat"'));
+          console.log("GA_FINAL_AUTH_ONLY_ONE_LINE_CHANGE_PASS");
+          JS
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo GA_FINAL_NONBLOCKING_PREVIEW_START
+            PP_GA_ASYNC_PREVIEW=1 PP_LANGUAGE_BUILD="$dir/language-build.ts" PP_ASYNC_DB_SHIM_PATH="$dir/nonblocking-db-shim.js" node ops/ovh/ga-final-freeze-20261124/async-db-qa.mjs
+            echo GA_FINAL_NONBLOCKING_PREVIEW_FULL_PASS
+            exit 0
+          fi
+          old_sha=$(sha256sum "$dir/auth-old.js" | cut -d' ' -f1)
+          new_sha=$(sha256sum "$dir/auth-new.js" | cut -d' ' -f1)
+          stage="$root/auth-runtime.ga-final-nonblocking-20261124.next"
+          scp_call "$dir/auth-new.js" "$USER@$HOST:$stage"
+          ssh_call "$USER@$HOST" bash -s -- "$old_sha" "$new_sha" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration/sources/ovh-app"
+          target="$root/current/auth-runtime.js"
+          stage="$root/auth-runtime.ga-final-nonblocking-20261124.next"
+          backup="$HOME/liftorbit-migration/patch-backups/ga-final-nonblocking-db-20261124"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1" || { echo GA_FINAL_AUTH_SOURCE_DRIFT;exit 6; }
+          test "$(sha "$stage")" = "$2" || { echo GA_FINAL_AUTH_STAGE_MISMATCH;exit 6; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/auth-runtime.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/auth-runtime.js" "$target" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_FINAL_AUTH_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          ok=no
+          for i in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then ok=yes;break;fi
+            sleep 5
+          done
+          test "$ok" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo GA_FINAL_ASYNC_OVH_DEPLOY_AND_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$root/current/auth-runtime.js" "$dir/auth-verified.js"
+          test "$(sha256sum "$dir/auth-verified.js"|cut -d' ' -f1)" = "$new_sha"
+          health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health || true)
+          auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/api/auth/me || true)
+          test "$health" = 200
+          test "$auth" = 401
+          echo GA_FINAL_ASYNC_DEPLOYED_FILE_AND_PUBLIC_HEALTH_PASS
+          set +e
+          PP_GA_ASYNC_PREVIEW=0 node ops/ovh/ga-final-freeze-20261124/async-db-qa.mjs
+          qa_status=$?
+          set -e
+          if [ "$qa_status" -ne 0 ];then
+            echo GA_FINAL_ASYNC_PRODUCTION_BROWSER_QA_FAILED_ROLLING_BACK
+            ssh_call "$USER@$HOST" bash -s <<'ROLLBACK'
+          set -euo pipefail
+          backup="$HOME/liftorbit-migration/patch-backups/ga-final-nonblocking-db-20261124"
+          target="$HOME/liftorbit-migration/sources/ovh-app/current/auth-runtime.js"
+          cp -p "$backup/auth-runtime.js" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo GA_FINAL_ASYNC_QA_ROLLBACK_VERIFIED
+          ROLLBACK
+            exit "$qa_status"
+          fi
+          echo GA_FINAL_ASYNC_PRODUCTION_RELEASE_VERIFIED
