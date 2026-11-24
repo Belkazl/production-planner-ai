@@ -1,0 +1,15 @@
+import {readFileSync,writeFileSync} from "node:fs";
+import assert from "node:assert/strict";
+const [oldFile,newFile]=process.argv.slice(2);
+if(!oldFile||!newFile)throw Error("GA_AUTH_COMPAT_FILES_REQUIRED");
+const old=readFileSync(oldFile,"utf8");
+const from="for(const [before,after] of gaProgressRecovery){";
+const to='for(const [before,after] of (gaTransport.includes("ppRouteGaDiagnosticsOutsideValidator")&&gaTransport.includes("for(;;)")?[]:gaProgressRecovery)){';
+assert.equal(old.split(from).length,2,"GA_PROGRESS_COMPAT_RECOVERY_ANCHOR_DRIFT");
+assert(old.includes('const originalTransport=typeof PP_ASYNC_PLAN_INLINE==="string"?PP_ASYNC_PLAN_INLINE:"";'),"auth transport missing");
+assert(old.includes('if(gaTransport.split(before).length!==2)throw new Error("PP_GA_PROGRESS_RECOVERY_ANCHOR_CHANGED")'),"legacy guard missing");
+assert(old.includes("ppResourceUnitsHtml(ppNonBlockingDbSyncHtml(enhanced))"),"latest unit and db fixes missing");
+const next=old.replace(from,to);
+assert.equal(next.replace(to,from),old,"only compatibility guard changed");
+writeFileSync(newFile,next);
+console.log("GA_AUTH_NEW_TRANSPORT_SKIP_LEGACY_RECOVERY_PASS");
