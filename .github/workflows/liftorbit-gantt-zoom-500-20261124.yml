@@ -1,0 +1,91 @@
+name: Extend Gantt zoom to 500 percent
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-gantt-zoom-500-20261124.yml
+      - ops/ovh/gantt-zoom-500-20261124/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  test-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the display-only zoom patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/gantt-zoom-500-20261124/zoom.mjs
+          node --check ops/ovh/gantt-zoom-500-20261124/patch.mjs
+      - name: Deploy the zoom limit with source guards and rollback
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_HOST" = "51.255.163.121"
+          test "$DEPLOY_USER" = "liftorbit-ci"
+          umask 077
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$tmp/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$tmp/known-hosts"
+          chmod 600 "$tmp/key" "$tmp/known-hosts"
+          ssh_call(){ ssh -i "$tmp/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/known-hosts" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$tmp/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$tmp/known-hosts" -o ConnectTimeout=20 "$@"; }
+          source_root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp_call "$DEPLOY_USER@$DEPLOY_HOST:$source_root/current/auth-runtime.js" "$tmp/auth-before.js"
+          node ops/ovh/gantt-zoom-500-20261124/patch.mjs "$tmp/auth-before.js" "$tmp/auth-after.js"
+          node --check "$tmp/auth-after.js"
+          if cmp -s "$tmp/auth-before.js" "$tmp/auth-after.js"; then
+            echo GANTT_ZOOM_500_ALREADY_DEPLOYED
+            exit 0
+          fi
+          old_sha=$(sha256sum "$tmp/auth-before.js" | cut -d' ' -f1)
+          new_sha=$(sha256sum "$tmp/auth-after.js" | cut -d' ' -f1)
+          scp_call "$tmp/auth-after.js" "$DEPLOY_USER@$DEPLOY_HOST:$source_root/auth-runtime.gantt-zoom-500.next"
+          ssh_call "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$old_sha" "$new_sha" "$GITHUB_RUN_ID" <<'REMOTE'
+          set -euo pipefail
+          source_root="$HOME/liftorbit-migration/sources/ovh-app"
+          target="$source_root/current/auth-runtime.js"
+          staged="$source_root/auth-runtime.gantt-zoom-500.next"
+          case "$3" in *[!0-9]*|'') exit 6;; esac
+          backup="$HOME/liftorbit-migration/patch-backups/gantt-zoom-500-20261124/$3"
+          sha(){ sha256sum "$1" | cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1" || { echo GANTT_ZOOM_500_SOURCE_CHANGED; exit 6; }
+          test "$(sha "$staged")" = "$2" || { echo GANTT_ZOOM_500_STAGE_MISMATCH; exit 6; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/auth-runtime.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/auth-runtime.js" "$target"
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GANTT_ZOOM_500_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$staged" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          ready=no
+          for attempt in $(seq 1 36); do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then ready=yes; break; fi
+            sleep 5
+          done
+          test "$ready" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo GANTT_ZOOM_500_HTML_DEPLOY_AND_SMOKE_PASS
+          REMOTE
+          scp_call "$DEPLOY_USER@$DEPLOY_HOST:$source_root/current/auth-runtime.js" "$tmp/auth-verified.js"
+          test "$(sha256sum "$tmp/auth-verified.js" | cut -d' ' -f1)" = "$new_sha"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health)" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/api/auth/me)" = 401
+          echo GANTT_ZOOM_500_RELEASE_HEALTH_AND_AUTH_GUARD_PASS
