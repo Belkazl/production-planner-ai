@@ -25,6 +25,9 @@ def base_model():
 
 def cutlets_model():
     model = base_model()
+    # Match the established pure-operation contract. Empty unknown constraint
+    # fields intentionally disable the conservative interleave adapter.
+    model.pop('constraints')
     model['equipment'] = [{'id': 'PAN_SLOT_' + str(i), 'name': 'Synthetic pan slot ' + str(i),
         'kind': 'synthetic_pan', 'capacity': 1, 'capacity_unit': 'шт.'} for i in (1, 2)]
     model['orders'] = [{'id': 'CUTLET_' + str(i), 'quantity': 1, 'unit': 'шт.',
@@ -52,6 +55,9 @@ def multistage_model():
 def staff_setup_model():
     """Same schema as public worker test_full_runtime.sample; invented data."""
     model = base_model()
+    # Midnight makes wall-clock shift minutes and plan-relative minutes agree;
+    # this fixture must test shift repair, not infer a native time-origin rule.
+    model['start'] = '2026-11-24T00:00:00'
     model['equipment'] = [{'id': 'SHIFT_MACHINE', 'name': 'Synthetic staff station',
         'kind': 'workstation', 'capacity': 10, 'capacity_unit': 'шт.'}]
     model['employees'] = [{'id': 'SHIFT_EMP', 'name': 'Synthetic operator', 'role': 'operator', 'shift': 'day'}]
@@ -73,9 +79,25 @@ def check_staff_setup(plan, model):
         raise RegressionError('staff_setup_native_invalid')
     rows = plan.get('generic_operations')
     if not isinstance(rows, list):
-        rows = list(plan.get('operations') or []) + list(plan.get('setup_operations') or [])
-    setup = [row for row in rows if row.get('is_setup') or row.get('phase') == 'setup']
-    production = [row for row in rows if row not in setup]
+        rows = plan.get('operations') or []
+    separate = plan.get('setup_operations') or []
+    if (not isinstance(rows, list) or not isinstance(separate, list)
+            or any(not isinstance(row, dict) for row in rows + separate)):
+        raise RegressionError('staff_setup_row_shape')
+    embedded = [row for row in rows if row.get('is_setup') or row.get('phase') == 'setup']
+    production = [row for row in rows if not row.get('is_setup') and row.get('phase') != 'setup']
+    # The current adapter exports production in generic_operations and native
+    # setups separately. Older formatters also include the setup rows in the
+    # generic array. Verify duplicate representations instead of counting them
+    # twice or overlooking a separate setup.
+    if embedded and separate:
+        def signature(row):
+            return (row.get('order'), finite(row.get('start_min')), finite(row.get('end_min')),
+                    tuple(row.get('equipment_ids') or []), tuple(row.get('employee_ids') or []))
+        if sorted(map(signature, embedded), key=repr) != sorted(map(signature, separate), key=repr):
+            raise RegressionError('staff_setup_arrays_disagree')
+    setup = separate or embedded
+    rows = production + setup
     if len(setup) != 1 or len(production) != 2:
         raise RegressionError('staff_setup_operation_coverage')
     wanted = {order['id'] for order in model['orders']}
@@ -105,7 +127,7 @@ def check_staff_setup(plan, model):
         if staff:
             day = math.floor(start / 1440)
             if not any(start >= day * 1440 + low - 1e-7 and end <= day * 1440 + high + 1e-7
-                       for low, high in ((0, 20), (40, 100))):
+                       for low, high in ((480, 500), (520, 580))):
                 raise RegressionError('staff_setup_shift_violation')
     for events in busy.values():
         events.sort()

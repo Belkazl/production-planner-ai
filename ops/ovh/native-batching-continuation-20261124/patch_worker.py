@@ -18,7 +18,7 @@ OLD_GUARD = "native_state.get('version') != 1"
 NEW_GUARD = "native_state.get('version') not in (1, 2)"
 OLD_CHECKPOINT_GATE = "if now_check-state['best_checked_at']>=1.5 or not state.get('verified_checkpoint'):"
 NEW_CHECKPOINT_GATE = ("if (now_check-state['best_checked_at']>=1.5 or not state.get('verified_checkpoint') or\n"
-                       "                    _pp_joint_checkpoint_needs_genome(ga,state.get('verified_checkpoint'))):")
+                       "                    _pp_joint_checkpoint_needs_genome(ga,state.get('verified_checkpoint'),sim_arg,objective_arg)):")
 PREVIEW_CHECK = "    if _pp_joint_preview_evaluating(ga):\n        return None\n"
 OLD_CHECKPOINT_ORDER = "        stored=cache.get('best_order')\n"
 NEW_CHECKPOINT_ORDER = OLD_CHECKPOINT_ORDER + '''        # pp_joint_checkpoint_order_v1: the evaluated gene owns its sequence.
@@ -39,15 +39,32 @@ def _pp_joint_preview_evaluating(ga):
             and joint.get('evaluating') is True)
 
 
-def _pp_joint_checkpoint_needs_genome(ga,checkpoint):
+def _pp_joint_checkpoint_needs_genome(ga,checkpoint,sim=None,objective='duration'):
     joint=ga.get('_PP_JOINT_BATCH_STATE') if isinstance(ga,dict) else None
     if (not isinstance(joint,dict) or joint.get('version')!='joint-minibatch-v1-20261124'
             or joint.get('evaluating') is True or type(joint.get('feasible')) is not int
             or joint['feasible']<1):
         return False
-    saved=checkpoint.get('resume_state') if isinstance(checkpoint,dict) else None
-    return not (isinstance(saved,dict) and saved.get('version')==2
-                and saved.get('joint_schema')=='joint-minibatch-v1-20261124')
+    export=joint.get('export_incumbent')
+    if not callable(export) or not isinstance(sim,dict):
+        return False
+    try:
+        # This callback accepts only an exact genotype already registered after
+        # complete feasibility checks. A best event occurs once per improvement;
+        # throttling it can otherwise retain an older best for the whole run.
+        genome=export(sim)
+        if not isinstance(genome,dict):
+            return False
+        saved=checkpoint.get('resume_state') if isinstance(checkpoint,dict) else None
+        if not (isinstance(saved,dict) and saved.get('version')==2
+                and saved.get('joint_schema')=='joint-minibatch-v1-20261124'
+                and saved.get('batch_genome')==genome):
+            return True
+        if objective!='duration':
+            return True
+        return 0<=float(sim['duration_minutes'])<float(checkpoint['duration_minutes'])-1e-8
+    except (ValueError,TypeError,KeyError,OverflowError):
+        return False
 
 
 '''

@@ -377,6 +377,21 @@ class PatchTests(unittest.TestCase):
         context["captured_progress_best"](model(), sim, "duration")
         self.assertEqual(state["best_seq"], seq, "normal throttle resumes after the v2 promotion")
 
+        mixed = genome(); mixed['partitions'][1]['sizes'] = [5, 10, 5, 10]
+        ga[joint.STATE_KEY]['export_incumbent'] = lambda _plan: copy.deepcopy(mixed)
+        improved = dict(sim, duration_minutes=25)
+        context['captured_progress_best'](model(), improved, 'duration')
+        self.assertEqual(state['best_seq'], seq + 1, 'a better mixed incumbent must not be lost inside the throttle')
+        self.assertEqual(state['verified_checkpoint']['resume_state']['batch_genome'], mixed)
+        self.assertEqual(state['verified_checkpoint']['duration_minutes'], 25)
+        improved_again = dict(improved, duration_minutes=24)
+        context['captured_progress_best'](model(), improved_again, 'duration')
+        self.assertEqual(state['verified_checkpoint']['duration_minutes'], 24,
+                         'a verified improvement with the same genotype must also replace its prior score')
+        seq = state['best_seq']
+        context['captured_progress_best'](model(), improved_again, 'duration')
+        self.assertEqual(state['best_seq'], seq, 'duplicate best callbacks stay throttled')
+
         state.update(verified_checkpoint=dict(earlier, duration_minutes=20), best_preview=earlier,
                      best_checked_at=0.0)
         context["captured_progress_best"](model(), sim, "duration")

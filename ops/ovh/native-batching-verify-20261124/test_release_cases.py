@@ -42,11 +42,11 @@ def multistage_plan():
 
 def staff_plan():
     first = {'order': 'SHIFT_ORDER_A', 'batch': 1, 'batch_quantity': 1, 'operation_id': 'SHIFT_WORK',
-             'start_min': 0, 'end_min': 10, 'equipment_ids': ['SHIFT_MACHINE'], 'employee_ids': ['SHIFT_EMP']}
-    second = {**first, 'order': 'SHIFT_ORDER_B', 'start_min': 55, 'end_min': 65}
-    setup = {'order': 'SHIFT_ORDER_B', 'phase': 'setup', 'start_min': 40, 'end_min': 55,
+             'start_min': 480, 'end_min': 490, 'equipment_ids': ['SHIFT_MACHINE'], 'employee_ids': ['SHIFT_EMP']}
+    second = {**first, 'order': 'SHIFT_ORDER_B', 'start_min': 535, 'end_min': 545}
+    setup = {'order': 'SHIFT_ORDER_B', 'phase': 'setup', 'start_min': 520, 'end_min': 535,
              'equipment_ids': ['SHIFT_MACHINE'], 'employee_ids': ['SHIFT_EMP']}
-    return {'valid': True, 'duration_minutes': 65, 'setup_count': 1, 'setup_minutes': 15,
+    return {'valid': True, 'duration_minutes': 545, 'setup_count': 1, 'setup_minutes': 15,
             'staff_shift_repaired': True, 'generic_operations': [first, setup, second],
             'batches': [{'order': 'SHIFT_ORDER_A', 'batch': 1, 'quantity': 1},
                         {'order': 'SHIFT_ORDER_B', 'batch': 1, 'quantity': 1}]}
@@ -61,12 +61,36 @@ class ReleaseCaseTests(unittest.TestCase):
         spec.loader.exec_module(cls.diagnostics)
 
     def test_cutlets_true_three_minute_conservation_and_precedence(self):
+        self.assertNotIn('constraints', cases.cutlets_model())
         result = cases.check_production(cutlets_plan(), cases.cutlets_model(), 3)
         self.assertEqual(result['operation_count'], 6)
         self.assertEqual(result['total_quantity'], 3)
         bad = cutlets_plan(); bad['operations'][4]['start_min'] = 0; bad['operations'][4]['end_min'] = 1
         with self.assertRaisesRegex(cases.RegressionError, 'regression_precedence'):
             cases.check_production(bad, cases.cutlets_model(), 3)
+
+    def test_cutlets_preview_requires_feasibility_but_final_requires_three(self):
+        final = cutlets_plan()
+        intermediate = copy.deepcopy(final)
+        intermediate['operations'][-1].update(start_min=3, end_min=4)
+        intermediate['duration_minutes'] = 4
+        adapter = types.SimpleNamespace()
+        def factory():
+            return {'_pp_schedule_sequence': lambda model, sequence: intermediate,
+                    'optimize': lambda: final}
+        def run(payload, progress):
+            adapter._namespace()['optimize']()
+            progress({'running': True, 'best_preview': intermediate})
+            return final
+        adapter._namespace, adapter.run = factory, run
+        final_checker = lambda plan, model, unused: cases.check_production(plan, model, 3)
+        preview_checker = lambda plan, model, unused: cases.check_production(plan, model)
+        _, report = verification.observed_run(adapter, self.diagnostics, cases.cutlets_model(), {},
+            checker=final_checker, preview_checker=preview_checker)
+        self.assertTrue(report['all_published_previews_feasible'])
+        self.assertTrue(report['result']['reached_target'])
+        with self.assertRaisesRegex(cases.RegressionError, 'regression_target_duration'):
+            final_checker(intermediate, cases.cutlets_model(), None)
 
     def test_multistage_checker_enforces_every_stage_capacity_and_quantity(self):
         result = cases.check_production(multistage_plan(), cases.multistage_model())
@@ -157,17 +181,33 @@ class ReleaseCaseTests(unittest.TestCase):
         self.assertTrue(result['staff_shift_repaired'])
         self.assertEqual(result['setup_minutes'], 15)
         invalid = staff_plan()
-        invalid['generic_operations'][1].update(start_min=10, end_min=25)
-        invalid['generic_operations'][2].update(start_min=25, end_min=35)
-        invalid['duration_minutes'] = 35
+        invalid['generic_operations'][1].update(start_min=490, end_min=505)
+        invalid['generic_operations'][2].update(start_min=505, end_min=515)
+        invalid['duration_minutes'] = 515
         with self.assertRaisesRegex(cases.RegressionError, 'staff_setup_shift_violation'):
             cases.check_staff_setup(invalid, cases.staff_setup_model())
-        for mutate in (lambda plan: plan['generic_operations'][1].update(end_min=54),
+        for mutate in (lambda plan: plan['generic_operations'][1].update(end_min=534),
                        lambda plan: plan['generic_operations'][0].update(batch_quantity=2),
                        lambda plan: plan['generic_operations'][0].update(employee_ids=[])):
             invalid = staff_plan(); mutate(invalid)
             with self.assertRaises(cases.RegressionError):
                 cases.check_staff_setup(invalid, cases.staff_setup_model())
+
+    def test_staff_setup_separate_and_duplicate_arrays_keep_all_constraints(self):
+        plan = staff_plan()
+        setup = plan['generic_operations'].pop(1)
+        plan['setup_operations'] = [copy.deepcopy(setup)]
+        self.assertTrue(cases.check_staff_setup(plan, cases.staff_setup_model())['independent_valid'])
+        plan['generic_operations'].insert(1, copy.deepcopy(setup))
+        self.assertTrue(cases.check_staff_setup(plan, cases.staff_setup_model())['independent_valid'])
+        mismatch = copy.deepcopy(plan)
+        mismatch['setup_operations'][0]['start_min'] += 1
+        with self.assertRaisesRegex(cases.RegressionError, 'staff_setup_arrays_disagree'):
+            cases.check_staff_setup(mismatch, cases.staff_setup_model())
+        duplicate = copy.deepcopy(plan)
+        duplicate['setup_operations'].append(copy.deepcopy(setup))
+        with self.assertRaises(cases.RegressionError):
+            cases.check_staff_setup(duplicate, cases.staff_setup_model())
 
     def test_native_error_chain_exports_only_types_and_known_public_code(self):
         inner = RuntimeError('private-native-source-fragment')

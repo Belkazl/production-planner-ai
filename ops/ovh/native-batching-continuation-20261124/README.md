@@ -58,8 +58,11 @@ fitness, and never acquire trusted native hashes from client input.
 
 The adapter suppresses previews during joint decoding and feasibility checks.
 The first registered verified joint checkpoint may upgrade an equal-duration
-v1 checkpoint without waiting for the best-preview throttle. A shorter earlier
-checkpoint remains protected; normal throttling resumes after the v2 upgrade.
+v1 checkpoint without waiting for the best-preview throttle. Later verified
+best events also update immediately when their genome or fitness improves;
+an event skipped inside the throttle might never repeat. A shorter earlier
+checkpoint remains protected, and duplicate same-genome/score events remain
+throttled. The SSE display cadence is unchanged.
 
 ## Local verification
 

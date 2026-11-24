@@ -457,7 +457,8 @@ def synthetic_call_value(value, depth=0):
     return result
 
 
-def observed_run(adapter, diagnostics, model, options, checker=check_witness):
+def observed_run(adapter, diagnostics, model, options, checker=check_witness, preview_checker=None):
+    preview_checker = checker if preview_checker is None else preview_checker
     factory = adapter._namespace
     state = {'decoder_calls': 0, 'partition_observation_errors': 0, 'distinct_partition_vectors': set(),
              'partition_vectors_truncated': False, 'batch_counts': set(), 'partitions': [],
@@ -567,7 +568,7 @@ def observed_run(adapter, diagnostics, model, options, checker=check_witness):
                 continue
             state['published_previews_seen'] += 1
             try:
-                checker(preview, model, diagnostics)
+                preview_checker(preview, model, diagnostics)
                 preview_state = preview.get('resume_state') if isinstance(preview, dict) else None
                 if isinstance(preview_state, dict) and preview_state.get('version') == 2:
                     state['published_v2_preview_count'] += 1
@@ -812,7 +813,8 @@ def run_overlay_regressions(adapter, diagnostics, report, package_root, first_pl
                                  ('multi_order_stages', multistage_model(), None)):
         checker = lambda plan, candidate_model, unused, target=target: check_production(plan, candidate_model, target)
         _, case = observed_run(adapter, diagnostics, model, {'generations': 3, 'population': 8,
-            'seed': 1741, 'objective': 'duration'}, checker=checker)
+            'seed': 1741, 'objective': 'duration'}, checker=checker,
+            preview_checker=lambda plan, candidate_model, unused: check_production(plan, candidate_model))
         report['cases'][name] = case
     _, staff_case = observed_run(adapter, diagnostics, staff_setup_model(), {'generations': 3, 'population': 8,
         'seed': 1747, 'objective': 'duration'}, checker=lambda plan, model, unused: check_staff_setup(plan, model))
