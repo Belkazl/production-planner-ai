@@ -1,0 +1,32 @@
+name: Diagnose failed optimizer release without mutation
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-optimizer-repair-diagnose-20261124.yml
+      - ops/ovh/optimizer-repair-diagnose-20261124/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify syntax and safe output filtering
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/optimizer-repair-diagnose-20261124/diagnose.sh
+          bash ops/ovh/optimizer-repair-diagnose-20261124/diagnose.sh --self-test
+      - name: Classify fixed release logs and read current service health
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/optimizer-repair-diagnose-20261124/diagnose.sh
