@@ -23,6 +23,14 @@ cancellation keep their existing behavior.
   fields or manual pins. Unknown model fields or runtime contracts fall back.
 - A normalized `order.operations` is permitted only when null or an empty list;
   nonempty inline operations and other value types remain unsupported.
+- The observed canonicalizer fields `_canonical_valid` and
+  `_optimizer_compatible` must be booleans; `_validation_errors` must be a list.
+  They are treated as derived metadata only after the adapter's native
+  `model_ready` check. Real errors on the simulation still reject retiming.
+  An optional equipment `resource_type` must equal `equipment` exactly.
+- Native candidates without `fitness` remain without it; only duration is
+  updated. If native fitness is present, it must equal duration before and after
+  retiming. No new score field or GA counter is manufactured.
 - Existing wait/idle metrics must match recognized definitions before updating
   them. Ambiguous metrics also cause fallback. Other objectives are untouched.
 

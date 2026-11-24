@@ -367,6 +367,56 @@ def run(payload,progress):
             self.assertFalse(install_operation_interleave(ga, m))
             self.assertEqual(ga[DIAGNOSTIC_KEY]['fallback_reason'], 'unsupported_order_operations')
 
+    def test_observed_normalized_metadata_and_scoreless_native_candidate_reach_three(self):
+        m = model()
+        m.update(_canonical_valid=False, _optimizer_compatible=False, _validation_errors=['legacy schema metadata'])
+        for equipment in m['equipment']:
+            equipment['resource_type'] = 'equipment'
+        for order in m['orders']:
+            order['operations'] = []
+        sequence = [order['id'] for order in m['orders']]
+        base = fixture_native_decoder(m, sequence); base.pop('fitness')
+        before, original_model = copy.deepcopy(base), copy.deepcopy(m)
+        validation_calls = []
+        def validate(model_arg, sim):
+            validation_calls.append(sim)
+            return independent_validation(model_arg, sim)
+        ga = {'_pp_schedule_sequence': lambda *_: base, '_pp_validate_generic': validate}
+        self.assertTrue(install_operation_interleave(ga, m))
+        result = ga['_pp_schedule_sequence'](m, sequence)
+        self.assertEqual(result['duration_minutes'], 3)
+        self.assertEqual(base, before); self.assertEqual(m, original_model)
+        self.assertTrue(validation_calls)
+        self.assertNotIn('fitness', result); self.assertNotIn('generic_operations', result)
+        self.assertEqual(ga[DIAGNOSTIC_KEY]['improved_candidates'], 1)
+        self.assertEqual(ga[DIAGNOSTIC_KEY]['native_contract_shape']['fields']['fitness'], {'present': False, 'kind': 'missing'})
+        self.assertEqual(result['optimization_run'], base['optimization_run'])
+
+    def test_normalized_metadata_types_and_equipment_kind_fail_closed(self):
+        cases = [('_canonical_valid', 1), ('_optimizer_compatible', 'true'), ('_validation_errors', {}), ('_validation_errors', None)]
+        for key, value in cases:
+            m = model(); m[key] = value
+            ga = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
+            self.assertFalse(install_operation_interleave(ga, m))
+            self.assertEqual(ga[DIAGNOSTIC_KEY]['fallback_reason'], 'invalid_canonical_metadata')
+        for value in ('employee', 'workstation', None, 1):
+            m = model(); m['equipment'][0]['resource_type'] = value
+            ga = {'_pp_schedule_sequence': fixture_native_decoder, '_pp_validate_generic': independent_validation}
+            self.assertFalse(install_operation_interleave(ga, m))
+            self.assertEqual(ga[DIAGNOSTIC_KEY]['fallback_reason'], 'unsupported_equipment_resource_type')
+
+    def test_model_validation_metadata_does_not_bypass_real_simulation_errors(self):
+        m = model(); m.update(_canonical_valid=False, _optimizer_compatible=False, _validation_errors=['legacy metadata'])
+        sequence = [order['id'] for order in m['orders']]
+        for field in ('errors', 'validation_errors', 'conflicts', 'violations'):
+            base = fixture_native_decoder(m, sequence); base[field] = ['real scheduling violation']; base.pop('fitness')
+            before = copy.deepcopy(base)
+            ga = {'_pp_schedule_sequence': lambda *_: base, '_pp_validate_generic': independent_validation}
+            self.assertTrue(install_operation_interleave(ga, m))
+            self.assertIs(ga['_pp_schedule_sequence'](m, sequence), base)
+            self.assertEqual(base, before)
+            self.assertEqual(ga[DIAGNOSTIC_KEY]['improved_candidates'], 0)
+
     def test_actual_schema_names_are_regex_bounded_and_never_logged(self):
         m = model()
         m['_normalized_alias_v2'] = 'SENSITIVE_VALUE'
@@ -424,16 +474,29 @@ def run(payload,progress):
             self.skipTest('optional private exported model is not installed')
         m = json.loads((folder / 'live-model.json').read_text())["model"]
         base = json.loads((folder / 'live-progress.json').read_text())["result"]
+        # The later live diagnostic established this normalized metadata and
+        # raw-native shape; no unavailable metadata values are copied here.
+        m.update(_canonical_valid=False, _optimizer_compatible=False, _validation_errors=['legacy canonical metadata'])
+        for equipment in m['equipment']:
+            equipment['resource_type'] = 'equipment'
+        for order in m['orders']:
+            order['operations'] = []
         base["ctx"] = {"start": m["start"]}
-        base["fitness"] = base["duration_minutes"]
+        base.pop('fitness', None); base.pop('generic_operations', None)
         ga = {"_pp_schedule_sequence": lambda *_: base, "_pp_validate_generic": independent_validation}
         self.assertTrue(install_operation_interleave(ga, m))
         result = ga["_pp_schedule_sequence"](m, base["order_sequence"])
         self.assertEqual(result["duration_minutes"], 3)
         self.assertEqual(len(result["operations"]), 6)
         self.assertEqual(independent_validation(m, result), [])
+        self.assertNotIn('fitness', result); self.assertNotIn('generic_operations', result)
         for field in ("algorithm", "optimization_run", "total_generations", "resume_state"):
             self.assertEqual(result[field], base[field])
+        path = Path(os.environ.get('PP_NATIVE_CONSTRAINTS', '/workspace/scratch/005b44eb59b5/cutlets_solver_validation/ga_python_workers/ga_workers/constraints.py'))
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location('observed_contract_constraints', path)
+            verifier = importlib.util.module_from_spec(spec); spec.loader.exec_module(verifier)
+            self.assertTrue(verifier._verify(m, result, [], {'_pp_materials': lambda _: [], '_pp_validate_generic': independent_validation}))
 
     def test_existing_public_pin_verifier_accepts_retimed_candidate(self):
         path = Path(os.environ.get('PP_NATIVE_CONSTRAINTS', '/workspace/scratch/005b44eb59b5/cutlets_solver_validation/ga_python_workers/ga_workers/constraints.py'))

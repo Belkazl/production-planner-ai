@@ -20,8 +20,8 @@ DIAGNOSTIC_KEY = "_PP_OPERATION_INTERLEAVE_DIAGNOSTIC"
 SCHEMA_FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 FIELD_SCOPES = frozenset({"model", "equipment", "process", "operation", "requirement", "order"})
 FIELD_ALLOWED = {
-    "model": ("scheduler_mode", "start", "quantity_unit", "objective", "equipment", "autoclaves", "employees", "materials", "material", "setup_rules", "shifts", "orders", "technical_processes", "name", "description"),
-    "equipment": ("id", "name", "kind", "capacity", "capacity_unit", "description"),
+    "model": ("scheduler_mode", "start", "quantity_unit", "objective", "equipment", "autoclaves", "employees", "materials", "material", "setup_rules", "shifts", "orders", "technical_processes", "name", "description", "_canonical_valid", "_optimizer_compatible", "_validation_errors"),
+    "equipment": ("id", "name", "kind", "capacity", "capacity_unit", "description", "resource_type"),
     "process": ("id", "name", "operations", "description"),
     "operation": ("id", "name", "sequence", "duration_min", "resource_requirements", "description"),
     "requirement": ("id", "type", "resource_type", "match_mode", "resource_ref", "resource_refs", "quantity", "unit", "consumption_rule", "kind"),
@@ -46,7 +46,7 @@ DIAGNOSTIC_REASONS = frozenset({
     "objective_not_supported", "manual_pins", "native_hooks_missing", "runtime_contract_unsupported",
     "native_validation_rejected", "unsupported_fields", "unsupported_object", "nonresource_model",
     "unsupported_employees", "unsupported_materials", "unsupported_material", "unsupported_setup_rules", "unsupported_shifts",
-    "equipment_missing", "invalid_identity", "nonfinite_number", "nonunary_capacity", "duplicate_process",
+    "equipment_missing", "invalid_identity", "nonfinite_number", "nonunary_capacity", "duplicate_process", "invalid_canonical_metadata", "unsupported_equipment_resource_type",
     "process_operations_missing", "operation_invalid", "not_one_equipment_requirement", "nonequipment_requirement",
     "nonunit_requirement", "unsupported_consumption", "unsupported_match", "unsupported_order", "unsupported_order_operations", "unsupported_size",
     "model_changed", "bad_order_sequence", "context_missing", "invalid_native_candidate", "unsupported_setup_operations",
@@ -225,6 +225,11 @@ def _diagnostic(event, **fields):
 
 def _model_spec(model):
     _keys(model, FIELD_ALLOWED["model"], "model")
+    # The adapter already accepted native model_ready after canonicalization.
+    # These observed fields describe the legacy schema, not resource constraints.
+    for flag in ("_canonical_valid", "_optimizer_compatible"):
+        _require(flag not in model or isinstance(model[flag], bool), "invalid_canonical_metadata")
+    _require("_validation_errors" not in model or isinstance(model["_validation_errors"], list), "invalid_canonical_metadata")
     _require(model.get("scheduler_mode") == "resource", "nonresource_model")
     for key in ("employees", "materials", "material", "setup_rules", "shifts"):
         _require(_empty(model.get(key)), "unsupported_" + key)
@@ -234,6 +239,7 @@ def _model_spec(model):
     machines = set()
     for machine in equipment:
         _keys(machine, FIELD_ALLOWED["equipment"], "equipment")
+        _require(machine.get("resource_type", "equipment") == "equipment", "unsupported_equipment_resource_type")
         mid = _identifier(machine.get("id"))
         _require(mid not in machines and _same(machine.get("capacity"), 1), "nonunary_capacity")
         machines.add(mid)
@@ -337,7 +343,9 @@ def _contract(sim, spec):
         items.sort(key=lambda row: row["start_min"])
         _require(all(a["end_min"] <= b["start_min"] + EPS for a, b in zip(items, items[1:])), "resource_overlap")
     duration = max(row["end_min"] for row in rows)
-    _require(_same(sim.get("duration_minutes"), duration) and _same(sim.get("fitness"), duration), "non_duration_fitness")
+    _require(_same(sim.get("duration_minutes"), duration), "non_duration_fitness")
+    if "fitness" in sim:
+        _require(_same(sim["fitness"], duration), "non_duration_fitness")
     batches = sim.get("batches")
     _require(isinstance(batches, list) and len(batches) == len(chains), "batch_summary_missing")
     batch_keys = set()
@@ -407,7 +415,7 @@ def _metrics(chains, resources, spec, duration):
 def _schedule_signature(sim):
     def rows_signature(rows):
         return tuple((_chain_key(row), row.get("operation_id"), row.get("sequence"), row.get("duration_min"), row.get("start_min"), row.get("end_min"), tuple(row.get("equipment_ids") or []), tuple(row.get("employee_ids") or []), row.get("batch_quantity"), row.get("batch_capacity"), row.get("manual_locked")) for row in rows)
-    return (rows_signature(sim["operations"]), rows_signature(sim.get("generic_operations") or []), tuple((_chain_key(batch), batch.get("start_min"), batch.get("end_min")) for batch in sim["batches"]), sim["duration_minutes"], sim["fitness"])
+    return (rows_signature(sim["operations"]), rows_signature(sim.get("generic_operations") or []), tuple((_chain_key(batch), batch.get("start_min"), batch.get("end_min")) for batch in sim["batches"]), sim["duration_minutes"], "fitness" in sim, sim.get("fitness"))
 
 
 def _retime(sim, spec, chains, resources, times):
@@ -439,7 +447,8 @@ def _retime(sim, spec, chains, resources, times):
                 batch[field] = _stamp(spec["origin"], minute, batch[field])
     duration = max(row["end_min"] for row in candidate["operations"])
     candidate["duration_minutes"] = duration
-    candidate["fitness"] = duration
+    if "fitness" in candidate:
+        candidate["fitness"] = duration
     if "finish" in candidate:
         candidate["finish"] = _stamp(spec["origin"], duration, candidate["finish"])
     new_chains, new_resources = _contract(candidate, spec)
