@@ -35,6 +35,23 @@ jobs:
            if p.exists():
             print("GA_FOLDER",area)
             for f in sorted(p.glob("*.py")):print("GA_PYTHON_FILE",f.relative_to(root),f.stat().st_size)
+          for config in root.glob("*compose*.y*ml"):
+           print("ADAPTER_CONFIG",config.name)
+           for i,l in enumerate(config.read_text(errors="replace").splitlines(),1):
+            if "PP_PY_GA_ADAPTER" in l:print("ADAPTER_CONFIG_LINE",i,l[:230])
+          for config in root.glob("Dockerfile*"):
+           print("ADAPTER_DOCKER",config.name)
+           for i,l in enumerate(config.read_text(errors="replace").splitlines(),1):
+            if "GA_ADAPTER" in l:print("ADAPTER_DOCKER_LINE",i,l[:230])
+          p=root/"python-ga-upstream.mjs"
+          if p.exists():
+           lines=p.read_text(errors="replace").splitlines()
+           for lo,hi in [(1,50),(267,359)]:
+            print("BACKEND_DETAIL",lo,hi)
+            for n in range(lo,min(hi,len(lines))+1):
+             line=lines[n-1]
+             if re.search(r'(password|private.key|authorization|bearer|credential|secret|api[_-]?key)',line,re.I):line="[REDACTED]"
+             print("BACKEND_SRC",f"{n:04d}",line[:300])
           for filename,spans in [
             ("ga_python_workers/ga_workers/server.py",[(1,105)]),
             ("ga_python_workers/ga_workers/manager.py",[(70,100),(135,185)]),
