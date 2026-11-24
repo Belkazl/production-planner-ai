@@ -54,7 +54,32 @@ const replacement=[
 '  }',
 ' }'
 ].join("\n");
-const nextClient=client.slice(0,a)+replacement+client.slice(b);
+const baseClient=client.slice(0,a)+replacement+client.slice(b);
+const router=[
+' function ppRouteGaDiagnosticsOutsideValidator(){',
+'  const validator=document.getElementById("validator");',
+'  if(!validator||validator.__ppDiagnosticRouterInstalled)return;',
+'  validator.__ppDiagnosticRouterInstalled=true;',
+'  const move=()=>{',
+'   const message=(validator.textContent||"").trim();',
+'   if(!/^(ga_|continuation_|AbortError|TypeError|FetchError|HTTP\\s*[45]\\d\\d)/i.test(message))return;',
+'   validator.textContent="—";',
+'   const status=document.getElementById("valid");',
+'   if(status)status.textContent=document.documentElement.lang==="ru"?',
+'    "Не удалось подтвердить состояние оптимизации. Проверьте соединение и состояние задания.":',
+'    "Optimization status could not be confirmed. Check the connection and job status.";',
+'  };',
+'  new MutationObserver(move).observe(validator,{childList:true,characterData:true,subtree:true});',
+'  move();',
+' }',
+' if(typeof MutationObserver!=="undefined"&&typeof document!=="undefined"){',
+'  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",ppRouteGaDiagnosticsOutsideValidator,{once:true});',
+'  else ppRouteGaDiagnosticsOutsideValidator();',
+' }'
+].join("\n");
+const finish=baseClient.lastIndexOf("})();");
+assert(finish>0&&baseClient.slice(finish).trim()==="})();","transport IIFE ending drift");
+const nextClient=baseClient.slice(0,finish)+router+"\n"+baseClient.slice(finish);
 assert(!nextClient.includes('ga_client_wait_timeout'));
 assert(!nextClient.includes("Date.now()+15*60*1000"));
 assert(nextClient.includes("if(signal?.aborted)throw"));
