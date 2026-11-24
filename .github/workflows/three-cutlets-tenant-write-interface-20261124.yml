@@ -1,0 +1,51 @@
+name: Inspect safe LiftOrbit tenant-project write interface
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-tenant-write-interface-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Read server directories and APIs, never reveal credentials or customer data
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          import os,shutil,re,stat
+          from pathlib import Path
+          root=Path.home()/"liftorbit-migration"
+          for rel in ("production","production/current","sources","sources/current","sources/ovh-app/current","repairs"):
+            p=root/rel
+            if p.is_dir():
+              print("DIR",rel,sorted(x.name for x in p.iterdir())[:110])
+          for p in [Path("/usr/local/sbin/liftorbit-ops"),root/"production/current/docker-compose.yml",root/"production/current/compose.yml",root/"production/current/auth-gateway.json"]:
+            print("FILE_EXISTENCE",str(p),p.exists())
+            if p.is_file() and p.name=="liftorbit-ops":
+              lines=p.read_text(errors="replace").splitlines()
+              print("OPS_LENGTH",len(lines))
+              for i,l in enumerate(lines):
+                if re.search(r'case |smoke|update|postgres|auth|db|exec|usage|supported',l,re.I):
+                  if re.search(r'(password|secret|credential|token|private.key|DATABASE_URL|\$\{.*\})',l,re.I):l="[REDACTED]"
+                  print("OPS_CODE",i+1,l[:235])
+          print("COMMAND_AVAILABLE",[(cmd,bool(shutil.which(cmd))) for cmd in ("docker","psql","python3","bun","node","sqlite3")])
+          print("USER_GROUPS",os.getgroups())
+          try:
+            import psycopg2;print("PY_PSYCOPG2",True)
+          except ImportError:print("PY_PSYCOPG2",False)
+          PY
