@@ -1,0 +1,85 @@
+name: Verify native minibatch optimization in an ephemeral private test
+
+# The user explicitly approved temporary closed-code processing in isolated
+# GitHub Actions for diagnosis and fix verification on 2026-11-24. No source,
+# configuration, native logs, credentials, customer data or private artifacts
+# may be published. This workflow does not change production services or data.
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-native-batching-verify-20261124.yml
+      - ops/ovh/native-batching-verify-20261124/**
+  workflow_dispatch:
+    inputs:
+      private_native_test_authorized:
+        description: Run the explicitly authorized ephemeral code-only native test
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-native-batching-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.event_name == 'push' || inputs.private_native_test_authorized == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the public harness guards only
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/native-batching-verify-20261124 -p 'test_*.py' -v
+      - name: Prepare the same public Python image used by the worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          docker pull python:3.12-slim
+          docker image inspect --format '{{.Id}}' python:3.12-slim > "$RUNNER_TEMP/native-batching-image"
+      - name: Receive only the approved code inputs into a private temporary file
+        shell: bash
+        env:
+          NATIVE_SSH_HOST: ${{ vars.OVH_HOST }}
+          NATIVE_SSH_USER: ${{ vars.OVH_USER }}
+          NATIVE_SSH_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          NATIVE_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$NATIVE_SSH_HOST"
+          test -n "$NATIVE_SSH_USER"
+          printf '%s\n' "$NATIVE_SSH_KEY" > "$RUNNER_TEMP/native-batching-ssh-key"
+          printf '%s\n' "$NATIVE_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/native-batching-known-hosts"
+          chmod 600 "$RUNNER_TEMP/native-batching-ssh-key" "$RUNNER_TEMP/native-batching-known-hosts"
+          trap 'rm -f -- "$RUNNER_TEMP/native-batching-ssh-key" "$RUNNER_TEMP/native-batching-known-hosts"' EXIT
+          opts=(-i "$RUNNER_TEMP/native-batching-ssh-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/native-batching-known-hosts" -o ConnectTimeout=20)
+          # The reviewed public selector runs read-only on the host. Its binary
+          # stdout is redirected directly to a mode-0600 file, never the log.
+          ssh "${opts[@]}" "$NATIVE_SSH_USER@$NATIVE_SSH_HOST" \
+            'PYTHONDONTWRITEBYTECODE=1 python3 -I - --emit-private-bundle' \
+            < ops/ovh/native-batching-verify-20261124/native_input_contract.py \
+            > "$RUNNER_TEMP/native-batching-private.bundle"
+          test -s "$RUNNER_TEMP/native-batching-private.bundle"
+      - name: Run the original native engine without network or inherited credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/native-batching-verify-20261124/verify_native.py \
+            --bundle "$RUNNER_TEMP/native-batching-private.bundle" \
+            --image-id "$(cat "$RUNNER_TEMP/native-batching-image")" --timeout 360
+      - name: Remove all ephemeral transfer files
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/native-batching-ssh-key" "$RUNNER_TEMP/native-batching-known-hosts" \
+            "$RUNNER_TEMP/native-batching-private.bundle" "$RUNNER_TEMP/native-batching-image"

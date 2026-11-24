@@ -1,46 +1,50 @@
-# Host-local verification of existing native minibatch optimization
+# Authorized ephemeral native minibatch verification
 
-Prepared locally. The earlier proposal to transfer private code/config-derived
-inputs to an external runner was rejected and has been removed. **Private code,
-selected code variables, configuration and native logs stay on the OVH host.**
-Only synthetic test results and bounded technical metadata may leave it.
+On 2026-11-24 the user explicitly approved temporary processing of the closed
+optimizer code in isolated GitHub Actions for diagnosis and fix verification,
+without publishing source, native logs, credentials, database data or customer
+orders. The earlier host-local isolation route is disabled: `bwrap` was absent
+and the single permitted harmless `unshare` probe was denied. No host isolation
+probe, package installation, permission change or production restart is used.
 
-## Execution gate
+## Private input boundary
 
-The workflow is manual and defaults to disabled. A read-only capability audit
-must be reviewed first. The ordinary CI account then runs a harmless rootless
-`bwrap` probe before reading private inputs. The binary must already exist as a
-non-setuid/non-setgid system program. No tool installation, sudo, Docker access,
-permission changes, fallback to shared host `/tmp`, or alternative privilege
-route is implemented. If isolation is unavailable or denied, verification stops.
+The workflow runs only on the current feature branch and this harness's paths,
+or by a manual invocation with its explicit authorization flag. The reviewed
+`native_input_contract.py` runs read-only through the existing strict SSH route.
+It selects the exact pinned compiler's 19 code fields, source fragments/count
+and source hashes, and freezes the existing active worker Python package.
+All configuration fields carrying credentials, tokens, database connections,
+account state or real models are excluded. The exact compiler SHA and code-key
+contract must match before the binary bundle is written.
 
-The sandbox has separate user, PID and network namespaces, a private `/tmp`
-tmpfs, private `/proc` and `/dev`, and read-only system binaries/libraries. It
-does not mount host `/home`, `/run`, `/var`, the host root filesystem, database
-sockets, or unrelated configuration. The probe verifies namespace separation
-and the private tmpfs. No private input is read if that check fails.
+The SSH binary output goes directly to a mode-0600 runner temporary file, never
+to the Actions log. The bundle is uncompressed and bounded. The receiver refuses
+unknown/traversal paths, duplicate entries, symlinks, special files, unexpected
+input fields, missing modules, oversized members, wrong hashes or a changed
+compiler. It manually writes only validated regular files into a mode-0700
+workspace. No private file is committed, uploaded as an artifact or cached.
 
-## Private data handling
+## Native execution isolation
 
-`native_input_contract.py` reads the existing accessible worker input, selects
-only the exact compiler's 19 code fields, runtime code fragments/count and code
-hashes, and validates the pinned native compiler. Credential fields are omitted.
-It has no transport, archive, serializer-to-stdout or external export API.
+The fresh GitHub runner starts a disposable container using the same public
+`python:3.12-slim` image as the native worker, resolved to its actual image ID.
+It has no network, a read-only root, a private `/tmp` tmpfs, no capabilities,
+no-new-privileges, bounded memory/CPU/processes, and runs as the ordinary runner
+UID. Only the verified code package, selected code JSON and public harness are
+mounted read-only; a separate private report directory is writable. No SSH key,
+repository credentials, host root, Docker socket, production mount or inherited
+service environment is accessible inside the container.
 
-The host-local parent creates a mode-0700 temporary workspace, freezes the
-existing worker Python package, and writes only the selected code fields to a
-mode-0600 file. The sandbox reads that file into a cleared environment. Existing
-native compiler, scheduler, timings, validators and adapter execute unchanged;
-their fixed `/tmp` files exist only inside the namespace. Private output is
-captured on the host and deleted together with the private workspace. No HTTP
-server, production API, database or service restart is involved.
-
-The only writable bind is a separate private result directory. The public
-report contains synthetic outcomes, source hashes, and bounded function/state
-key metadata. It contains no native source, arbitrary literal values, defaults,
-environment values, credentials or real account models. The workflow uploads
-only the two reviewed public harness files to a temporary host directory; it
-downloads no private files and creates no artifacts.
+The original compiler, native scheduler, timing logic, validators, finalizers
+and adapter execute unchanged on synthetic models. Their fixed `/tmp` paths
+exist only inside this disposable container. Native stdout/stderr is captured
+into a private temporary file and deleted. The parent publishes only its safe
+synthetic report, code hashes and bounded function/state metadata; source
+positions are removed. Failure text and tracebacks from native code never leave
+the private capture. Cleanup removes the named test container and temporary
+files on success, failure, timeout or cancellation; the final workflow step also
+removes the transport bundle and SSH files. No artifacts are uploaded.
 
 ## Native regression cases
 
@@ -57,19 +61,20 @@ downloads no private files and creates no artifacts.
    native state contract and a paired test; rediscovery alone does not prove it.
 
 No mixed result is injected into the optimizer. Handwritten schedules appear
-only in local unit tests of the checker. The actual native calculation must find
-its own result. The observer covers the whole bounded run, retaining at most 64
-different partition vectors, and returns the same native objects and arguments.
-Raw native validation runs only on defensive copies. Final timing and validation
-remain in the original optimizer/adapter. Early compiled AST and callable
-metadata survive a later fixture/schema failure.
+only in unit tests of the checker. The actual native calculation must find its
+own result. The observer covers the whole bounded run, retaining at most 64
+partition vectors, and returns the same native objects and arguments. Raw native
+validation runs only on defensive copies. These observations do not establish
+that material/staff repair occurred before candidate selection; that requires
+a targeted native contract test before any repair is accepted. Early compiled
+AST and callable metadata survive a later fixture/schema failure.
 
 ## Local guard tests
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_harness.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/native-batching-verify-20261124 -p 'test_*.py' -v
 ```
 
-Local guard tests do not execute private code, read production input, or probe
-host namespaces. Native evidence exists only after a separately authorized,
-successful host-local verification.
+Local guard tests never execute private code, read production input, launch a
+container or probe host namespaces. A native pass is reported only from an
+actual authorized run; preparation of this harness is not a recovery claim.

@@ -1,4 +1,4 @@
-"""Host-local rootless tests of the existing native optimizer; no private-code egress."""
+"""Authorized ephemeral, network-isolated tests of the existing native optimizer."""
 import argparse
 import ast
 import copy
@@ -14,12 +14,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tarfile
 import time
+import uuid
 
 # The child uses -I. Only this reviewed public helper directory is added here;
 # the separately verified native package is added inside child_verification.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from native_input_contract import PACKAGE, InputContractError, load_owned_inputs, select_code_fields
+from native_input_contract import COMPILE_SHA, MAX_BYTES, PY_NAME, InputContractError, compiler_keys, CODE_KEYS, select_code_fields
 
 
 EPS = 1e-5
@@ -260,10 +262,10 @@ def compiled_function_metadata(source):
     return {'functions': found, 'matching_function_count': count, 'functions_truncated': count > len(found)}
 
 
-def child_verification(root, report_path):
+def child_verification(root, report_path, input_path=Path('/input/code-inputs.json')):
     report = {'format': 'native-minibatch-verification-v1', 'status': 'started', 'phase': 'imports', 'cases': {}}
     try:
-        selected = select_code_fields(json.loads(Path('/input/code-inputs.json').read_text()))
+        selected = select_code_fields(json.loads(input_path.read_text()))
         os.environ.update(selected)
         import resource
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
@@ -317,91 +319,127 @@ def child_verification(root, report_path):
     return 0 if report['status'] == 'native_witness_pass' else 1
 
 
-def bwrap_base(binary, interpreter):
-    # A minimal filesystem has no host /home, /run, /var or Unix service sockets.
-    command = [binary, '--unshare-user', '--unshare-pid', '--unshare-net',
-               '--unshare-ipc', '--unshare-uts', '--new-session', '--die-with-parent',
-               '--clearenv', '--cap-drop', 'ALL']
-    for path in ('/usr', '/bin', '/lib', '/lib64'):
-        if Path(path).exists():
-            command += ['--ro-bind', path, path]
-    if not str(Path(interpreter).resolve()).startswith('/usr/'):
-        raise VerificationError('existing_python_outside_readonly_system_tree')
-    command += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
-                '--setenv', 'PATH', '/usr/local/bin:/usr/bin:/bin',
-                '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'PYTHONDONTWRITEBYTECODE', '1',
-                '--setenv', 'PYTHONUNBUFFERED', '1', '--chdir', '/tmp']
-    return command
+def unpack_private_bundle(bundle_path, root):
+    """Validate a bounded regular-file-only bundle before writing private files."""
+    info = bundle_path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+            or info.st_mode & 0o077 or info.st_size > 72 * 1024 * 1024):
+        raise VerificationError('private_bundle_file_contract')
+    members = {}
+    total = 0
+    with tarfile.open(bundle_path, mode='r:') as archive:
+        for member in archive:
+            name = member.name
+            package_name = name.split('/', 1)[1] if name.startswith('ga_workers/') else ''
+            if (name not in ('code-inputs.json', 'manifest.json')
+                    and not (name == 'ga_workers/' + package_name and PY_NAME.fullmatch(package_name))):
+                raise VerificationError('bundle_member_path_refused')
+            if not member.isfile() or member.issym() or member.islnk() or name in members:
+                raise VerificationError('bundle_member_kind_or_duplicate')
+            limit = MAX_BYTES if name == 'code-inputs.json' else 65536 if name == 'manifest.json' else 4 * 1024 * 1024
+            if not 0 <= member.size <= limit or len(members) >= 66:
+                raise VerificationError('bundle_member_size_or_count')
+            total += member.size
+            if total > MAX_BYTES * 2 + 65536:
+                raise VerificationError('bundle_total_too_large')
+            handle = archive.extractfile(member)
+            if handle is None:
+                raise VerificationError('bundle_member_unreadable')
+            data = handle.read(member.size + 1)
+            if len(data) != member.size:
+                raise VerificationError('bundle_member_size_mismatch')
+            members[name] = data
+    if not {'manifest.json', 'code-inputs.json', 'ga_workers/compile_legacy_ga.py',
+            'ga_workers/full_runtime_adapter.py', 'ga_workers/constraints.py',
+            'ga_workers/continuation.py', 'ga_workers/batch_size_diagnostics.py',
+            'ga_workers/__init__.py'}.issubset(members):
+        raise VerificationError('bundle_required_file_missing')
+    manifest = json.loads(members['manifest.json'])
+    raw_fields = json.loads(members['code-inputs.json'])
+    fields = select_code_fields(raw_fields)
+    if raw_fields != fields:
+        raise VerificationError('bundle_extra_input_field')
+    expected_manifest_keys = {'format', 'compiler_sha256', 'code_field_names', 'source_hashes', 'code_inputs_sha256'}
+    if (not isinstance(manifest, dict) or set(manifest) != expected_manifest_keys
+            or manifest['format'] != 'ephemeral-native-code-inputs-v1'
+            or manifest['compiler_sha256'] != COMPILE_SHA
+            or manifest['code_field_names'] != sorted(fields)
+            or manifest['code_inputs_sha256'] != hashlib.sha256(members['code-inputs.json']).hexdigest()):
+        raise VerificationError('bundle_manifest_contract')
+    package_names = {name for name in members if name.startswith('ga_workers/')}
+    hashes = manifest['source_hashes']
+    if not isinstance(hashes, dict) or set(hashes) != package_names:
+        raise VerificationError('bundle_source_manifest_contract')
+    if any(hashes[name] != hashlib.sha256(members[name]).hexdigest() for name in package_names):
+        raise VerificationError('bundle_source_hash_mismatch')
+    compiler = members['ga_workers/compile_legacy_ga.py']
+    if hashlib.sha256(compiler).hexdigest() != COMPILE_SHA or compiler_keys(compiler) != CODE_KEYS:
+        raise VerificationError('bundle_compiler_contract_changed')
+    (root / 'ga_workers').mkdir(mode=0o700)
+    for name, data in members.items():
+        with open(root / name, 'xb') as handle:
+            os.chmod(root / name, 0o600)
+            handle.write(data)
+    return fields, manifest
 
 
-def verify_rootless_isolation(binary, interpreter):
-    # This harmless public probe runs before any private configuration is read.
-    probe = "import json,os;from pathlib import Path;lines=Path('/proc/self/mountinfo').read_text().splitlines();print(json.dumps({'net':os.stat('/proc/self/ns/net').st_ino,'pid':os.stat('/proc/self/ns/pid').st_ino,'tmpfs':any(x.split(' - ',1)[0].split()[4]=='/tmp' and x.split(' - ',1)[1].split()[0]=='tmpfs' for x in lines)}))"
-    current_net = os.stat('/proc/self/ns/net').st_ino
-    current_pid = os.stat('/proc/self/ns/pid').st_ino
-    try:
-        result = subprocess.run(bwrap_base(binary, interpreter) + [interpreter, '-I', '-c', probe],
-                                stdin=subprocess.DEVNULL, capture_output=True, timeout=12,
-                                env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'})
-        if result.returncode != 0 or len(result.stdout) > 2048:
-            raise VerificationError('rootless_namespace_unavailable')
-        observed = json.loads(result.stdout)
-        if observed.get('tmpfs') is not True or observed.get('net') == current_net or observed.get('pid') == current_pid:
-            raise VerificationError('rootless_isolation_not_confirmed')
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        raise VerificationError('rootless_namespace_unavailable')
-    return {'method': 'existing_rootless_bwrap', 'private_tmpfs': True,
-            'private_network_namespace': True, 'private_pid_namespace': True}
+def docker_command(binary, image_id, root, harness, container_name):
+    if not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
+        raise VerificationError('runner_image_id_invalid')
+    if not re.fullmatch(r'pp-native-verify-[a-f0-9]{32}', container_name):
+        raise VerificationError('runner_container_name_invalid')
+    command = [binary, 'run', '--rm', '--name', container_name,
+               '--network=none', '--read-only', '--cap-drop=ALL',
+               '--security-opt=no-new-privileges', '--pids-limit=128',
+               '--memory=1g', '--cpus=2', '--user', str(os.getuid()) + ':' + str(os.getgid()),
+               '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m', '--workdir=/tmp',
+               '--env', 'PATH=/usr/local/bin:/usr/bin:/bin', '--env', 'LANG=C.UTF-8',
+               '--env', 'PYTHONDONTWRITEBYTECODE=1', '--env', 'PYTHONUNBUFFERED=1']
+    for host, target, readonly in ((root / 'ga_workers', '/native/ga_workers', True),
+                                  (root / 'code-inputs.json', '/input/code-inputs.json', True),
+                                  (harness, '/verify', True), (root / 'report', '/report', False)):
+        if ',' in str(host):
+            raise VerificationError('runner_mount_path_invalid')
+        command += ['--mount', 'type=bind,source=' + str(host) + ',target=' + target + (',readonly' if readonly else '')]
+    return command + [image_id, 'python3', '-I', '/verify/verify_native.py', '--child', '/native',
+                      '--report', '/report/safe-report.json']
 
 
-def run_host_local(timeout=360):
+def public_report(value):
+    # Function names and safe synthetic values suffice; source positions stay private.
+    if isinstance(value, dict):
+        return {key: public_report(item) for key, item in value.items() if key not in ('first_line', 'line')}
+    if isinstance(value, list):
+        return [public_report(item) for item in value]
+    return value
+
+
+def run_ephemeral(bundle_path, image_id, timeout=360):
     if os.geteuid() == 0:
-        raise VerificationError('ordinary_ci_user_required')
-    binary = shutil.which('bwrap')
+        raise VerificationError('ordinary_runner_user_required')
+    binary = shutil.which('docker')
     if binary is None:
-        raise VerificationError('rootless_bwrap_unavailable')
-    binary = str(Path(binary).resolve())
-    binary_info = Path(binary).stat()
-    if (not binary.startswith('/usr/') or binary_info.st_uid != 0
-            or not stat.S_ISREG(binary_info.st_mode)
-            or binary_info.st_mode & (stat.S_ISUID | stat.S_ISGID)):
-        raise VerificationError('unprivileged_system_bwrap_required')
-    interpreter = str(Path(sys.executable).resolve())
-    isolation = verify_rootless_isolation(binary, interpreter)
-    # No config/code read occurs before an actual unprivileged isolation probe succeeds.
-    fields, manifest, package_files = load_owned_inputs()
+        raise VerificationError('runner_container_runtime_unavailable')
+    if not 30 <= timeout <= 600:
+        raise VerificationError('runner_timeout_invalid')
     previous_mask = os.umask(0o077)
     try:
         with tempfile.TemporaryDirectory(prefix='pp-native-batching-private-') as scratch:
             root = Path(scratch)
             os.chmod(root, 0o700)
-            package = root / 'ga_workers'
-            package.mkdir(mode=0o700)
-            for relative, data in package_files.items():
-                path = root / relative
-                with open(path, 'xb') as handle:
-                    os.chmod(path, 0o600)
-                    handle.write(data)
-            selected = root / 'code-inputs.json'
-            selected.write_text(json.dumps(fields, separators=(',', ':')))
-            os.chmod(selected, 0o600)
+            fields, manifest = unpack_private_bundle(bundle_path, root)
             output = root / 'report'
             output.mkdir(mode=0o700)
             report_path = output / 'safe-report.json'
             harness = Path(__file__).resolve().parent
-            command = bwrap_base(binary, interpreter) + [
-                '--dir', '/native', '--ro-bind', str(package), '/native/ga_workers',
-                '--dir', '/verify', '--ro-bind', str(harness), '/verify',
-                '--dir', '/input', '--ro-bind', str(selected), '/input/code-inputs.json',
-                '--dir', '/report', '--bind', str(output), '/report',
-                interpreter, '-I', '/verify/verify_native.py', '--child', '/native',
-                '--report', '/report/safe-report.json']
+            container_name = 'pp-native-verify-' + uuid.uuid4().hex
+            command = docker_command(binary, image_id, root, harness, container_name)
             process = None
+            environment = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}
             try:
                 with open(root / 'private-native-output.log', 'xb') as captured:
                     os.chmod(root / 'private-native-output.log', 0o600)
-                    process = subprocess.Popen(command,
-                        env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'},
+                    process = subprocess.Popen(command, env=environment,
                         stdin=subprocess.DEVNULL, stdout=captured, stderr=subprocess.STDOUT,
                         start_new_session=True, cwd=root)
                     try:
@@ -409,17 +447,26 @@ def run_host_local(timeout=360):
                     except subprocess.TimeoutExpired:
                         raise VerificationError('native_verification_timeout')
             finally:
-                if process is not None and process.poll() is None:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=10)
-            if not report_path.is_file() or report_path.stat().st_size > 1024 * 1024:
+                # The daemon owns the container, so killing only the client is insufficient.
+                # This operates exclusively on the fresh GitHub runner's named test container.
+                try:
+                    subprocess.run([binary, 'rm', '--force', container_name], env=environment,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=15, check=False)
+                finally:
+                    if process is not None and process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=10)
+            if (not report_path.is_file() or report_path.is_symlink()
+                    or report_path.stat().st_size > 1024 * 1024):
                 raise VerificationError('safe_report_missing_or_too_large')
-            report = json.loads(report_path.read_text())
+            report = public_report(json.loads(report_path.read_text()))
             report['provenance'] = {'compiler_sha256': manifest['compiler_sha256'],
                 'adapter_sha256': manifest['source_hashes'].get('ga_workers/full_runtime_adapter.py'),
                 'code_fields_count': len(fields), 'native_code_changed': False,
-                'private_code_egress': False, 'production_writes': False,
-                'host_private_temp_only': True, 'isolation': isolation}
+                'production_writes': False, 'ephemeral_private_test_authorized': True,
+                'isolation': {'method': 'ephemeral_runner_container', 'network': 'none',
+                              'read_only_root': True, 'private_tmpfs': True, 'image_id': image_id}}
             print('NATIVE_BATCHING_VERIFICATION ' + json.dumps(report, ensure_ascii=False, separators=(',', ':')))
             return process.returncode
     finally:
@@ -428,7 +475,8 @@ def run_host_local(timeout=360):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--on-host', action='store_true')
+    parser.add_argument('--bundle', type=Path)
+    parser.add_argument('--image-id')
     parser.add_argument('--child', type=Path)
     parser.add_argument('--report', type=Path)
     parser.add_argument('--timeout', type=int, default=360)
@@ -436,12 +484,12 @@ if __name__ == '__main__':
     if args.child:
         raise SystemExit(child_verification(args.child, args.report))
     try:
-        if not args.on_host:
-            raise VerificationError('explicit_host_local_mode_required')
+        if not args.bundle or not args.image_id:
+            raise VerificationError('explicit_private_bundle_and_image_required')
         def interrupted(_signum, _frame):
             raise KeyboardInterrupt()
         signal.signal(signal.SIGTERM, interrupted)
-        raise SystemExit(run_host_local(timeout=args.timeout))
+        raise SystemExit(run_ephemeral(args.bundle, args.image_id, timeout=args.timeout))
     except KeyboardInterrupt:
         print('NATIVE_BATCHING_VERIFICATION_CANCELLED')
         raise SystemExit(130)

@@ -1,15 +1,19 @@
-"""Host-local code-input selection. No serializer, transport, or stdout API.
+"""Select the exact code-only inputs for the explicitly authorized private test.
 
-Private native code remains on its existing OVH host. Only the host-local
-verification process consumes the selected code-only values.
+The opt-in binary bundle is consumed only by the ephemeral verification runner.
+It must be redirected to a private file, never a log or published artifact.
 """
+import argparse
 import ast
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import stat
+import sys
+import tarfile
 
 
 ROOT = Path('/home/liftorbit-ci/liftorbit-migration')
@@ -116,7 +120,40 @@ def load_owned_inputs(config=CONFIG, package=PACKAGE, root=ROOT):
         files['ga_workers/' + name] = read_owned(path, root, 4 * 1024 * 1024)
     if sum(map(len, files.values())) > MAX_BYTES:
         raise InputContractError('package_too_large')
-    manifest = {'format': 'host-local-native-code-inputs-v1', 'compiler_sha256': COMPILE_SHA,
+    manifest = {'format': 'ephemeral-native-code-inputs-v1', 'compiler_sha256': COMPILE_SHA,
                 'code_field_names': sorted(selected),
                 'source_hashes': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
     return selected, manifest, files
+
+
+def write_private_bundle(stream, selected, manifest, files):
+    """Binary transport only; all owned input reads finish before any output."""
+    selected = select_code_fields(selected)
+    encoded = json.dumps(selected, separators=(',', ':')).encode()
+    manifest = dict(manifest, code_inputs_sha256=hashlib.sha256(encoded).hexdigest())
+    members = {'code-inputs.json': encoded,
+               'manifest.json': json.dumps(manifest, separators=(',', ':')).encode(), **files}
+    with tarfile.open(fileobj=stream, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
+        for name, data in members.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            member.mode = 0o600
+            member.mtime = 0
+            archive.addfile(member, io.BytesIO(data))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--emit-private-bundle', action='store_true')
+    options = parser.parse_args()
+    if not options.emit_private_bundle or sys.stdout.isatty():
+        print('NATIVE_INPUT_BUNDLE_REFUSED', file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        values, provenance, package_files = load_owned_inputs()
+        write_private_bundle(sys.stdout.buffer, values, provenance, package_files)
+    except Exception as error:
+        # Never print exception text, tracebacks, configuration, or source.
+        code = str(error) if isinstance(error, InputContractError) else type(error).__name__
+        print('NATIVE_INPUT_BUNDLE_FAILED ' + code, file=sys.stderr)
+        raise SystemExit(1)

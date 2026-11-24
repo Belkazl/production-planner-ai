@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import tarfile
 import types
 import unittest
 from unittest.mock import patch as mock_patch
@@ -150,32 +151,111 @@ class HarnessTests(unittest.TestCase):
         self.assertNotIn('validator_modified_copy', original_plan)
         self.assertTrue(report['result']['reached_lower_bound'])
 
-    def test_rootless_command_has_no_host_root_or_service_socket_mounts(self):
-        command = verification.bwrap_base('/usr/bin/bwrap', '/usr/bin/python3')
-        for required in ('--unshare-user', '--unshare-net', '--unshare-pid', '--clearenv', '--die-with-parent'):
-            self.assertIn(required, command)
-        for forbidden in ('/home', '/run', '/var', '--bind', 'sudo', 'docker'):
-            self.assertNotIn(forbidden, command)
-        self.assertIn('--tmpfs', command)
-        self.assertEqual(command[command.index('--tmpfs') + 1], '/tmp')
-        self.assertNotIn('/', command)
+    def synthetic_bundle(self):
+        compiler = ('DATA_KEYS = ' + repr(sorted(inputs.CODE_KEYS)) + '\n').encode()
+        files = {'ga_workers/' + name: b'# public synthetic module\n' for name in
+                 ('__init__.py', 'full_runtime_adapter.py', 'constraints.py',
+                  'continuation.py', 'batch_size_diagnostics.py')}
+        files['ga_workers/compile_legacy_ga.py'] = compiler
+        digest = hashlib.sha256(compiler).hexdigest()
+        fields = source_fields()
+        manifest = {'format': 'ephemeral-native-code-inputs-v1', 'compiler_sha256': digest,
+                    'code_field_names': sorted(fields),
+                    'source_hashes': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
+        stream = io.BytesIO()
+        inputs.write_private_bundle(stream, fields, manifest, files)
+        return stream.getvalue(), digest
 
-    def test_missing_or_denied_rootless_isolation_never_reads_private_inputs(self):
+    def write_bundle(self, root, data):
+        path = root / 'private.bundle'
+        path.write_bytes(data)
+        path.chmod(0o600)
+        target = root / 'unpacked'
+        target.mkdir(mode=0o700)
+        return path, target
+
+    def test_private_bundle_roundtrip_exact_pinned_inputs_and_files(self):
+        bundle, digest = self.synthetic_bundle()
+        self.assertNotIn(b'DATABASE_URL', bundle)
+        with tempfile.TemporaryDirectory() as temporary, mock_patch.object(verification, 'COMPILE_SHA', digest):
+            path, target = self.write_bundle(Path(temporary), bundle)
+            fields, manifest = verification.unpack_private_bundle(path, target)
+            self.assertEqual(fields, source_fields())
+            self.assertEqual(manifest['compiler_sha256'], digest)
+            self.assertEqual((target / 'code-inputs.json').stat().st_mode & 0o777, 0o600)
+            self.assertEqual((target / 'ga_workers').stat().st_mode & 0o777, 0o700)
+
+    def test_bundle_rejects_path_link_duplicate_size_and_compiler_drift(self):
+        for kind in ('traversal', 'symlink', 'duplicate', 'size'):
+            stream = io.BytesIO()
+            with tarfile.open(fileobj=stream, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+                item = tarfile.TarInfo('../private' if kind == 'traversal' else 'manifest.json')
+                if kind == 'symlink':
+                    item.type = tarfile.SYMTYPE; item.linkname = '/etc/private'
+                if kind == 'size':
+                    item.size = 65537
+                archive.addfile(item, io.BytesIO(b'x' * item.size))
+                if kind == 'duplicate':
+                    archive.addfile(item, io.BytesIO())
+            with tempfile.TemporaryDirectory() as temporary:
+                path, target = self.write_bundle(Path(temporary), stream.getvalue())
+                with self.assertRaises(verification.VerificationError):
+                    verification.unpack_private_bundle(path, target)
+                self.assertEqual(list(target.iterdir()), [])
+        bundle, _ = self.synthetic_bundle()
+        with tempfile.TemporaryDirectory() as temporary:
+            path, target = self.write_bundle(Path(temporary), bundle)
+            with self.assertRaisesRegex(verification.VerificationError, 'bundle_manifest_contract'):
+                verification.unpack_private_bundle(path, target)
+
+    def test_bundle_rejects_extra_environment_fields_before_writing(self):
+        bundle, digest = self.synthetic_bundle()
+        with tarfile.open(fileobj=io.BytesIO(bundle), mode='r:') as archive:
+            members = {member.name: archive.extractfile(member).read() for member in archive}
+        fields = json.loads(members['code-inputs.json'])
+        fields['DATABASE_URL'] = 'never-forward-this-value'
+        members['code-inputs.json'] = json.dumps(fields).encode()
+        manifest = json.loads(members['manifest.json'])
+        manifest['code_inputs_sha256'] = hashlib.sha256(members['code-inputs.json']).hexdigest()
+        members['manifest.json'] = json.dumps(manifest).encode()
+        stream = io.BytesIO()
+        with tarfile.open(fileobj=stream, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+            for name, data in members.items():
+                item = tarfile.TarInfo(name); item.size = len(data)
+                archive.addfile(item, io.BytesIO(data))
+        with tempfile.TemporaryDirectory() as temporary, mock_patch.object(verification, 'COMPILE_SHA', digest):
+            path, target = self.write_bundle(Path(temporary), stream.getvalue())
+            with self.assertRaisesRegex(verification.VerificationError, 'bundle_extra_input_field'):
+                verification.unpack_private_bundle(path, target)
+            self.assertEqual(list(target.iterdir()), [])
+
+    def test_runner_container_has_no_network_secrets_or_host_service_mounts(self):
+        command = verification.docker_command('/usr/bin/docker', 'sha256:' + 'a' * 64,
+            Path('/tmp/private-test'), Path('/tmp/public-harness'), 'pp-native-verify-' + 'b' * 32)
+        for required in ('--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
+                         '--pids-limit=128', '--memory=1g', '--tmpfs'):
+            self.assertIn(required, command)
+        encoded = ' '.join(command)
+        for forbidden in ('docker.sock', 'DATABASE_URL', 'GITHUB_TOKEN', 'SSH_PRIVATE_KEY',
+                          'source=/,', 'source=/home,', 'source=/run,', 'source=/var,', 'sudo'):
+            self.assertNotIn(forbidden, encoded)
+        self.assertEqual(command.count('--mount'), 4)
+        self.assertEqual(sum(',readonly' in part for part in command), 3)
+        self.assertNotIn('--privileged', command)
+
+    def test_unavailable_runner_runtime_does_not_unpack_private_inputs(self):
         with mock_patch.object(verification.os, 'geteuid', return_value=1000), \
              mock_patch.object(verification.shutil, 'which', return_value=None), \
-             mock_patch.object(verification, 'load_owned_inputs') as loader:
-            with self.assertRaisesRegex(verification.VerificationError, 'rootless_bwrap_unavailable'):
-                verification.run_host_local()
-            loader.assert_not_called()
-        system_binary = types.SimpleNamespace(st_uid=0, st_mode=0o100755)
-        with mock_patch.object(verification.os, 'geteuid', return_value=1000), \
-             mock_patch.object(verification.shutil, 'which', return_value='/usr/bin/bwrap'), \
-             mock_patch.object(verification.Path, 'stat', return_value=system_binary), \
-             mock_patch.object(verification, 'verify_rootless_isolation', side_effect=verification.VerificationError('rootless_namespace_unavailable')), \
-             mock_patch.object(verification, 'load_owned_inputs') as loader:
-            with self.assertRaisesRegex(verification.VerificationError, 'rootless_namespace_unavailable'):
-                verification.run_host_local()
-            loader.assert_not_called()
+             mock_patch.object(verification, 'unpack_private_bundle') as unpack:
+            with self.assertRaisesRegex(verification.VerificationError, 'runner_container_runtime_unavailable'):
+                verification.run_ephemeral(Path('/private.bundle'), 'sha256:' + 'a' * 64)
+            unpack.assert_not_called()
+
+    def test_public_report_omits_source_positions_recursively(self):
+        result = verification.public_report({'functions': [{'name': 'native', 'first_line': 101,
+            'nested': {'line': 102, 'parameters': ['model']}}], 'duration_minutes': 20})
+        self.assertEqual(result, {'functions': [{'name': 'native', 'nested': {'parameters': ['model']}}],
+                                  'duration_minutes': 20})
 
 
 if __name__ == '__main__':
