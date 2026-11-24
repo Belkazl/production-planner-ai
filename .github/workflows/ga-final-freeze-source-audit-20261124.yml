@@ -1,0 +1,63 @@
+name: Inspect production end-of-optimization UI handlers
+on:
+  push:
+    branches: [diagnose/ga-final-ui-freeze-20261124]
+    paths: [.github/workflows/ga-final-freeze-source-audit-20261124.yml]
+permissions: {contents: read}
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Audit actual OVH end-of-run JavaScript without changing server
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          for filename in ["restart-optimizer-ui.js","stop-ui.js","auth-runtime.js","gantt-details.js","language-ui.js","restart-optimizer-html.js","restart-optimizer-server.js"]:
+            p=root/filename
+            if not p.exists():continue
+            data=p.read_text(errors="replace")
+            lines=data.splitlines()
+            print("SOURCE",filename,"CHARS",len(data),"LINES",len(lines))
+            terms=['MutationObserver','renderPlan(','renderKpisWithDelta','requestAnimationFrame','ppProjectAfterPlan','planResult','pp:optimizer-done','ga-complete','ppNativeOneOwnerProgressV4',
+              'ppAutoIntermediate','ppAutomaticIntermediate','ppLightweightLiveGanttV2','ppResolveDuplicateGaProgress','ppSingleGa',
+              '__ppOptimizationInFlight=false','opt.onclick','__ppOptimizerCommittedPlan',
+              'finish(','finalize(','complete(','done:','paintProgress','localStorage.setItem',
+              'document.body','setInterval','cancelAnimationFrame','ppFog','__PP_SINGLE_GA_PROGRESS_RENDERER_V1__']
+            matches=[(i,line) for i,line in enumerate(lines) if any(x in line for x in terms)]
+            print("MATCHES",len(matches))
+            ranges=[]
+            for i,line in matches:
+              if 'auth-runtime.js'==filename and not any(t in line for t in ('MutationObserver','enhanced=','ppSafePlannerUiForAuthenticatedUser','ppAuthenticatedHandler','ppFog','renderPlan(')):continue
+              if filename=="language-ui.js" and not any(t in line for t in ('MutationObserver','document.body','setInterval')):continue
+              if filename=="restart-optimizer-ui.js" and not any(t in line for t in ('MutationObserver','renderPlan(','requestAnimationFrame','ppProjectAfterPlan','ppAutomaticIntermediate','ppLightweightLiveGanttV2',
+              'ppResolveDuplicateGaProgress','ppNativeOneOwnerProgressV4','__ppOptimizationInFlight=false','opt.onclick',
+              'setInterval','ppFog','__PP_SINGLE_GA_PROGRESS_RENDERER_V1__','complete(','finish(')):continue
+              ranges.append((max(0,i-2),min(len(lines),i+5)))
+            merged=[]
+            for lo,hi in ranges:
+              if merged and lo<=merged[-1][1]:merged[-1]=(merged[-1][0],max(merged[-1][1],hi))
+              else:merged.append((lo,hi))
+            for lo,hi in merged[:75]:
+              print("RANGE",lo+1,hi)
+              for j in range(lo,hi):
+                line=lines[j]
+                if re.search(r'password|private.key|authorization|secret|bearer|api[_-]?key',line,re.I):line="[REDACTED]"
+                print(f"{j+1:04d} {line[:370]}")
+          PY
