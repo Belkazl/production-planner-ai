@@ -34,6 +34,13 @@ jobs:
            root/"sources/ovh-app/current",
            root/"sources/current/ga/ga_workers"
           ]
+          transport=root/"sources/ovh-app/current/async-plan-transport.js"
+          if transport.exists():
+            print("TRANSPORT_FULL_SOURCE_START")
+            for index,line in enumerate(transport.read_text(errors="replace").splitlines()[:145],1):
+              if re.search("password|private.key|authorization|bearer|credential|secret|api[_-]?key",line,re.I):line="[REDACTED]"
+              print("TRANSPORT_LINE",index,line[:350])
+            print("TRANSPORT_FULL_SOURCE_END")
           symbols=[
             "ga_client_wait_timeout","client_wait_timeout","ga_upstream_aborted",
             "maxWaitMs","PP_PY_GA_TIMEOUT_S","ga_worker_timeout","ga_wait_timeout"
