@@ -1,0 +1,69 @@
+name: Inspect actual GA continuation improvement path on OVH
+on:
+  push:
+    branches: [diagnose/ga-continue-no-improvement-20261124]
+    paths: [.github/workflows/liftorbit-ga-no-improvement-audit-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Read GA runner and frontend compare/seed implementation without changing site
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121"
+          test "$USER" = "liftorbit-ci"
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          for area in ("ga_python_workers/ga_workers","ga_python_workers","ga_workers"):
+           p=root/area
+           if p.exists():
+            print("GA_FOLDER",area)
+            for f in sorted(p.glob("*.py")):print("GA_PYTHON_FILE",f.relative_to(root),f.stat().st_size)
+          patterns={
+           "python-ga-upstream.mjs":[r'continu',r'resume',r'random',r'seed',r'order_sequence',r'args\.generations',r'args\.population',r'max_score',r'best_score'],
+           "restart-optimizer-ui.js":[r'function readyContinue',r'function accepted',r'function ppSelectedPlan',r'function save\(',r'function markContinue',r'__PP_GA_',r'resume_plan',r'resume_state',r'quick:Object',r'function ppOneSse',r'function ppFresh',r'__ppOptimizerCommittedPlan',r'ppIncumbentDecision'],
+           "ga_python_workers/ga_workers/full_runtime_adapter.py":[r'continu',r'resume',r'random',r'seed',r'best',r'population',r'generations',r'order_sequence'],
+           "ga_python_workers/ga_workers/continuation.py":[r'continu',r'resume',r'random',r'seed',r'best',r'population',r'generations',r'order_sequence'],
+           "ga_python_workers/ga_workers/manager.py":[r'job.result',r'job.best',r'generations',r'score',r'completed',r'checkpoint'],
+           "ga_python_workers/ga_workers/server.py":[r'continu',r'best',r'generation',r'resume',r'seed']
+          }
+          for filename,pat in patterns.items():
+           p=root/filename
+           if not p.exists():
+            print("MISSING",filename)
+            continue
+           lines=p.read_text(errors="replace").splitlines()
+           rg=re.compile('|'.join(pat),re.I)
+           hits=[i for i,l in enumerate(lines) if rg.search(l)]
+           print("FILE",filename,"SIZE",p.stat().st_size,"LINES",len(lines),"MATCHES",len(hits))
+           segments=[]
+           for i in hits:
+            if filename=="restart-optimizer-ui.js" and i>700 and not any(q in lines[i] for q in ('markContinue','readyContinue','__PP_GA_','resume_plan','resume_state','ppIncumbentDecision','__ppOptimizerCommittedPlan')):continue
+            segments.append((max(0,i-2),min(len(lines),i+4)))
+           merged=[]
+           for a,b in segments:
+            if merged and a<=merged[-1][1]:merged[-1]=(merged[-1][0],max(b,merged[-1][1]))
+            else:merged.append((a,b))
+           for a,b in merged[:52]:
+            print("SPAN",a+1,b)
+            for i in range(a,b):
+              l=lines[i]
+              if re.search(r'(password|private.key|authorization|bearer|credential|secret|api[_-]?key)',l,re.I):l="[REDACTED]"
+              print("SRC",f"{i+1:04d}",l[:250])
+          PY
