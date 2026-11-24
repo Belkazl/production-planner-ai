@@ -1,0 +1,47 @@
+name: Audit authentic LiftOrbit auth-storage project persistence
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-auth-storage-audit-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Read auth service source schema without data or secrets
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration/sources/current/auth"
+          print("AUTH_SOURCE_EXISTS",root.exists())
+          for p in root.rglob("*"):
+           if not p.is_file() or any(t in p.parts for t in ("node_modules","vendor",".git","dist")):continue
+           if p.stat().st_size>320000:continue
+           print("AUTH_FILE",str(p.relative_to(root)),p.stat().st_size)
+           if p.suffix not in (".ts",".js",".sql",".mjs"):continue
+           lines=p.read_text(errors="replace").splitlines()
+           indicators=("db-storage","prodplan.projects.v2","CREATE TABLE","CREATE INDEX","tenant_id","account_id","project","storage","pg.Pool","Pool(","postgres","upsert","INSERT INTO","ON CONFLICT","session")
+           hits=[i for i,line in enumerate(lines) if any(k.lower() in line.lower() for k in indicators)]
+           for i in hits[:100]:
+            for j in range(max(0,i-1),min(len(lines),i+2)):
+             text=lines[j]
+             if re.search(r'(password|token|secret|credential|private.key|authorization|DATABASE_URL|PGPASSWORD|process.env|Bun.env|cookie)',text,re.I):text="[REDACTED]"
+             print("AUTH_CODE",str(p.relative_to(root)),j+1,text[:290])
+          PY
