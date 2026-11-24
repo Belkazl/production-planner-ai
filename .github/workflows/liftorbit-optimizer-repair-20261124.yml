@@ -1,0 +1,37 @@
+name: Repair optimizer job lifecycle and operation interleaving
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-optimizer-repair-20261124.yml
+      - ops/ovh/optimizer-repair-20261124/**
+      - ops/ovh/optimizer-lifecycle-20261124/**
+      - ops/ovh/first-candidate-preview-20261124/**
+      - ops/ovh/operation-interleave-20261124/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  test-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify job ownership, fast completion, Stop and operation scheduling
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix /tmp/liftorbit-text-import-test --no-save --no-package-lock jsdom@26.1.0
+          node --test ops/ovh/optimizer-lifecycle-20261124/test.mjs
+          node --test ops/ovh/first-candidate-preview-20261124/test.mjs
+          python3 -m unittest discover -s ops/ovh/operation-interleave-20261124 -p 'test*.py'
+      - name: Deploy exact checked application and worker sources with rollback
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/optimizer-repair-20261124/release.sh
