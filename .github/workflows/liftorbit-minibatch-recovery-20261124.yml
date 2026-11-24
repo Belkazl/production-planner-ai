@@ -1,0 +1,35 @@
+name: Restore Production unit layout and diagnose native batch search
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-minibatch-recovery-20261124.yml
+      - ops/ovh/minibatch-recovery-20261124/**
+      - ops/ovh/units-ui-20261124/**
+      - ops/ovh/batch-size-search-20261124/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  test-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify unit layout source guards and native diagnostic contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/minibatch-recovery-20261124/release.sh
+          node --test ops/ovh/units-ui-20261124/test.mjs
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -v -s ops/ovh/batch-size-search-20261124 -p 'test_diagnostics.py'
+      - name: Deploy three guarded sources with rollback and public health verification
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/minibatch-recovery-20261124/release.sh
