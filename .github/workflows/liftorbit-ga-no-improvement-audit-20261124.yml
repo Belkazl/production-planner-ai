@@ -35,6 +35,17 @@ jobs:
            if p.exists():
             print("GA_FOLDER",area)
             for f in sorted(p.glob("*.py")):print("GA_PYTHON_FILE",f.relative_to(root),f.stat().st_size)
+          active=Path.home()/"liftorbit-migration/sources/current/ga/ga_workers/full_runtime_adapter.py"
+          print("ACTIVE_ADAPTER_EXISTS",active.exists())
+          if active.exists():
+           lines=active.read_text(errors="replace").splitlines()
+           print("ACTIVE_ADAPTER_LINES",len(lines))
+           for lo,hi in [(1,22),(125,210),(215,315)]:
+            print("ACTIVE_SPAN",lo,hi)
+            for n in range(lo,min(hi,len(lines))+1):
+             l=lines[n-1]
+             if re.search(r'(password|private.key|authorization|bearer|credential|secret|api[_-]?key)',l,re.I):l="[REDACTED]"
+             print("ACTIVE_SRC",f"{n:04d}",l[:320])
           for config in root.glob("*compose*.y*ml"):
            print("ADAPTER_CONFIG",config.name)
            for i,l in enumerate(config.read_text(errors="replace").splitlines(),1):
