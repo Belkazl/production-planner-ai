@@ -16,7 +16,7 @@ assert new.replace(new_line,old_line)==old, "only existing worker RNG assignment
 
 tree=ast.parse(new)
 seeds=[node for node in ast.walk(tree)
-       if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="seed" for t in node.targets)]
+       if isinstance(node,ast.Assign) and ast.get_source_segment(new,node).strip()=="seed=secrets.randbits(32)"]
 assert len(seeds)==1,len(seeds)
 statement=seeds[0]
 assert isinstance(statement.value,ast.Call)
