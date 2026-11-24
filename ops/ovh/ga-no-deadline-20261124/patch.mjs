@@ -7,7 +7,7 @@ const client=readFileSync(clientOld,"utf8");
 const upstream=readFileSync(upstreamOld,"utf8");
 const config=readFileSync(configOld,"utf8");
 const begin=" async function waitForPlan(signal){";
-const end="\\n const startTelemetry=";
+const end="\n const startTelemetry=";
 assert.equal(client.split(begin).length,2,"one existing waitForPlan");
 assert.equal(client.split(end).length,2,"one existing client telemetry");
 const a=client.indexOf(begin),b=client.indexOf(end,a);
@@ -53,20 +53,20 @@ const replacement=[
 '   // Unknown nonterminal intermediate statuses are not a reason to stop a job.',
 '  }',
 ' }'
-].join("\\n");
+].join("\n");
 const nextClient=client.slice(0,a)+replacement+client.slice(b);
 assert(!nextClient.includes('ga_client_wait_timeout'));
 assert(!nextClient.includes("Date.now()+15*60*1000"));
 assert(nextClient.includes("if(signal?.aborted)throw"));
 assert(nextClient.includes('window.__PP_ASYNC_PLAN_TRANSPORT__=true'));
 assert(nextClient.includes("activePlanPromise=joinOrStart"));
-const upstreamTail="      await cancel(req);\\n      return response({ok:false,error:'ga_worker_timeout'},504);";
+const upstreamTail="      await cancel(req);\n      return response({ok:false,error:'ga_worker_timeout'},504);";
 const upstreamSafe=[
 '      // A legacy synchronous HTTP request reached its transport lifetime.',
 '      // Return an account-owned async job. Never cancel the GA worker.',
 '      return response({ok:true,started:true,job_id:state.id,running:true,',
 '        phase:state.state,percent:state.progress},202);'
-].join("\\n");
+].join("\n");
 assert.equal(upstream.split(upstreamTail).length,2,"sync upstream tail changed");
 const nextUpstream=upstream.replace(upstreamTail,upstreamSafe);
 assert(nextUpstream.includes("if(asyncStart)return response({ok:true,started:true"));
@@ -76,7 +76,7 @@ assert(nextUpstream.includes("if(opts?.signal?.aborted||state.state==='cancelled
 const obj=JSON.parse(config);
 assert.equal(String(obj.PP_PY_GA_TIMEOUT_S),"180","old GA-worker config expected");
 obj.PP_PY_GA_TIMEOUT_S="0";
-const configNext=JSON.stringify(obj,null,2)+"\\n";
+const configNext=JSON.stringify(obj,null,2)+"\n";
 assert.equal(String(JSON.parse(configNext).PP_PY_GA_TIMEOUT_S),"0");
 writeFileSync(clientNew,nextClient);
 writeFileSync(upstreamNew,nextUpstream);
