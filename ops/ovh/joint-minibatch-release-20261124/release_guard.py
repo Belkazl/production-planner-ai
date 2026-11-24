@@ -26,6 +26,7 @@ PUBLIC_PATHS = (
     "ops/ovh/joint-minibatch-release-20261124/release_guard.py",
     "ops/ovh/joint-minibatch-release-20261124/stage.py",
     "ops/ovh/joint-minibatch-release-20261124/release.sh",
+    "ops/ovh/joint-minibatch-release-20261124/preflight_app.sh",
     ".github/workflows/liftorbit-joint-minibatch-release-20261124.yml",
     "ops/ovh/joint-minibatch-search-20261124/joint_minibatch.py",
     "ops/ovh/joint-minibatch-search-20261124/patch.py",

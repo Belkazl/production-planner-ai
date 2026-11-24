@@ -46,6 +46,61 @@ const oldBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       if(!seed)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409);
       args.resume_plan=seed;
       console.warn("PP_GA_RESUME_SAFE_ORDER_SEED",source);`;
+// These alternatives are exact published predecessors, not a relaxed source
+// pattern: ga-complete-setup-final-20261117 and ga-second-run-fastpath-20261119.
+const ownedBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
+      const ownedResult=sameModel&&current?.result&&current.result.valid===true&&
+        owned(current.result,model)?current.result:null;
+      const verifiedBest=!ownedResult&&sameModel?verifiedAccountBest(current,model):null;
+      const clientPlan=args.resume_plan;
+      const clientState=args.resume_state;
+      let seed=normalizedContinuationSeed(ownedResult||verifiedBest,model,true);
+      let source=seed?"owned_plan":null;
+      if(!seed&&sameModel&&current?.resume_state){
+        seed=normalizedContinuationSeed(current.resume_state,model,false);
+        if(seed)source="stored_order_seed";
+      }
+      if(!seed&&clientPlan){
+        seed=normalizedContinuationSeed(clientPlan,model,false);
+        if(seed)source="client_order_hint";
+      }
+      if(!seed&&clientState){
+        seed=normalizedContinuationSeed(clientState,model,false);
+        if(seed)source="client_state_order_hint";
+      }
+      delete args.resume_state;
+      delete args.resume_plan;
+      if(!seed)return response({ok:false,error:'continuation_seed_missing_or_invalid'},409);
+      // Keep continue=true. The worker reconstructs and validates the plan;
+      // this is NOT a silent fresh optimization or accepted client schedule.
+      args.resume_plan=seed;
+      console.warn("PP_GA_RESUME_SAFE_ORDER_SEED",source);`;
+const ownedPrefix = ownedBlock.slice(0, ownedBlock.indexOf("      if(!seed&&clientPlan){"));
+const fastPrefix = String.raw`      const sameModel=current?.modelKey===modelKey;
+      const clientPlan=args.resume_plan;
+      const clientState=args.resume_state;
+      // A completed account-owned GA persists a compact ordering hint. Validate
+      // every order against this exact model BEFORE invoking expensive full
+      // schedule verification (hundreds of operations and setup rows).
+      // The seed score stays untrusted: the worker must recompute the schedule.
+      let seed=null,source=null;
+      if(!seed&&sameModel&&current?.resume_state){
+        seed=normalizedContinuationSeed(current.resume_state,model,false);
+        if(seed)source="stored_order_seed";
+      }
+      if(!seed&&sameModel){
+        const ownedResult=current?.result&&current.result.valid===true&&
+          owned(current.result,model)?current.result:null;
+        const verifiedBest=!ownedResult?verifiedAccountBest(current,model):null;
+        seed=normalizedContinuationSeed(ownedResult||verifiedBest,model,true);
+        if(seed)source="owned_plan";
+      }
+`;
+const knownBlocks = [
+  ["nov17_owned_plan", ownedBlock],
+  ["nov19_stored_order_fastpath", fastPrefix + ownedBlock.slice(ownedPrefix.length)],
+  ["nov19_client_order_v2", oldBlock]
+];
 const newBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       // The account-owned server state takes priority over a browser's order
       // hint. The worker validates the untouched normalized model/pin hashes
@@ -112,6 +167,15 @@ function once(source, before, after, label) {
   return source.replace(before, after);
 }
 
+export function classifyContinuationSource(source) {
+  if (source.includes(marker)) {
+    return source.split(helper).length === 2 && source.split(newBlock).length === 2 &&
+      knownBlocks.every(([, block]) => !source.includes(block)) ? "joint_compact_v1" : "unknown";
+  }
+  const matches = knownBlocks.filter(([, block]) => source.split(block).length === 2);
+  return matches.length === 1 ? matches[0][0] : "unknown";
+}
+
 export function patchUpstream(source) {
   for (const guard of [
     "principal=await account(req);model=await readAccountModel(req)",
@@ -120,18 +184,28 @@ export function patchUpstream(source) {
     "const normalizedContinuationSeed=", "continuation_seed_missing_or_invalid"
   ]) if (!source.includes(guard)) throw Error("NATIVE_CONTINUATION_REQUIRED_GUARD_" + guard);
   if (source.includes(marker)) {
-    if (source.split(helper).length !== 2 || source.split(newBlock).length !== 2 || source.includes(oldBlock))
+    if (classifyContinuationSource(source) !== "joint_compact_v1")
       throw Error("NATIVE_CONTINUATION_INSTALLED_SOURCE_DRIFT");
     return source;
   }
-  source = once(source, oldBlock, newBlock, "continue_v2_block");
+  const variant = classifyContinuationSource(source);
+  const selected = knownBlocks.find(([name]) => name === variant);
+  if (!selected) throw Error("NATIVE_CONTINUATION_SOURCE_DRIFT_known_continue_block");
+  source = once(source, selected[1], newBlock, "known_continue_block");
   return once(source, helperAnchor, helper + helperAnchor, "compact_helper");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (!process.argv[2]) throw Error("NATIVE_CONTINUATION_APP_ROOT_REQUIRED");
-  const path = resolve(process.argv[2], "python-ga-upstream.mjs");
-  const before = readFileSync(path, "utf8"), after = patchUpstream(before);
-  if (after !== before) writeFileSync(path, after);
-  console.log("NATIVE_BATCHING_CONTINUATION_PATCHED", createHash("sha256").update(after).digest("hex"));
+  if (process.argv[2] === "--classify") {
+    if (!process.argv[3] || process.argv.length !== 4) throw Error("NATIVE_CONTINUATION_SOURCE_PATH_REQUIRED");
+    const source = readFileSync(resolve(process.argv[3]), "utf8");
+    console.log("NATIVE_CONTINUATION_SOURCE_CLASS", JSON.stringify({variant: classifyContinuationSource(source),
+      sha256: createHash("sha256").update(source).digest("hex")}));
+  } else {
+    if (!process.argv[2]) throw Error("NATIVE_CONTINUATION_APP_ROOT_REQUIRED");
+    const path = resolve(process.argv[2], "python-ga-upstream.mjs");
+    const before = readFileSync(path, "utf8"), after = patchUpstream(before);
+    if (after !== before) writeFileSync(path, after);
+    console.log("NATIVE_BATCHING_CONTINUATION_PATCHED", createHash("sha256").update(after).digest("hex"));
+  }
 }

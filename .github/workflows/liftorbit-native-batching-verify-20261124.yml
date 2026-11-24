@@ -42,6 +42,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Check the public harness guards only
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/native-batching-verify-20261124 -p 'test_*.py' -v
       - name: Prepare the same public Python image used by the worker
@@ -61,8 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          test -n "$NATIVE_SSH_HOST"
-          test -n "$NATIVE_SSH_USER"
+          test "$NATIVE_SSH_HOST" = 51.255.163.121
+          test "$NATIVE_SSH_USER" = liftorbit-ci
           printf '%s\n' "$NATIVE_SSH_KEY" > "$RUNNER_TEMP/native-batching-ssh-key"
           printf '%s\n' "$NATIVE_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/native-batching-known-hosts"
           chmod 600 "$RUNNER_TEMP/native-batching-ssh-key" "$RUNNER_TEMP/native-batching-known-hosts"
@@ -70,11 +73,27 @@ jobs:
           opts=(-i "$RUNNER_TEMP/native-batching-ssh-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/native-batching-known-hosts" -o ConnectTimeout=20)
           # The reviewed public selector runs read-only on the host. Its binary
           # stdout is redirected directly to a mode-0600 file, never the log.
-          ssh "${opts[@]}" "$NATIVE_SSH_USER@$NATIVE_SSH_HOST" \
+          if ! ssh "${opts[@]}" "$NATIVE_SSH_USER@$NATIVE_SSH_HOST" \
             'PYTHONDONTWRITEBYTECODE=1 python3 -I - --emit-private-bundle' \
             < ops/ovh/native-batching-verify-20261124/native_input_contract.py \
-            > "$RUNNER_TEMP/native-batching-private.bundle"
+            > "$RUNNER_TEMP/native-batching-private.bundle" 2> "$RUNNER_TEMP/native-batching-transport-private.log"; then
+            echo NATIVE_PRIVATE_TRANSFER_FAILED code_inputs
+            exit 6
+          fi
           test -s "$RUNNER_TEMP/native-batching-private.bundle"
+          # Only three fixed regular app source files; no auth runtime, account
+          # data or credentials enter this additional private preflight bundle.
+          if ! ssh "${opts[@]}" "$NATIVE_SSH_USER@$NATIVE_SSH_HOST" \
+            'bash -s -- --emit-private-bundle' \
+            < ops/ovh/joint-minibatch-release-20261124/preflight_app.sh \
+            > "$RUNNER_TEMP/native-batching-app.bundle" 2>> "$RUNNER_TEMP/native-batching-transport-private.log"; then
+            echo NATIVE_PRIVATE_TRANSFER_FAILED app_sources
+            exit 6
+          fi
+          test -s "$RUNNER_TEMP/native-batching-app.bundle"
+      - name: Preflight the exact app patches and preserved lifecycle privately
+        shell: bash
+        run: bash ops/ovh/joint-minibatch-release-20261124/preflight_app.sh "$RUNNER_TEMP/native-batching-app.bundle"
       - name: Verify the native engine and the reviewed correction without network
         shell: bash
         run: |
@@ -91,4 +110,10 @@ jobs:
         shell: bash
         run: |
           rm -f -- "$RUNNER_TEMP/native-batching-ssh-key" "$RUNNER_TEMP/native-batching-known-hosts" \
-            "$RUNNER_TEMP/native-batching-private.bundle" "$RUNNER_TEMP/native-batching-image"
+            "$RUNNER_TEMP/native-batching-private.bundle" "$RUNNER_TEMP/native-batching-image" \
+            "$RUNNER_TEMP/native-batching-app.bundle" "$RUNNER_TEMP/native-batching-transport-private.log"
+          for app_preflight_stage in "$RUNNER_TEMP"/joint-app-preflight.*; do
+            if test -d "$app_preflight_stage" && test ! -L "$app_preflight_stage"; then
+              rm -rf -- "$app_preflight_stage"
+            fi
+          done

@@ -5,7 +5,7 @@ import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {execFileSync} from "node:child_process";
 import {selectNativeResumeState, normalizeBatchGenome} from "./continuation.mjs";
-import {patchUpstream} from "./patch.mjs";
+import {patchUpstream, classifyContinuationSource} from "./patch.mjs";
 import {patchUpstream as patchLifecycle} from "../first-candidate-preview-20261124/patch.mjs";
 
 const repo = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
@@ -18,6 +18,18 @@ const begin = original.indexOf("      const sameModel=current?.modelKey===modelK
 const endMarker = '      console.warn("PP_GA_RESUME_SAFE_ORDER_SEED",source);';
 const end = original.indexOf(endMarker, begin) + endMarker.length;
 const fixture = original.slice(0, begin) + replacement + original.slice(end);
+const fastPatch = readFileSync(resolve(repo, "ops/ovh/ga-second-run-fastpath-20261119/patch.mjs"), "utf8");
+const publicRawLiteral = name => {
+  const prefix = "const " + name + "=String.raw`";
+  const start = fastPatch.indexOf(prefix);
+  assert(start >= 0);
+  const stop = fastPatch.indexOf("`;", start + prefix.length);
+  assert(stop > start);
+  return fastPatch.slice(start + prefix.length, stop);
+};
+const fastBefore = publicRawLiteral("old"), fastAfter = publicRawLiteral("replacement");
+assert.equal(original.split(fastBefore).length, 2);
+const fastFixture = original.replace(fastBefore, fastAfter);
 const patched = patchUpstream(fixture);
 const jobId = "a".repeat(32), newId = "b".repeat(32);
 const model = {start: "2026-11-24T08:00:00", orders: [{id: "one", quantity: 30}, {id: "two", quantity: 10}], equipment: []};
@@ -247,6 +259,27 @@ test("patch compiles, is exact/idempotent, and coexists with scoped Stop/SSE gua
   assert.equal(patchLifecycle(combined), combined);
   assert.equal(patchUpstream(combined), combined);
   execFileSync(process.execPath, ["--check", "--input-type=module"], {input: combined, stdio: ["pipe", "pipe", "pipe"]});
+});
+
+test("only the three exact public continuation predecessors are accepted", async () => {
+  for (const [label, source] of [["nov17_owned_plan", original],
+      ["nov19_stored_order_fastpath", fastFixture], ["nov19_client_order_v2", fixture]]) {
+    assert.equal(classifyContinuationSource(source), label);
+    const after = patchUpstream(source);
+    assert.equal(classifyContinuationSource(after), "joint_compact_v1");
+    assert.equal(patchUpstream(after), after);
+    execFileSync(process.execPath, ["--check", "--input-type=module"], {input: after, stdio: ["pipe", "pipe", "pipe"]});
+    const selected = genome(); selected.partitions[1].sizes = [5, 10, 5, 10];
+    const h = harness({source: after, state: native({batch_genome: genome()})});
+    assert.equal((await h.start({resume_plan: {order_sequence: selected.order_sequence, batch_genome: selected}})).status, 202);
+    assert.equal(h.requests[0].body.options.resume_state, undefined);
+    assert.deepEqual(h.requests[0].body.options.resume_plan.batch_genome, selected);
+    const changed = source.replace('source="client_order_hint"', 'source="unreviewed_variant"');
+    assert.equal(classifyContinuationSource(changed), "unknown");
+    assert.throws(() => patchUpstream(changed), /SOURCE_DRIFT/);
+  }
+  assert.equal(classifyContinuationSource(original + "\n" + fixture), "unknown");
+  assert.throws(() => patchUpstream(original + "\n" + fixture), /SOURCE_DRIFT/);
 });
 
 test("optional deployed bridge satisfies the exact source and syntax contract", {
