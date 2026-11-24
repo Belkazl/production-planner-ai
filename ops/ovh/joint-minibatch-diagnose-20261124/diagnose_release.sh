@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+# Read-only diagnosis of the fixed failed release; never print private log lines.
+set -euo pipefail
+
+diagnostic_python(){
+  cat <<'PY'
+import collections
+import errno
+import os
+import pathlib
+import re
+import stat
+import subprocess
+import sys
+
+LIMIT = 262144
+BACKUP = pathlib.Path('/home/liftorbit-ci/liftorbit-migration/patch-backups/joint-minibatch-release-20261124/45476356438-1')
+SERVICES = ('postgres-main', 'postgres-auth', 'planner-gateway', 'auth-gateway', 'ga-worker', 'app')
+SERVICE_RE = re.compile(r'LIFTORBIT_SERVICE (' + '|'.join(SERVICES) + r') state=(created|running|paused|restarting|removing|exited|dead|missing|unknown) health=(healthy|unhealthy|starting|none|missing|unknown|n/a) oom=(true|false|unknown)')
+FAILURES = {
+    'build_failure': r'failed to solve|failed to build|build failed|did not complete successfully|executor failed',
+    'syntax_error': r'\bSyntaxError\b|\bIndentationError\b|\bTabError\b',
+    'module_missing': r'\bModuleNotFoundError\b|cannot find module|module not found',
+    'import_error': r'\bImportError\b',
+    'assertion_error': r'\bAssertionError\b|assertion failed',
+    'runtime_error': r'\bNameError\b|\bTypeError\b|\bReferenceError\b|\bRuntimeError\b',
+    'permission_denied': r'\bPermissionError\b|\bEACCES\b|permission denied|operation not permitted|a password is required|not allowed to execute',
+    'disk_full': r'no space left on device|disk quota exceeded',
+    'out_of_memory': r'out of memory|oomkilled|oom=true|cannot allocate memory',
+    'timeout': r'timed out|timeout|deadline exceeded|context deadline',
+    'connection_refused': r'connection refused|could not connect|failed to connect',
+    'dns_failure': r'temporary failure in name resolution|could not resolve|no such host',
+    'network_unreachable': r'network is unreachable|no route to host|connection reset|unexpected eof',
+    'image_access_denied': r'pull access denied|authentication required|unauthorized|requested access.*denied',
+    'daemon_error': r'error response from daemon|cannot connect to the docker daemon',
+    'unknown_error': r'\bError\b|\bException\b|Traceback \(most recent call last\)',
+    'unhealthy': r'\bunhealthy\b|dependency failed to start|healthcheck failed',
+    'nonzero_exit': r'exit code[:= ]+[1-9][0-9]*\b|exited with code [1-9][0-9]*\b|returned a non-zero code',
+}
+MARKERS = {
+    'update_attempted': 'OVH_STAGING_RUNTIME_UPDATE_ATTEMPTED',
+    'smoke_ok': 'OVH_SIX_SERVICE_LOCAL_STAGING_SMOKE_OK',
+}
+EXIT_RE = re.compile(r'(?:exit(?:ed with)? code[:= ]+|returned a non-zero code:\s*)([0-9]{1,3})\b', re.I)
+
+ROOT = pathlib.Path('/home/liftorbit-ci/liftorbit-migration')
+STAGE = ROOT / 'sources/ovh-app/joint-minibatch-release-20261124-45476356438-1'
+TARGETS = {
+    'upstream': ('app/python-ga-upstream.mjs', ROOT / 'sources/ovh-app/current/python-ga-upstream.mjs'),
+    'restart_ui': ('app/restart-optimizer-ui.js', ROOT / 'sources/ovh-app/current/restart-optimizer-ui.js'),
+    'adapter': ('ga/full_runtime_adapter.py', ROOT / 'sources/current/ga/ga_workers/full_runtime_adapter.py'),
+    'joint_search': ('ga/joint_minibatch.py', ROOT / 'sources/current/ga/ga_workers/joint_minibatch.py'),
+    'joint_continuation': ('ga/joint_continuation.py', ROOT / 'sources/current/ga/ga_workers/joint_continuation.py'),
+}
+SOURCE_LIMIT = 4 * 1024 * 1024
+HASH_RE = re.compile(r'[0-9a-f]{64}')
+STAGES = {
+    'image_build': r'(?m)load build definition|building with|failed to solve|^#[0-9]+ \[',
+    'image_export': r'exporting to image|exporting layers|writing image sha256',
+    'runtime_recreate': r'(?m)^.*Container [A-Za-z0-9_.-]+ +(Creating|Created|Recreating|Recreated|Starting|Started)\s*$',
+    'runtime_report': r'(?m)^LIFTORBIT_SERVICE ',
+    'update_complete': r'(?m)^OVH_STAGING_RUNTIME_UPDATE_ATTEMPTED$',
+}
+
+def valid_manifest(text):
+    rows = [line.split('\t') for line in text.splitlines()]
+    wanted = {name for name, _ in TARGETS.values()}
+    if not 11 <= len(rows) <= 68 or any(len(row) != 4 for row in rows):
+        raise ValueError()
+    if len({row[1] for row in rows}) != len(rows):
+        raise ValueError()
+    if {row[1] for row in rows if row[0] == 'WRITE'} != wanted:
+        raise ValueError()
+    for role, name, before, after in rows:
+        if role not in {'WRITE', 'PRESERVE'} or not HASH_RE.fullmatch(after):
+            raise ValueError()
+        if before == 'MISSING':
+            if name not in {'ga/joint_minibatch.py', 'ga/joint_continuation.py'}:
+                raise ValueError()
+        elif not HASH_RE.fullmatch(before):
+            raise ValueError()
+        if role == 'PRESERVE' and before != after:
+            raise ValueError()
+        if name.startswith('ga/'):
+            if not re.fullmatch(r'ga/[A-Za-z_][A-Za-z0-9_]*\.py', name):
+                raise ValueError()
+        elif name not in {'app/auth-runtime.js', 'app/python-ga-upstream.mjs', 'app/python-ga-upstream-build.ts', 'app/restart-optimizer-ui.js'}:
+            raise ValueError()
+    return {name: before for role, name, before, _ in rows if role == 'WRITE'}, len(rows)
+
+def bounded_read(path, maximum):
+    if not path.parent.resolve(strict=True).is_relative_to(ROOT.resolve(strict=True)):
+        raise ValueError()
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as handle:
+        before = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid not in (0, os.getuid())
+                or before.st_size > maximum):
+            raise ValueError()
+        data = handle.read(maximum + 1)
+        after = os.fstat(handle.fileno())
+        if (len(data) != before.st_size or len(data) > maximum
+                or (before.st_ino, before.st_dev, before.st_size, before.st_mtime_ns)
+                != (after.st_ino, after.st_dev, after.st_size, after.st_mtime_ns)):
+            raise ValueError()
+        return data
+
+def metadata(area, label, path):
+    status, mode, owner, group, readable, size = 'missing', '0000', 'unknown', 'unknown', 0, 0
+    try:
+        info = path.lstat()
+        mode, size = f'{stat.S_IMODE(info.st_mode):04o}', info.st_size
+        owner = 'ci' if info.st_uid == os.getuid() else 'root' if info.st_uid == 0 else 'other'
+        group = 'ci' if info.st_gid == os.getgid() else 'root' if info.st_gid == 0 else 'other'
+        if stat.S_ISLNK(info.st_mode):
+            status = 'symlink_refused'
+        elif not stat.S_ISREG(info.st_mode):
+            status = 'not_regular'
+        elif not path.parent.resolve(strict=True).is_relative_to(ROOT.resolve(strict=True)):
+            status = 'outside_root'
+        else:
+            status = 'ok'
+            readable = int(os.access(path, os.R_OK))
+    except FileNotFoundError:
+        pass
+    except OSError:
+        status = 'unreadable'
+    print(f'JOINT_RELEASE_DIAG_FILE {area} {label} status={status} mode={mode} owner={owner} group={group} readable={readable} bytes={size}')
+    return status
+
+def inspect_sources():
+    import hashlib
+    expected, row_count, manifest_status = {}, 0, 'unreadable'
+    try:
+        expected, row_count = valid_manifest(bounded_read(BACKUP / 'manifest.tsv', 32768).decode('ascii'))
+        manifest_status = 'ok'
+    except FileNotFoundError:
+        manifest_status = 'missing'
+    except (OSError, ValueError, UnicodeError):
+        manifest_status = 'rejected'
+    print(f'JOINT_RELEASE_DIAG_MANIFEST status={manifest_status} rows={row_count}')
+    matches, absent = 0, 0
+    for label, (name, target) in TARGETS.items():
+        current_status = metadata('current', label, target)
+        metadata('stage', label, STAGE / name)
+        metadata('backup', label, BACKUP / name)
+        before = expected.get(name)
+        match = 0
+        if before == 'MISSING' and current_status == 'missing':
+            match = 1
+        elif before and before != 'MISSING' and current_status == 'ok':
+            try:
+                match = int(hashlib.sha256(bounded_read(target, SOURCE_LIMIT)).hexdigest() == before)
+            except (OSError, ValueError):
+                pass
+        matches += match
+        if label in {'joint_search', 'joint_continuation'} and current_status == 'missing':
+            absent += 1
+        print(f'JOINT_RELEASE_DIAG_SOURCE {label} old_match={match} expected_missing={int(before == "MISSING")} manifest_valid={int(manifest_status == "ok")}')
+    print(f'JOINT_RELEASE_DIAG_ROLLBACK old_matches={matches} expected=5 new_modules_absent={absent}')
+
+def classified_lines(label, text):
+    lines = []
+    last_failure = (-1, 'none')
+    for name, expression in FAILURES.items():
+        matches = list(re.finditer(expression, text, re.I))
+        if matches:
+            lines.append(f'JOINT_RELEASE_DIAG_MATCH {label} {name} count={len(matches)}')
+            last_failure = max(last_failure, (matches[-1].start(), name))
+    lines.append(f'JOINT_RELEASE_DIAG_LAST_FAILURE {label} label={last_failure[1]}')
+    last_stage = (-1, 'none')
+    for name, expression in STAGES.items():
+        matches = list(re.finditer(expression, text, re.I))
+        if matches:
+            last_stage = max(last_stage, (matches[-1].start(), name))
+    lines.append(f'JOINT_RELEASE_DIAG_STAGE {label} label={last_stage[1]}')
+    for name, marker in MARKERS.items():
+        lines.append(f'JOINT_RELEASE_DIAG_MARKER {label} {name} present={int(any(line == marker for line in text.splitlines()))}')
+    codes = collections.Counter(int(match.group(1)) for match in EXIT_RE.finditer(text) if int(match.group(1)) <= 255)
+    for code, count in sorted(codes.items()):
+        lines.append(f'JOINT_RELEASE_DIAG_EXIT {label} code={code} count={count}')
+    # Report only the last strictly valid status for each known service.
+    statuses = {}
+    for line in text.splitlines():
+        match = SERVICE_RE.fullmatch(line)
+        if match:
+            statuses[match.group(1)] = match.groups()
+    for service in SERVICES:
+        if service in statuses:
+            name, state, health, oom = statuses[service]
+            lines.append(f'JOINT_RELEASE_DIAG_LOG_SERVICE {label} {name} state={state} health={health} oom={oom}')
+    return lines
+
+def inspect_log(label):
+    path = BACKUP / (label + '-private.log')
+    status, total, data = 'ok', 0, b''
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, 'rb') as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                status = 'not_regular'
+            elif info.st_uid != os.getuid():
+                status = 'unexpected_owner'
+            else:
+                total = info.st_size
+                handle.seek(max(0, total - LIMIT))
+                data = handle.read(LIMIT)
+    except FileNotFoundError:
+        status = 'missing'
+    except OSError as error:
+        status = 'symlink_refused' if error.errno == errno.ELOOP else 'unreadable'
+    print(f'JOINT_RELEASE_DIAG_LOG {label} status={status} bytes={total} scanned_bytes={len(data)} truncated={int(total > len(data))}')
+    if status == 'ok':
+        for line in classified_lines(label, data.decode('utf-8', errors='replace')):
+            print(line)
+
+def inspect_operation(name):
+    # These are the existing read-only wrapper commands; update is never invoked.
+    try:
+        result = subprocess.run(['sudo', '-n', '/usr/local/sbin/liftorbit-ops', name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45, check=False)
+        code, timed_out, content = result.returncode, 0, result.stdout[-LIMIT:]
+    except subprocess.TimeoutExpired:
+        code, timed_out, content = 124, 1, b''
+    except OSError:
+        code, timed_out, content = 127, 0, b''
+    code = min(255, code if code >= 0 else 128 - code)
+    print(f'JOINT_RELEASE_DIAG_OP {name} exit={code} timeout={timed_out}')
+    text = content.decode('utf-8', errors='replace')
+    if name == 'status':
+        seen = set()
+        for line in text.splitlines():
+            match = SERVICE_RE.fullmatch(line)
+            if match and match.group(1) not in seen:
+                seen.add(match.group(1))
+                print(line)
+        print(f'JOINT_RELEASE_DIAG_STATUS recognized={len(seen)} expected={len(SERVICES)}')
+    else:
+        print('JOINT_RELEASE_DIAG_SMOKE marker=' + str(int(MARKERS['smoke_ok'] in text.splitlines())))
+
+def inspect_http(name, path, expected):
+    try:
+        result = subprocess.run(['curl', '-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '10', 'https://app.liftorbit.app' + path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=12, check=False)
+        code = result.stdout.decode('ascii', errors='replace')
+        code = code if re.fullmatch(r'[0-9]{3}', code) else '000'
+        exit_code = min(255, result.returncode if result.returncode >= 0 else 128 - result.returncode)
+    except subprocess.TimeoutExpired:
+        code, exit_code = '000', 124
+    except OSError:
+        code, exit_code = '000', 127
+    print(f'JOINT_RELEASE_DIAG_HTTP {name} code={code} expected={expected} exit={exit_code}')
+
+def allowed_line(line):
+    label = r'(?:update|rollback)'
+    failure = '(?:none|' + '|'.join(FAILURES) + ')'
+    service = SERVICE_RE.pattern.removeprefix('LIFTORBIT_SERVICE ')
+    patterns = [
+        rf'JOINT_RELEASE_DIAG_LOG {label} status=(?:ok|missing|unreadable|unexpected_owner|not_regular|symlink_refused) bytes=[0-9]+ scanned_bytes=[0-9]+ truncated=[01]',
+        rf'JOINT_RELEASE_DIAG_MATCH {label} (?:' + '|'.join(FAILURES) + r') count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_LAST_FAILURE {label} label={failure}',
+        rf'JOINT_RELEASE_DIAG_MARKER {label} (?:update_attempted|smoke_ok) present=[01]',
+        rf'JOINT_RELEASE_DIAG_EXIT {label} code=[0-9]{{1,3}} count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_LOG_SERVICE {label} {service}',
+        r'JOINT_RELEASE_DIAG_OP (?:status|smoke) exit=[0-9]{1,3} timeout=[01]',
+        SERVICE_RE.pattern,
+        r'JOINT_RELEASE_DIAG_STATUS recognized=[0-6] expected=6',
+        r'JOINT_RELEASE_DIAG_SMOKE marker=[01]',
+        r'JOINT_RELEASE_DIAG_HTTP bridge code=[0-9]{3} expected=200 exit=[0-9]{1,3}',
+        r'JOINT_RELEASE_DIAG_HTTP auth code=[0-9]{3} expected=401 exit=[0-9]{1,3}',
+        rf'JOINT_RELEASE_DIAG_STAGE {label} label=(?:none|' + '|'.join(STAGES) + ')',
+        r'JOINT_RELEASE_DIAG_MANIFEST status=(?:ok|missing|unreadable|rejected) rows=[0-9]{1,2}',
+        r'JOINT_RELEASE_DIAG_FILE (?:current|stage|backup) (?:upstream|restart_ui|adapter|joint_search|joint_continuation) status=(?:ok|missing|unreadable|symlink_refused|not_regular|outside_root) mode=[0-7]{4} owner=(?:ci|root|other|unknown) group=(?:ci|root|other|unknown) readable=[01] bytes=[0-9]+',
+        r'JOINT_RELEASE_DIAG_SOURCE (?:upstream|restart_ui|adapter|joint_search|joint_continuation) old_match=[01] expected_missing=[01] manifest_valid=[01]',
+        r'JOINT_RELEASE_DIAG_ROLLBACK old_matches=[0-5] expected=5 new_modules_absent=[0-2]',
+        r'JOINT_RELEASE_DIAG_INTERNAL_ERROR',
+        r'JOINT_RELEASE_DIAG_DONE',
+    ]
+    return any(re.fullmatch(pattern, line) for pattern in patterns)
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else '--remote'
+    if mode == '--self-test':
+        secret = 'SENSITIVE_SENTINEL_do_not_print'
+        text = '\n'.join([
+            'failed to solve: ' + secret + ': exit code: 1',
+            'ModuleNotFoundError: ' + secret,
+            'OVH_STAGING_RUNTIME_UPDATE_ATTEMPTED',
+            'LIFTORBIT_SERVICE ga-worker state=exited health=unhealthy oom=false',
+            'LIFTORBIT_SERVICE app state=running health=healthy oom=false ' + secret,
+            'LIFTORBIT_SERVICE ' + secret + ' state=running health=healthy oom=false',
+            'exit code: 999',
+        ])
+        lines = classified_lines('update', text)
+        assert all(allowed_line(line) for line in lines)
+        assert secret not in '\n'.join(lines)
+        assert 'JOINT_RELEASE_DIAG_EXIT update code=1 count=1' in lines
+        assert not any('code=999' in line for line in lines)
+        assert 'JOINT_RELEASE_DIAG_MARKER update update_attempted present=1' in lines
+        assert 'JOINT_RELEASE_DIAG_LOG_SERVICE update ga-worker state=exited health=unhealthy oom=false' in lines
+        assert not any('LOG_SERVICE update app' in line for line in lines)
+        assert not allowed_line(secret)
+        assert not allowed_line('JOINT_RELEASE_DIAG_MATCH update ' + secret + ' count=1')
+        assert allowed_line('LIFTORBIT_SERVICE app state=running health=healthy oom=false')
+        assert not allowed_line('LIFTORBIT_SERVICE app state=running health=healthy oom=false\n' + secret)
+        assert allowed_line('JOINT_RELEASE_DIAG_FILE stage joint_search status=ok mode=0600 owner=ci group=ci readable=1 bytes=1234')
+        assert not allowed_line('JOINT_RELEASE_DIAG_FILE stage ' + secret + ' status=ok mode=0600 owner=ci group=ci readable=1 bytes=1234')
+        assert allowed_line('JOINT_RELEASE_DIAG_SOURCE adapter old_match=1 expected_missing=0 manifest_valid=1')
+        assert allowed_line('JOINT_RELEASE_DIAG_ROLLBACK old_matches=5 expected=5 new_modules_absent=2')
+        permission = classified_lines('update', 'PermissionError: ' + secret + ' EACCES permission denied')
+        assert any('permission_denied count=3' in line for line in permission)
+        assert all(allowed_line(line) for line in permission)
+        assert secret not in '\n'.join(permission)
+        print('JOINT_RELEASE_DIAG_SELF_TEST_PASS')
+    elif mode == '--filter' and len(sys.argv) == 3:
+        with pathlib.Path(sys.argv[2]).open('rb') as handle:
+            data = handle.read(LIMIT)
+        accepted = rejected = 0
+        for line in data.decode('utf-8', errors='replace').splitlines():
+            if allowed_line(line):
+                accepted += 1
+                print(line)
+            else:
+                rejected += 1
+        print(f'JOINT_RELEASE_DIAG_FILTER accepted={accepted} rejected={rejected}')
+    elif mode == '--remote' and len(sys.argv) == 1:
+        inspect_sources()
+        inspect_log('update')
+        inspect_log('rollback')
+        inspect_operation('status')
+        inspect_operation('smoke')
+        inspect_http('bridge', '/__bridge_health', 200)
+        inspect_http('auth', '/api/auth/me', 401)
+        print('JOINT_RELEASE_DIAG_DONE')
+    else:
+        raise SystemExit(6)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print('JOINT_RELEASE_DIAG_INTERNAL_ERROR')
+        raise SystemExit(6)
+PY
+}
+
+if test "${1:-}" = --self-test && test "$#" -eq 1; then
+  diagnostic_python | PYTHONDONTWRITEBYTECODE=1 python3 -I - --self-test
+  exit
+fi
+test "$#" -eq 0
+test "$DEPLOY_HOST" = 51.255.163.121
+test "$DEPLOY_USER" = liftorbit-ci
+test "$GITHUB_REF" = refs/heads/fix/gantt-zoom-500-20261124
+umask 077
+diagnose_stage=$(mktemp -d)
+trap 'rm -rf "$diagnose_stage"' EXIT
+printf '%s\n' "$DEPLOY_KEY" > "$diagnose_stage/key"
+printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$diagnose_stage/known-hosts"
+chmod 600 "$diagnose_stage/key" "$diagnose_stage/known-hosts"
+ssh_exit=0
+diagnostic_python | timeout 150 ssh -i "$diagnose_stage/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$diagnose_stage/known-hosts" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 "$DEPLOY_USER@$DEPLOY_HOST" 'PYTHONDONTWRITEBYTECODE=1 python3 -I -' > "$diagnose_stage/output" 2> "$diagnose_stage/transport-private.log" || ssh_exit=$?
+diagnostic_python | PYTHONDONTWRITEBYTECODE=1 python3 -I - --filter "$diagnose_stage/output"
+printf 'JOINT_RELEASE_DIAG_TRANSPORT exit=%s\n' "$ssh_exit"
+exit "$ssh_exit"

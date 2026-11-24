@@ -1,0 +1,40 @@
+name: Diagnose failed joint minibatch release without mutation
+
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-joint-minibatch-diagnose-20261124.yml
+      - ops/ovh/joint-minibatch-diagnose-20261124/diagnose_release.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify syntax and bounded safe output filtering
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/joint-minibatch-diagnose-20261124/diagnose_release.sh
+          bash ops/ovh/joint-minibatch-diagnose-20261124/diagnose_release.sh --self-test
+      - name: Read fixed release diagnostics and current health
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/joint-minibatch-diagnose-20261124/diagnose_release.sh
