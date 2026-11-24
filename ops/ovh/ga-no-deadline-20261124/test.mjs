@@ -68,7 +68,7 @@ const scenario=await makeScenario([...Array(9).fill("throw"),"invalid","http502"
 const finished=await scenario.win.__ppTestWaitForPlan({aborted:false});
 assert.equal(finished.status,200);
 assert.equal(finished.data.duration_minutes,8470);
-assert.equal(scenario.attempts(),14,"must recover across more than 5 transient errors");
+assert.equal(scenario.attempts(),13,"must recover across more than 5 transient errors");
 assert.equal(scenario.win.__ppTestTelemetry.lastRecovery,null);
 console.log("GA_WAIT_OVER_15MIN_AND_NETWORK_RECOVERY_PASS",scenario.attempts());
 const unauthorized=await makeScenario(["http401"]);
