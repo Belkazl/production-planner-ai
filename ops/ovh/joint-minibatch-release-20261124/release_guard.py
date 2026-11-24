@@ -122,7 +122,11 @@ def validate_report(marker, report):
             or provenance.get("production_writes") is not False):
         raise ValueError("release_native_acceptance_provenance")
     overlay = provenance.get("overlay")
-    expected_helpers = {name: marker["public_sources"][name] for name in OVERLAY_PUBLIC_PATHS}
+    # The native harness roots its public overlay at ops/ovh. Only our fixed
+    # dependency names lose that exact prefix; report paths are never rewritten
+    # or normalized, so aliases/traversals/full-prefix keys remain rejected.
+    expected_helpers = {name.removeprefix("ops/ovh/"): marker["public_sources"][name]
+                        for name in OVERLAY_PUBLIC_PATHS}
     expected_changes = sorted(name for name, digest in marker["package_after"].items()
                               if marker["package_before"].get(name) != digest)
     if (not isinstance(overlay, dict) or overlay.get("format") != "reviewed-public-native-overlay-v1"

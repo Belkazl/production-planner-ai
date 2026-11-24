@@ -33,8 +33,13 @@ echo JOINT_RELEASE_PHASE prepare_exact_overlay
 PYTHONDONTWRITEBYTECODE=1 python3 ops/ovh/joint-minibatch-release-20261124/stage.py native "$marker" "$release_stage"
 node ops/ovh/native-batching-continuation-20261124/patch.mjs "$release_stage/new/app"
 node ops/ovh/native-batching-continuation-20261124/patch_ui.mjs "$release_stage/old/app/restart-optimizer-ui.js" "$release_stage/new/app/restart-optimizer-ui.js"
-node --check "$release_stage/new/app/python-ga-upstream.mjs"
-node --check "$release_stage/new/app/restart-optimizer-ui.js"
+if node --check "$release_stage/new/app/python-ga-upstream.mjs" > "$release_stage/syntax-private.log" 2>&1 \
+    && node --check "$release_stage/new/app/restart-optimizer-ui.js" >> "$release_stage/syntax-private.log" 2>&1; then
+  echo JOINT_RELEASE_GATE_PASS app_syntax
+else
+  echo JOINT_RELEASE_GATE_FAILED app_syntax
+  exit 6
+fi
 run_gate(){
   local label="$1"; shift
   if "$@" > "$release_stage/$label-private.log" 2>&1; then

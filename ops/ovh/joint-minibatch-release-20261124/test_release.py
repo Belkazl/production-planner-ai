@@ -46,7 +46,7 @@ def accepted_report(value):
                 'code_inputs_sha256': value['code_inputs_sha256'], 'native_code_changed': True,
                 'production_writes': False, 'overlay': {
                     'format': 'reviewed-public-native-overlay-v1',
-                    'public_helper_hashes': {name: value['public_sources'][name]
+                    'public_helper_hashes': {name.removeprefix('ops/ovh/'): value['public_sources'][name]
                                             for name in guard.OVERLAY_PUBLIC_PATHS},
                     'changed_package_files': sorted(guard.CHANGED_PACKAGE)}}}
 
@@ -110,12 +110,30 @@ class ReleaseGuardTests(unittest.TestCase):
                      lambda p: p.update(code_inputs_sha256='0' * 64),
                      lambda p: p.update(native_code_changed=False),
                      lambda p: p.update(production_writes=True),
-                     lambda p: p['overlay']['public_helper_hashes'].update({guard.OVERLAY_PUBLIC_PATHS[0]: '0' * 64}),
+                     lambda p: p['overlay']['public_helper_hashes'].update({guard.OVERLAY_PUBLIC_PATHS[0].removeprefix('ops/ovh/'): '0' * 64}),
                      lambda p: p['overlay'].update(changed_package_files=['ga_workers/full_runtime_adapter.py'])]
         for change in mutations:
             report = accepted_report(value); change(report['provenance'])
             with self.assertRaises(ValueError):
                 guard.validate_report(value, report)
+
+    def test_actual_harness_schema_uses_exact_relative_ovh_paths_without_aliases(self):
+        # These five keys are the actual successful native report's schema.
+        paths = {'joint-minibatch-release-20261124/prepare_overlay.py',
+                 'joint-minibatch-search-20261124/patch.py',
+                 'joint-minibatch-search-20261124/joint_minibatch.py',
+                 'native-batching-continuation-20261124/patch_worker.py',
+                 'native-batching-continuation-20261124/joint_continuation.py'}
+        value = marker(); report = accepted_report(value)
+        self.assertEqual(set(report['provenance']['overlay']['public_helper_hashes']), paths)
+        guard.validate_report(value, report)
+        for prefix in ('ops/ovh/', './', '../ovh/'):
+            invalid = copy.deepcopy(report)
+            mapping = invalid['provenance']['overlay']['public_helper_hashes']
+            original = 'joint-minibatch-search-20261124/patch.py'
+            mapping[prefix + original] = mapping.pop(original)
+            with self.assertRaisesRegex(ValueError, 'acceptance_overlay'):
+                guard.validate_report(value, invalid)
 
     def test_log_parser_accepts_one_actual_report_not_echoed_shell_source(self):
         expected = accepted_report(marker())

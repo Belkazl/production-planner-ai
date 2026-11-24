@@ -12,7 +12,9 @@ on:
       - ops/ovh/native-batching-verify-20261124/**
       - ops/ovh/joint-minibatch-search-20261124/**
       - ops/ovh/native-batching-continuation-20261124/**
-      - ops/ovh/joint-minibatch-release-20261124/prepare_overlay.py
+      - ops/ovh/joint-minibatch-release-20261124/*.py
+      - ops/ovh/joint-minibatch-release-20261124/*.sh
+      - .github/workflows/liftorbit-joint-minibatch-release-20261124.yml
   workflow_dispatch:
     inputs:
       private_native_test_authorized:
