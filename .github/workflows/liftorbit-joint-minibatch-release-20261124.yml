@@ -1,0 +1,57 @@
+name: Release verified native joint minibatch optimization
+
+# This trigger is a deliberate release marker only. Publishing solver/tests or
+# this workflow cannot deploy. Root writes the marker after native acceptance.
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - ops/ovh/joint-minibatch-release-20261124/release.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check public release and continuation guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/joint-minibatch-release-20261124/release.sh
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/joint-minibatch-release-20261124 -p 'test_*.py'
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/native-batching-continuation-20261124 -p test_worker.py
+          node --test ops/ovh/native-batching-continuation-20261124/test.mjs
+          node --test ops/ovh/native-batching-continuation-20261124/test_ui.mjs
+      - name: Verify the native gate and deploy only its exact public overlay
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/joint-minibatch-release-20261124/release.sh
+      - name: Remove temporary private inputs and verification logs
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP"/joint-minibatch-release.*

@@ -79,7 +79,23 @@ def _live_scheduler_preview(sim, model, objective, ga, pins, checkpoint=False):
     if not isinstance(sim,dict) or not isinstance(sim.get('ctx'),dict):
         return None
     plan=dict(sim)
-    plan['resume_state']=export_resume_state(plan,model,objective,pins)
+    model_ids=[str(row['id']) for row in model['orders']]
+    rows=sim.get('operations') or []
+    if checkpoint:
+        cache=ga.get('_PP_GENERIC_STATE') or {}
+        stored=cache.get('best_order')
+        if isinstance(stored,list) and len(stored)==len(model_ids) and set(map(str,stored))==set(model_ids):
+            seq=list(map(str,stored))
+        else:
+            seq=[];seen=set()
+            for row in sorted(rows,key=lambda x:(float(x.get('start_min') or 0),
+                                                 float(x.get('end_min') or 0))):
+                oid=str(row.get('order'))
+                if oid not in seen:seq.append(oid);seen.add(oid)
+        if len(seq)!=len(model_ids) or set(seq)!=set(model_ids):
+            return plan
+        plan['order_sequence']=seq
+        plan['resume_state']=export_resume_state(plan,model,objective,pins)
     return plan
 
 def run(payload,progress):
@@ -159,7 +175,6 @@ class ContinuationTests(unittest.TestCase):
         for active_model, objective, pins, code in [
             (changed, "duration", [], "continuation_model_changed"),
             (model(), "cycles", [], "continuation_objective_changed"),
-            (model(), "duration", [{"order": "A", "batch": 1}], "continuation_manual_locks_changed")
         ]:
             ga, loaded = engine()
             before = copy.deepcopy(ga["_PP_GENERIC_STATE"])
@@ -167,6 +182,33 @@ class ContinuationTests(unittest.TestCase):
                 joint.load_joint_resume_state(saved, active_model, objective, pins, ga)
             self.assertEqual(loaded, [])
             self.assertEqual(ga["_PP_GENERIC_STATE"], before)
+
+    def test_new_pin_reseeds_original_ordered_partition_without_rebinding_hash_or_fitness(self):
+        saved = portable(); original = copy.deepcopy(saved)
+        pins = [{"order": "A", "operation_id": "WORK", "batch": 2, "batch_quantity": 5,
+                 "start_min": 0, "end_min": 10, "equipment_ids": ["SMALL"]}]
+        ga, loaded = engine()
+        self.assertEqual(joint.load_joint_resume_state(saved, model(), "duration", pins, ga), ["B", "A"])
+        self.assertEqual(loaded, [genome()])
+        self.assertEqual(saved, original)
+        self.assertNotEqual(saved['pin_hash'], legacy.fingerprint(pins))
+        self.assertEqual(ga['_PP_GENERIC_STATE']['best_duration'], 1e9)
+        self.assertEqual(ga['_PP_GENERIC_STATE']['run'], 1)
+        self.assertEqual(ga['_PP_GENERIC_STATE']['total_trials'], 0)
+        self.assertEqual(ga[joint.STATE_KEY]['continuation_seed_provenance'], {
+            'mode': 'changed_pins_revalidated', 'model_hash': saved['model_hash'], 'pin_hash': saved['pin_hash']})
+
+        rejected, loaded = engine(reject_load=True)
+        with self.assertRaisesRegex(legacy.ContinuationError, 'joint_seed_rejected'):
+            joint.load_joint_resume_state(saved, model(), "duration", pins, rejected)
+        self.assertEqual(loaded, [])
+        self.assertEqual(rejected['_PP_GENERIC_STATE'], {'unrelated': 'preserved'})
+        self.assertNotIn('continuation_seed_provenance', rejected[joint.STATE_KEY])
+        for field, value in [('model_hash', '0' * 64), ('objective', 'cycles'), ('pin_hash', 'invalid')]:
+            stale = dict(saved, **{field: value}); fresh, loaded = engine()
+            with self.assertRaises(legacy.ContinuationError):
+                joint.load_joint_resume_state(stale, model(), 'duration', pins, fresh)
+            self.assertEqual(loaded, [])
 
     def test_invalid_genome_never_changes_real_cache_or_native_seed(self):
         mutations = [
@@ -216,7 +258,7 @@ class ContinuationTests(unittest.TestCase):
         saved["model_hash"] = "0" * 64
         ga, loaded = engine()
         hint = {"order_sequence": ["A", "B"], "duration_minutes": 1,
-                "batch_genome": genome(), "model_hash": "forged"}
+                "untrusted_native_genome": genome(), "model_hash": "forged"}
         self.assertEqual(joint.load_joint_resume_state(saved, model(), "duration", [], ga,
                                                       resume_plan=hint), ["A", "B"])
         self.assertEqual(loaded, [])
@@ -228,6 +270,36 @@ class ContinuationTests(unittest.TestCase):
         with self.assertRaisesRegex(legacy.ContinuationError, "continuation_order_seed_missing_or_invalid"):
             joint.load_joint_resume_state(saved, model(), "duration", [], engine()[0],
                                           resume_plan={"order_sequence": ["FOREIGN", "B"]})
+
+    def test_selected_partition_is_a_fresh_native_validated_seed_without_client_fitness(self):
+        selected = genome()
+        selected['partitions'][1]['sizes'] = [5, 10, 5, 10]
+        plan = {'order_sequence': selected['order_sequence'], 'batch_genome': selected,
+                'duration_minutes': 0, 'optimization_run': 123, 'total_generations': 999,
+                'model_hash': 'forged', 'pin_hash': 'forged'}
+        ga, loaded = engine()
+        self.assertEqual(joint.load_joint_resume_plan(plan, model(), 'duration', [], ga), ['B', 'A'])
+        self.assertEqual(loaded, [selected])
+        self.assertEqual(ga['_PP_GENERIC_STATE']['best_duration'], 1e9)
+        self.assertEqual(ga['_PP_GENERIC_STATE']['run'], 1)
+        self.assertEqual(ga['_PP_GENERIC_STATE']['total_trials'], 0)
+        self.assertEqual(ga[joint.STATE_KEY]['continuation_seed_provenance']['mode'], 'selected_partition_revalidated')
+        ga, loaded = engine()
+        stale = portable(); stale['model_hash'] = '0' * 64
+        self.assertEqual(joint.load_joint_resume_state(stale, model(), 'duration', [], ga, resume_plan=plan), ['B', 'A'])
+        self.assertEqual(loaded, [selected])
+        self.assertEqual(stale['model_hash'], '0' * 64)
+
+        for mutation in ('volume', 'foreign', 'order', 'native_pin'):
+            rejected_plan = copy.deepcopy(plan)
+            rejected, loaded = engine(reject_load=mutation == 'native_pin')
+            if mutation == 'volume': rejected_plan['batch_genome']['partitions'][0]['sizes'] = [5]
+            if mutation == 'foreign': rejected_plan['batch_genome']['partitions'][0]['order_id'] = 'FOREIGN'
+            if mutation == 'order': rejected_plan['order_sequence'] = ['A', 'B']
+            with self.assertRaises(legacy.ContinuationError):
+                joint.load_joint_resume_plan(rejected_plan, model(), 'duration', [], rejected)
+            self.assertEqual(loaded, [])
+            self.assertEqual(rejected['_PP_GENERIC_STATE'], {'unrelated': 'preserved'})
 
     def test_missing_native_engine_and_unmatched_final_use_explicit_legacy_behavior(self):
         ga = {"_PP_GENERIC_STATE": {}}
@@ -284,6 +356,7 @@ class PatchTests(unittest.TestCase):
                  and node.name in names]
         ga, _ = engine(genome())
         ga[joint.STATE_KEY].update(evaluating=False, feasible=1)
+        ga['_PP_GENERIC_STATE']['best_order'] = ['A', 'B']
         earlier = dict(result(), resume_state={"version": 1}, _pp_verified_checkpoint_v1=True)
         state = {"verified_checkpoint": earlier, "best_preview": earlier, "best_checked_at": 0.0}
         context = {"ga": ga, "pins": [], "normalized": model(), "state": state,
@@ -291,10 +364,14 @@ class PatchTests(unittest.TestCase):
                    "export_resume_state": joint.export_joint_resume_state,
                    "original_progress_best": lambda *_: "original-return"}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "<public-preview-fixture>", "exec"), context)
-        sim = dict(result(), ctx={}, _pp_verified_checkpoint_v1=True)
+        sim = dict(result(), ctx={}, _pp_verified_checkpoint_v1=True, operations=[
+            {'order': 'A', 'start_min': 0, 'end_min': 10}, {'order': 'B', 'start_min': 10, 'end_min': 20}])
         self.assertEqual(context["captured_progress_best"](model(), sim, "duration"), "original-return")
         self.assertEqual(state["verified_checkpoint"]["resume_state"]["version"], 2)
         self.assertEqual(state["verified_checkpoint"]["resume_state"]["batch_genome"], genome())
+        self.assertEqual(state['verified_checkpoint']['order_sequence'], ['B', 'A'],
+                         'evaluated order wins over both the previous cache and chronological rows')
+        self.assertEqual(state['verified_checkpoint']['operations'], sim['operations'])
         self.assertEqual(state["verified_checkpoint"]["duration_minutes"], 30)
         seq = state["best_seq"]
         context["captured_progress_best"](model(), sim, "duration")
@@ -305,6 +382,9 @@ class PatchTests(unittest.TestCase):
         context["captured_progress_best"](model(), sim, "duration")
         self.assertEqual(state["verified_checkpoint"]["duration_minutes"], 20,
                          "promotion cannot discard an earlier shorter verified checkpoint")
+        ga.pop(joint.STATE_KEY)
+        legacy_plan = context['_live_scheduler_preview'](sim, model(), 'duration', ga, [], checkpoint=True)
+        self.assertEqual(legacy_plan['order_sequence'], ['A', 'B'], 'the nonjoint ordering fallback is unchanged')
 
     def test_decode_in_progress_cannot_publish_or_force_a_checkpoint(self):
         namespace = {}

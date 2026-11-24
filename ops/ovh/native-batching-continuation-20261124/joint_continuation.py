@@ -7,11 +7,13 @@ Legacy v1 order-only continuation remains available through the existing loader.
 import copy
 import json
 import math
+import re
 
 from .continuation import (
     ContinuationError,
     fingerprint,
     load_resume_state as _load_v1,
+    load_resume_plan as _load_order_seed,
     export_resume_state as _export_v1,
 )
 
@@ -47,6 +49,8 @@ def _positive_number(value):
 
 
 def _validated_genome(genome, model, order_sequence):
+    if not isinstance(order_sequence, list):
+        raise ContinuationError("continuation_joint_order_sequence")
     if not isinstance(genome, dict) or set(genome) != {"version", "order_sequence", "partitions"}:
         raise ContinuationError("continuation_joint_genome_invalid")
     if type(genome["version"]) is not int or genome["version"] != 1:
@@ -95,6 +99,36 @@ def _hooks(ga):
     return state
 
 
+def _changed_pin_seed(state, model, objective, pins, shadow):
+    """Reuse only a model-bound partition hint under independently new locks.
+
+    This is a fresh seed, not acceptance of the previous pin fingerprint or
+    fitness. The original envelope remains unchanged. The native hook below
+    validates its ordered batch identities against the NEW pins atomically;
+    a decoder must then reconstruct and verify every resource/time constraint.
+    """
+    if state.get('model_hash') != fingerprint(model):
+        raise ContinuationError('continuation_model_changed')
+    if state.get('objective') != objective:
+        raise ContinuationError('continuation_objective_changed')
+    if not isinstance(state.get('pin_hash'), str) or not re.fullmatch(r'[0-9a-f]{64}', state['pin_hash']):
+        raise ContinuationError('continuation_joint_source_pin_hash_invalid')
+    runs, trials, score = state.get('completed_runs'), state.get('total_trials'), state.get('best_duration_minutes')
+    if type(runs) is not int or not 1 <= runs <= 1_000_000:
+        raise ContinuationError('continuation_run_count_invalid')
+    if type(trials) is not int or not 0 <= trials <= 100_000_000:
+        raise ContinuationError('continuation_trials_invalid')
+    if not (_positive_number(score) or (type(score) in (int, float) and score == 0)):
+        raise ContinuationError('continuation_score_invalid')
+    sequence = state.get('order_sequence')
+    # Validate completeness and ordered partitions before using the legacy
+    # ordering-hint loader, which otherwise deliberately filters stale orders.
+    _validated_genome(state['batch_genome'], model, sequence)
+    hint = {'order_sequence': list(sequence), 'optimization_run': 1,
+            'total_generations': 0, 'duration_minutes': 1_000_000_000.0}
+    return _load_order_seed(hint, model, objective, pins, shadow)
+
+
 def _load_joint_state(state, model, objective, pins, ga):
     if not isinstance(state, dict) or type(state.get("version")) is not int:
         raise ContinuationError("continuation_state_missing_or_invalid")
@@ -109,7 +143,18 @@ def _load_joint_state(state, model, objective, pins, ga):
     legacy = {key: copy.deepcopy(state[key]) for key in BASE_KEYS}
     legacy["version"] = 1
     shadow = {"_PP_GENERIC_STATE": {}}
-    sequence = _load_v1(legacy, model, objective, pins, shadow)
+    changed_pins = False
+    try:
+        sequence = _load_v1(legacy, model, objective, pins, shadow)
+    except ContinuationError as error:
+        if str(error) != 'continuation_manual_locks_changed':
+            raise
+        # A user can lock a real five-unit operation from a mixed incumbent.
+        # A fresh capacity-max partition would silently change that identity.
+        # Keep the original model-bound partition as an UNSCORED seed, require
+        # every new pin in the native hook, and discard all historical fitness.
+        sequence = _changed_pin_seed(state, model, objective, pins, shadow)
+        changed_pins = True
     genome = _validated_genome(state["batch_genome"], model, sequence)
     cache = ga.get("_PP_GENERIC_STATE") if isinstance(ga, dict) else None
     if not isinstance(cache, dict):
@@ -126,6 +171,35 @@ def _load_joint_state(state, model, objective, pins, ga):
     restored = shadow["_PP_GENERIC_STATE"]
     restored["best_duration"] = 1_000_000_000.0
     cache.update(restored)
+    hooks['continuation_seed_provenance'] = {
+        'mode': 'changed_pins_revalidated' if changed_pins else 'same_model_and_pins',
+        'model_hash': state['model_hash'], 'pin_hash': state['pin_hash']}
+    return sequence
+
+
+def load_joint_resume_plan(plan, model, objective, pins, ga):
+    if not isinstance(plan, dict) or 'batch_genome' not in plan:
+        return _load_order_seed(plan, model, objective, pins, ga)
+    # A selected browser/saved-plan partition is only a proposal. It receives
+    # no trusted source hash, prior score or previous generations. Current
+    # model volume, units, capacities and all new pins are revalidated.
+    genome = _validated_genome(_bounded_json(plan['batch_genome']), model, plan.get('order_sequence'))
+    cache = ga.get('_PP_GENERIC_STATE') if isinstance(ga, dict) else None
+    hooks = _hooks(ga)
+    if not isinstance(cache, dict) or hooks is None:
+        raise ContinuationError('continuation_joint_engine_unavailable')
+    provenance = {'mode': 'selected_partition_revalidated',
+        'model_hash': fingerprint(model), 'pin_hash': fingerprint(pins or [])}
+    shadow = {'_PP_GENERIC_STATE': {}}
+    hint = {'order_sequence': list(genome['order_sequence']), 'optimization_run': 1,
+            'total_generations': 0, 'duration_minutes': 1_000_000_000.0}
+    sequence = _load_order_seed(hint, model, objective, pins, shadow)
+    try:
+        hooks['load_incumbent'](copy.deepcopy(genome))
+    except (ValueError, TypeError, KeyError, OverflowError) as error:
+        raise ContinuationError('continuation_joint_selected_seed_rejected') from error
+    cache.update(shadow['_PP_GENERIC_STATE'])
+    hooks['continuation_seed_provenance'] = provenance
     return sequence
 
 
@@ -141,6 +215,8 @@ def load_joint_resume_state(state, model, objective, pins, ga, resume_plan=None)
                 or len(ids) != len(set(ids)) or any(not isinstance(item, (str, int)) or isinstance(item, bool) for item in sequence)
                 or len(set(map(str, sequence))) != len(ids) or set(map(str, sequence)) != set(ids)):
             raise ContinuationError("continuation_order_seed_missing_or_invalid") from original_error
+        if 'batch_genome' in resume_plan:
+            return load_joint_resume_plan(resume_plan, model, objective, pins, ga)
         # An independent ordering hint is safe across schema/pin changes. It
         # receives NO batch genes, previous fitness or prior native state.
         portable = {"version": 1, "model_hash": fingerprint(model),

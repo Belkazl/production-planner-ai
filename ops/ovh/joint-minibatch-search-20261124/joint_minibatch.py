@@ -435,7 +435,7 @@ def _cache_cost(sim):
 
 
 def install_joint_minibatch_search(ga, model, objective='duration', pins=None, source=None,
-                                  verify_constraints=None, format_result=None):
+                                  verify_constraints=None, format_result=None, repair_candidate=None):
     """Install after native model setup, before pin wrappers and continuation."""
     declared, ready = ga.get('_pp_generic_declared'), ga.get('_pp_generic_ready')
     _require(callable(declared) and callable(ready), 'joint_native_routing_missing')
@@ -459,10 +459,11 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
 
     def choose_sizes(order, defaults):
         oid = str(order.get('id'))
-        if runtime['active'] is None:
+        selected = runtime['active'] if runtime['active'] is not None else runtime['pending_seed']
+        if selected is None:
             runtime['defaults'][oid] = tuple(_number(value) for value in defaults)
             return defaults
-        parts = runtime['active'].mapping()
+        parts = selected.mapping()
         _require(oid in parts, 'joint_native_expansion_order_changed')
         return list(parts[oid])
 
@@ -556,7 +557,20 @@ def install_joint_minibatch_search(ga, model, objective='duration', pins=None, s
                         state['evaluating'] = True
                         try:
                             sim = ga['_pp_schedule_sequence'](copy.deepcopy(candidate_model), list(genome.sequence))
-                            evaluate_feasibility(ga, normalized, genome, sim, pins, verify_constraints)
+                            try:
+                                evaluate_feasibility(ga, normalized, genome, sim, pins, verify_constraints)
+                            except InfeasibleCandidate as error:
+                                problem = error.__cause__
+                                if (pins or not callable(repair_candidate)
+                                        or type(problem).__name__ != 'PinConstraintError'
+                                        or str(problem) != 'schedule_staff_shift_invalid'):
+                                    raise
+                                # Reuse only the adapter's existing shift retimer.
+                                # Its output remains untrusted until every joint
+                                # and native constraint has been checked again.
+                                repaired = repair_candidate(copy.deepcopy(sim))
+                                evaluate_feasibility(ga, normalized, genome, repaired, pins, verify_constraints)
+                                sim = repaired
                             score = _score(ga, sim, objective)
                             evaluated = (score, sim)
                             state['feasible'] += 1

@@ -9,6 +9,7 @@ IMPORT = (
     "# pp_joint_continuation_v1: preserve fingerprint-bound ordered batch genes.\n"
     "from .joint_continuation import (\n"
     "    load_joint_resume_state as load_resume_state,\n"
+    "    load_joint_resume_plan as load_resume_plan,\n"
     "    export_joint_resume_state as export_resume_state,\n"
     ")\n\n"
 )
@@ -19,6 +20,18 @@ OLD_CHECKPOINT_GATE = "if now_check-state['best_checked_at']>=1.5 or not state.g
 NEW_CHECKPOINT_GATE = ("if (now_check-state['best_checked_at']>=1.5 or not state.get('verified_checkpoint') or\n"
                        "                    _pp_joint_checkpoint_needs_genome(ga,state.get('verified_checkpoint'))):")
 PREVIEW_CHECK = "    if _pp_joint_preview_evaluating(ga):\n        return None\n"
+OLD_CHECKPOINT_ORDER = "        stored=cache.get('best_order')\n"
+NEW_CHECKPOINT_ORDER = OLD_CHECKPOINT_ORDER + '''        # pp_joint_checkpoint_order_v1: the evaluated gene owns its sequence.
+        joint=ga.get('_PP_JOINT_BATCH_STATE')
+        if (isinstance(joint,dict) and joint.get('version')=='joint-minibatch-v1-20261124'
+                and joint.get('evaluating') is not True and type(joint.get('feasible')) is int
+                and joint['feasible']>0):
+            evaluated=sim.get('order_sequence')
+            if (not isinstance(evaluated,list) or len(evaluated)!=len(model_ids)
+                    or set(map(str,evaluated))!=set(model_ids)):
+                return None
+            stored=list(map(str,evaluated))
+'''
 PREVIEW_HELPERS = '''# pp_joint_preview_verified_v1: publish only a feasibility-checked joint gene.
 def _pp_joint_preview_evaluating(ga):
     joint=ga.get('_PP_JOINT_BATCH_STATE') if isinstance(ga,dict) else None
@@ -40,12 +53,26 @@ def _pp_joint_checkpoint_needs_genome(ga,checkpoint):
 '''
 
 
+def _patch_checkpoint_order(source):
+    if 'pp_joint_checkpoint_order_v1' in source:
+        if source.count(NEW_CHECKPOINT_ORDER) != 1:
+            raise RuntimeError('JOINT_CONTINUATION_CHECKPOINT_ORDER_PARTIAL_INSTALLATION')
+        return source
+    if (source.count(OLD_CHECKPOINT_ORDER) != 1 or source.count("plan['order_sequence']=seq") != 1):
+        raise RuntimeError('JOINT_CONTINUATION_CHECKPOINT_ORDER_ANCHOR_DRIFT')
+    updated = source.replace(OLD_CHECKPOINT_ORDER, NEW_CHECKPOINT_ORDER, 1)
+    if updated.replace(NEW_CHECKPOINT_ORDER, OLD_CHECKPOINT_ORDER, 1) != source:
+        raise RuntimeError('JOINT_CONTINUATION_CHECKPOINT_ORDER_UNRELATED_CHANGE')
+    ast.parse(updated)
+    return updated
+
+
 def _patch_preview(source):
     if 'pp_joint_preview_verified_v1' in source:
         if (source.count(PREVIEW_HELPERS) != 1 or source.count(PREVIEW_CHECK) != 1
                 or source.count(NEW_CHECKPOINT_GATE) != 1 or OLD_CHECKPOINT_GATE in source):
             raise RuntimeError('JOINT_CONTINUATION_PREVIEW_PARTIAL_INSTALLATION')
-        return source
+        return _patch_checkpoint_order(source)
     if any(token in source for token in ('_pp_joint_preview_evaluating', '_pp_joint_checkpoint_needs_genome')):
         raise RuntimeError('JOINT_CONTINUATION_PREVIEW_UNKNOWN_INSTALLATION')
     tree = ast.parse(source)
@@ -77,7 +104,7 @@ def _patch_preview(source):
                        .replace(NEW_CHECKPOINT_GATE, OLD_CHECKPOINT_GATE, 1))
     if reversed_source != source:
         raise RuntimeError('JOINT_CONTINUATION_PREVIEW_UNRELATED_CHANGE')
-    return updated
+    return _patch_checkpoint_order(updated)
 
 
 def _export_calls(tree):
@@ -119,6 +146,14 @@ def patch(source):
         if not all(isinstance(arg, ast.Name) and arg.id == name
                    for arg, name in zip(node.args[1:], ("normalized", "objective", "pins", "ga"))):
             raise RuntimeError("JOINT_CONTINUATION_LOAD_BINDING_DRIFT")
+    plan_loads = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Name) and node.func.id == 'load_resume_plan']
+    if len(plan_loads) > 3 or any(len(node.args) != 5 or node.keywords for node in plan_loads):
+        raise RuntimeError('JOINT_CONTINUATION_PLAN_LOAD_CONTRACT_DRIFT')
+    for node in plan_loads:
+        if not all(isinstance(arg, ast.Name) and arg.id == name
+                   for arg, name in zip(node.args[1:], ('normalized', 'objective', 'pins', 'ga'))):
+            raise RuntimeError('JOINT_CONTINUATION_PLAN_LOAD_BINDING_DRIFT')
     exports = _export_calls(tree)
     installed = "pp_joint_continuation_v1" in source
     if installed:

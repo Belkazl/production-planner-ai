@@ -1,4 +1,45 @@
 /**
+ * Normalize an explicitly selected partition as an unscored model-owned seed.
+ * Only order IDs and quantities cross this boundary; Python revalidates the
+ * complete native capacity, unit, pin, shift and material constraints.
+ */
+export function normalizeBatchGenome(value, model) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).sort().join(",") !== "order_sequence,partitions,version" || value.version !== 1) return null;
+  const orders = model?.orders;
+  if (!Array.isArray(orders) || orders.length < 1 || orders.length > 256) return null;
+  const quantities = new Map();
+  for (const order of orders) {
+    if (!order || !["string", "number"].includes(typeof order.id)) return null;
+    const id = String(order.id), raw = order.quantity ?? order.area;
+    if (!id || id.length > 256 || quantities.has(id) ||
+        !["number", "string"].includes(typeof raw) || (typeof raw === "string" && !raw.trim())) return null;
+    const quantity = Number(raw);
+    if (!Number.isFinite(quantity) || quantity <= 0) return null;
+    quantities.set(id, quantity);
+  }
+  const sequence = value.order_sequence, rows = value.partitions;
+  if (!Array.isArray(sequence) || sequence.length !== orders.length ||
+      !sequence.every(id => typeof id === "string" && quantities.has(id)) ||
+      new Set(sequence).size !== orders.length || !Array.isArray(rows) || rows.length !== orders.length) return null;
+  let count = 0;
+  const partitions = [];
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index], id = sequence[index];
+    if (!row || typeof row !== "object" || Array.isArray(row) ||
+        Object.keys(row).sort().join(",") !== "order_id,sizes" || row.order_id !== id ||
+        !Array.isArray(row.sizes) || row.sizes.length < 1 || row.sizes.length > 128) return null;
+    if ((count += row.sizes.length) > 1024 ||
+        !row.sizes.every(size => typeof size === "number" && Number.isFinite(size) && size > 0)) return null;
+    const quantity = quantities.get(id), total = row.sizes.reduce((sum, size) => sum + size, 0);
+    if (!Number.isFinite(total) || Math.abs(total - quantity) > 1e-7 * Math.max(1, quantity)) return null;
+    partitions.push({order_id: id, sizes: [...row.sizes]});
+  }
+  const genome = {version: 1, order_sequence: [...sequence], partitions};
+  return new TextEncoder().encode(JSON.stringify(genome)).length <= 64 * 1024 ? genome : null;
+}
+
+/**
  * Select a small opaque state from the authenticated account's current job.
  * The caller obtains `current` through currentJob(principal), never from POST.
  * Python alone knows its normalized model/pin fingerprints and native schema.
@@ -6,7 +47,17 @@
 export function selectNativeResumeState(current, modelKey, objective) {
   if (!current || typeof modelKey !== "string" || !modelKey ||
       current.modelKey !== modelKey || !/^[0-9a-f]{32}$/.test(String(current.id || ""))) return null;
-  const state = current.resume_state;
+  // Stop persists its selected verified checkpoint in `best`; a terminal
+  // result fills the top-level state only on successful completion. Read its
+  // compact state directly without walking hundreds of operation rows.
+  const best = current.best;
+  const verifiedBest = best?._pp_verified_checkpoint_v1 === true && best.valid === true && best.partial !== true
+    ? best.resume_state : null;
+  const result = current.state === "completed" && current.result?.valid === true && current.result.partial !== true
+    ? current.result.resume_state : null;
+  const state = current.state === "completed"
+    ? current.resume_state || result || verifiedBest
+    : verifiedBest || current.resume_state;
   if (!state || typeof state !== "object" || Array.isArray(state)) return null;
   const ownValue = key => Object.getOwnPropertyDescriptor(state, key)?.value;
   const nativeModelHash = ownValue("model_hash"), nativePinHash = ownValue("pin_hash");

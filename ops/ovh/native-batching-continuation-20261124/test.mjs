@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {execFileSync} from "node:child_process";
-import {selectNativeResumeState} from "./continuation.mjs";
+import {selectNativeResumeState, normalizeBatchGenome} from "./continuation.mjs";
 import {patchUpstream} from "./patch.mjs";
 import {patchUpstream as patchLifecycle} from "../first-candidate-preview-20261124/patch.mjs";
 
@@ -20,7 +20,7 @@ const end = original.indexOf(endMarker, begin) + endMarker.length;
 const fixture = original.slice(0, begin) + replacement + original.slice(end);
 const patched = patchUpstream(fixture);
 const jobId = "a".repeat(32), newId = "b".repeat(32);
-const model = {start: "2026-11-24T08:00:00", orders: [{id: "one"}, {id: "two"}], equipment: []};
+const model = {start: "2026-11-24T08:00:00", orders: [{id: "one", quantity: 30}, {id: "two", quantity: 10}], equipment: []};
 const modelKey = JSON.stringify(model);
 const clone = value => JSON.parse(JSON.stringify(value));
 const native = (extra = {}) => ({
@@ -31,8 +31,10 @@ const native = (extra = {}) => ({
   ...extra
 });
 const current = resume_state => ({id: jobId, modelKey, state: "completed", resume_state});
+const genome = () => ({version: 1, order_sequence: ["two", "one"], partitions: [
+  {order_id: "two", sizes: [5, 5]}, {order_id: "one", sizes: [10, 5, 10, 5]}]});
 
-function harness({state = native(), savedModelKey = modelKey, result = null, source = patched} = {}) {
+function harness({state = native(), savedModelKey = modelKey, result = null, best = null, status = "completed", source = patched} = {}) {
   const requests = [], loads = [];
   const factory = new Function("console", source.replace("export function createPythonGAUpstream", "function createPythonGAUpstream") +
     "\nreturn createPythonGAUpstream;")({warn() {}});
@@ -46,7 +48,7 @@ function harness({state = native(), savedModelKey = modelKey, result = null, sou
       load: async principal => {
         loads.push(principal);
         return principal === "owner" ? {job_id: jobId, model_hash: savedModelKey,
-          status: "completed", resume_state: state, result} : null;
+          status, resume_state: state, result, best_preview: best} : null;
       },
       save: async () => {}
     },
@@ -102,11 +104,11 @@ test("opaque state is bounded JSON, with no nested operation plans or arbitrary 
   assert.equal(selectNativeResumeState(current(state), modelKey, "duration"), null);
 });
 
-test("server native state wins over the browser's order and forged state without scanning a full result", async () => {
+test("server native state wins over forged client state when the selected order matches without scanning a full result", async () => {
   const result = {valid: true};
   Object.defineProperty(result, "operations", {get() { throw Error("full result must stay untouched"); }});
   const h = harness({result});
-  assert.equal((await h.start({resume_plan: {order_sequence: ["one", "two"]},
+  assert.equal((await h.start({resume_plan: {order_sequence: ["two", "one"]},
     resume_state: native({model_hash: "e".repeat(64), native_genome: {forged: true}})})).status, 202);
   const options = h.requests[0].body.options;
   assert.deepEqual(options.resume_state, native());
@@ -115,6 +117,62 @@ test("server native state wins over the browser's order and forged state without
   assert.equal(Object.hasOwn(options.resume_plan, "native_genome"), false);
   assert.equal(h.requests[0].principal, "owner");
   assert.deepEqual(h.loads, ["owner"]);
+});
+
+test("Stop continuation retains the selected server verified joint checkpoint without scanning its plan", async () => {
+  const saved = native(), best = {valid: true, partial: false, _pp_verified_checkpoint_v1: true, resume_state: saved};
+  Object.defineProperty(best, "operations", {get() { throw Error("stopped plan rows must stay untouched"); }});
+  const h = harness({state: null, best, status: "cancelled"});
+  assert.equal((await h.start({resume_plan: {order_sequence: ["two", "one"]}})).status, 202);
+  assert.deepEqual(h.requests[0].body.options.resume_state, saved);
+  assert.deepEqual(h.requests[0].body.options.resume_plan.order_sequence, ["two", "one"]);
+  for (const change of [{_pp_verified_checkpoint_v1: false}, {valid: false}, {partial: true}]) {
+    const ineligible = {...best, ...change};
+    assert.equal(selectNativeResumeState({...current(null), state: "cancelled", best: ineligible}, modelKey, "duration"), null);
+  }
+  assert.equal(selectNativeResumeState({...current(null), state: "cancelled", best}, "changed-model", "duration"), null);
+});
+
+test("a different explicitly selected order cannot inherit the server checkpoint's batch genome", async () => {
+  const h = harness();
+  assert.equal((await h.start({resume_plan: {order_sequence: ["one", "two"], duration_minutes: 10}})).status, 202);
+  const options = h.requests[0].body.options;
+  assert.equal(options.resume_state, undefined);
+  assert.deepEqual(options.resume_plan.order_sequence, ["one", "two"]);
+  assert.equal(options.resume_plan.duration_minutes, 1e9);
+  assert.equal(options.resume_plan.native_genome, undefined);
+});
+
+test("an explicit same-order different partition is normalized as an unscored proposal without unrelated native state", async () => {
+  const selected = genome(); selected.partitions[1].sizes = [5, 10, 5, 10];
+  const h = harness({state: native({batch_genome: genome()})});
+  const requestPlan = {order_sequence: selected.order_sequence, batch_genome: selected,
+    duration_minutes: 0, optimization_run: 999, model_hash: "forged", operations: [{untrusted: true}]};
+  assert.equal((await h.start({resume_plan: requestPlan})).status, 202);
+  const options = h.requests[0].body.options;
+  assert.equal(options.resume_state, undefined);
+  assert.deepEqual(options.resume_plan, {order_sequence: selected.order_sequence, batch_genome: selected});
+  const same = harness({state: native({batch_genome: genome()})});
+  assert.equal((await same.start({resume_plan: {order_sequence: genome().order_sequence, batch_genome: genome()}})).status, 202);
+  assert.deepEqual(same.requests[0].body.options.resume_state.batch_genome, genome());
+});
+
+test("foreign quantities, malformed genomes, and a conflicting explicit order fail before starting the worker", async () => {
+  for (const change of [g => g.partitions[0].sizes = [5], g => g.partitions[0].order_id = "foreign",
+      g => g.partitions[0].sizes = [true, 9], g => g.partitions[0].sizes = Array(129).fill(10 / 129),
+      g => g.operations = [], g => g.order_sequence.reverse()]) {
+    const selected = genome(); change(selected);
+    assert.equal(normalizeBatchGenome(selected, model), null);
+    const h = harness();
+    assert.equal((await h.start({resume_plan: {order_sequence: ["two", "one"], batch_genome: selected}})).status, 409);
+    assert.equal(h.requests.length, 0);
+  }
+  const h = harness();
+  assert.equal((await h.start({resume_plan: {order_sequence: ["one", "two"], batch_genome: genome()}})).status, 409);
+  assert.equal(h.requests.length, 0);
+  const normalized = normalizeBatchGenome(genome(), model);
+  assert.deepEqual(normalized, genome());
+  assert.notEqual(normalized.partitions[0].sizes, genome().partitions[0].sizes);
 });
 
 test("native normalized hashes are not rewritten to bridge hashes or current client pins", async () => {

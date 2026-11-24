@@ -40,8 +40,8 @@ The core gate compares the ordered batch-genome digest from exported state
 with the first optimized schedule in the fresh continuation namespace. Numeric
 representation is normalized, while order and partition positions are retained.
 This avoids treating rediscovery of the same unordered batch sizes as evidence
-of restored continuation. Initial core-gate reports mark `release_gate_complete`
-false until the additional production-preservation regression cases are added.
+of restored continuation. `release_gate_complete` is true only after every
+mandatory case below passes; `--require-release-gate` exits nonzero otherwise.
 Repeated function/contract metadata is stored once in `function_metadata` and
 `contract_schemas`; references preserve the report while reducing log volume.
 
@@ -56,9 +56,10 @@ mounted read-only; a separate private report directory is writable. No SSH key,
 repository credentials, host root, Docker socket, production mount or inherited
 service environment is accessible inside the container.
 
-The original compiler, native scheduler, timing logic, validators, finalizers
-and adapter execute unchanged on synthetic models. Their fixed `/tmp` paths
-exist only inside this disposable container. Native stdout/stderr is captured
+The original compiler and native scheduling, timing, validation and formatting
+routines run on synthetic models. The optional reviewed correction changes
+candidate search and state handling in the temporary adapter/package. Fixed
+`/tmp` paths exist only inside this disposable container. Native stdout/stderr is captured
 into a private temporary file and deleted. The parent publishes only its safe
 synthetic report, code hashes and bounded function/state metadata; source
 positions are removed. Failure text and tracebacks from native code never leave
@@ -76,9 +77,39 @@ removes the transport bundle and SSH files. No artifacts are uploaded.
    15. The feasible optimum is **25 minutes**. Independent checks verify actual
    per-operation consumption and chronological stock availability.
 3. Continue the native result in a fresh namespace using the adapter's own
-   exported resume state. The final feasible result must not worsen. Exact
-   native-genome persistence and the browser/backend bridge need the actual
-   native state contract and a paired test; rediscovery alone does not prove it.
+   exported resume state. The final feasible result must not worsen, and its
+   first optimized candidate must retain the exact ordered partition digest.
+4. The classic three-cutlet model: three orders, two sequential one-minute
+   sides each, two unary pan slots. The native result must contain six valid
+   operations and finish in **3 minutes**.
+5. Two invented orders of 12 and 9 units through two stages, with machine
+   capacities 5/3 and 6/3 and fixed times 2/4. A bounded 3-generation,
+   8-population run must preserve volume, every stage, precedence and capacity.
+   The report records runtime, decoder evaluations and bounded-cache peaks.
+6. Pin a real **5-unit** row from the native mixed result, sending its original
+   unpinned v2 resume state unchanged. The native loader must revalidate the
+   unscored model-bound partition against the new pin; its old hashes are never
+   rewritten by this harness. Validate quantity/time/resource identity, Continue
+   with the now-pinned state, and reject a quantity-tampered gene before decode.
+7. Run a separate native worker process and terminate it immediately after an
+   independently valid live mixed v2 checkpoint. Continue that exact checkpoint
+   in a fresh namespace and require the first optimized gene to match and the
+   final feasible plan not to worsen. The stopped process cannot keep computing.
+8. Supply an explicit unscored selected-plan partition for the same order via
+   `resume_plan.batch_genome`, without fabricated hashes or a prior score. Both
+   `10,10,10` and the nondefault `5,5,5,5,5,5` hint must control the first decoder
+   and first optimized candidate; later optimization may improve either seed.
+   The nondefault case prevents an ignored hint from accidentally passing.
+9. Two one-unit orders, one employee with windows 08:00–08:20 and 08:40–09:40,
+   one machine, 10-minute operations and a 15-minute color setup. Independent
+   checks cover both production and setup intervals, staff windows, overlap,
+   quantity and setup metrics. The native shift-repair marker and exact final
+   v2 partition prove that the existing repair ran before accepting the result.
+
+Every emitted `best_preview` and `candidate_preview` is independently checked.
+All decoded candidates in these piece-unit models must have integral sizes;
+checking only the final winner would hide an invalid search space. No actual
+customer orders or production state are used by these cases.
 
 No mixed result is injected into the optimizer. Handwritten schedules appear
 only in unit tests of the checker. The actual native calculation must find its

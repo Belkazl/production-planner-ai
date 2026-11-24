@@ -79,7 +79,7 @@ jobs:
           set -euo pipefail
           overlay_args=()
           if test -f ops/ovh/joint-minibatch-release-20261124/prepare_overlay.py; then
-            overlay_args=(--public-overlay ops/ovh/joint-minibatch-release-20261124)
+            overlay_args=(--public-overlay ops/ovh/joint-minibatch-release-20261124 --require-release-gate)
           fi
           PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/native-batching-verify-20261124/verify_native.py \
             --bundle "$RUNNER_TEMP/native-batching-private.bundle" \

@@ -2,11 +2,12 @@ import {readFileSync, writeFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {createHash} from "node:crypto";
-import {selectNativeResumeState} from "./continuation.mjs";
+import {selectNativeResumeState, normalizeBatchGenome} from "./continuation.mjs";
 
 const marker = "pp_native_batching_continuation_v1";
 const helperAnchor = "  const compactResumePlan = plan => {";
 const helper = "  // " + marker + ": opaque worker state; account scope comes from currentJob.\n" +
+  normalizeBatchGenome.toString().split("\n").map(line => "  " + line).join("\n") + "\n" +
   selectNativeResumeState.toString().split("\n").map(line => "  " + line).join("\n") + "\n";
 const oldBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       // First use the already compact order hint sent by this authenticated
@@ -51,9 +52,27 @@ const newBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       // and native schema before restoring any batch genes or cached score.
       const clientPlan=args.resume_plan;
       const clientState=args.resume_state;
-      const nativeState=selectNativeResumeState(current,modelKey,args.objective||'duration');
-      let seed=nativeState?normalizedContinuationSeed(nativeState,model,false):null;
+      const hasSelectedGenome=!!clientPlan&&Object.hasOwn(clientPlan,'batch_genome');
+      const selectedGenome=hasSelectedGenome?normalizeBatchGenome(clientPlan.batch_genome,model):null;
+      if(hasSelectedGenome&&!selectedGenome)
+        return response({ok:false,error:'continuation_batch_seed_invalid'},409);
+      const nativeCandidate=selectNativeResumeState(current,modelKey,args.objective||'duration');
+      const nativeOrder=nativeCandidate?normalizedContinuationSeed(nativeCandidate,model,false):null;
+      const selectedOrder=selectedGenome?normalizedContinuationSeed({order_sequence:selectedGenome.order_sequence},model,false):
+        clientPlan?normalizedContinuationSeed(clientPlan,model,false):null;
+      if(selectedGenome&&Array.isArray(clientPlan.order_sequence)&&
+          JSON.stringify(clientPlan.order_sequence)!==JSON.stringify(selectedGenome.order_sequence))
+        return response({ok:false,error:'continuation_batch_seed_order_mismatch'},409);
+      // An explicit selected ordering must not silently resume a different
+      // server checkpoint. The fallback carries only the selected order.
+      const nativeGenome=selectedGenome&&nativeCandidate?normalizeBatchGenome(nativeCandidate.batch_genome,model):null;
+      const matchesSelection=(!selectedOrder||(nativeOrder&&
+        JSON.stringify(nativeOrder.order_sequence)===JSON.stringify(selectedOrder.order_sequence)))&&
+        (!selectedGenome||(nativeGenome&&JSON.stringify(nativeGenome)===JSON.stringify(selectedGenome)));
+      const nativeState=matchesSelection?nativeCandidate:null;
+      let seed=nativeState?nativeOrder:null;
       let source=nativeState?"same_account_native_state":null;
+      if(selectedGenome&&!nativeState){seed=selectedOrder;source="selected_unscored_batch_seed";}
       if(!seed&&clientPlan){
         seed=normalizedContinuationSeed(clientPlan,model,false);
         if(seed&&!nativeState)source="client_order_hint";
@@ -84,7 +103,8 @@ const newBlock = String.raw`      const sameModel=current?.modelKey===modelKey;
       if(nativeState)args.resume_state=nativeState;
       // Separate order-only fallback for old schemas or changed native hashes.
       // No batch fields or historical score are copied into this portable hint.
-      if(seed)args.resume_plan=seed;
+      if(selectedGenome)args.resume_plan={order_sequence:selectedGenome.order_sequence,batch_genome:selectedGenome};
+      else if(seed)args.resume_plan=seed;
       console.warn(nativeState?"PP_GA_RESUME_COMPACT_NATIVE_STATE":"PP_GA_RESUME_SAFE_ORDER_SEED",source);`;
 
 function once(source, before, after, label) {

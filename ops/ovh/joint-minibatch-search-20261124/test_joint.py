@@ -261,6 +261,69 @@ class JointTests(unittest.TestCase):
         self.assertEqual(ga['scored'], [])
         self.assertEqual(ga['best_previews'], [])
 
+    def test_exact_unpinned_staff_shift_repair_is_reverified_before_fitness(self):
+        class PinConstraintError(ValueError):
+            pass
+        m = model(); ga = namespace(m)
+        checked, repaired, scored = [], [], []
+        def verify(model, sim, pins, namespace):
+            self.assertTrue(namespace[joint.STATE_KEY]['evaluating'])
+            checked.append(bool(sim.get('synthetic_shift_repaired')))
+            if not sim.get('synthetic_shift_repaired'):
+                raise PinConstraintError('schedule_staff_shift_invalid')
+            self.assertTrue(all(row['start_min'] >= 100 for row in sim['operations']))
+            return verify_constraints(model, sim, pins, namespace)
+        def repair(sim):
+            self.assertTrue(ga[joint.STATE_KEY]['evaluating'])
+            repaired.append(True)
+            for row in sim['operations'] + sim['batches']:
+                row['start_min'] += 100
+                row['end_min'] += 100
+            sim['duration_minutes'] += 100
+            sim['synthetic_shift_repaired'] = True
+            return sim
+        original_score = ga['_pp_obj_key']
+        def score(sim, objective):
+            self.assertTrue(sim['synthetic_shift_repaired'])
+            self.assertEqual(checked[-2:], [False, True])
+            scored.append(True)
+            return original_score(sim, objective)
+        ga['_pp_obj_key'] = score
+        joint.install_joint_minibatch_search(ga, m, source=EXPANSION,
+            verify_constraints=verify, repair_candidate=repair)
+        result = ga['optimize'](3, 8)
+        self.assertTrue(repaired)
+        self.assertEqual(len(repaired), len(scored))
+        self.assertEqual(result['duration_minutes'], 120)
+        self.assertTrue(all(plan['synthetic_shift_repaired'] for plan in ga['best_previews']))
+        self.assertIsNotNone(ga[joint.STATE_KEY]['export_incumbent'](result))
+
+    def test_shift_repair_never_bypasses_pins_other_errors_or_second_validation(self):
+        class PinConstraintError(ValueError):
+            pass
+        for mode in ('pins', 'other_error', 'wrong_error_type', 'missing_result', 'changed_genes', 'still_invalid'):
+            with self.subTest(mode=mode):
+                m = model(); ga = namespace(m); repaired = []
+                pins = [{'order': 'O', 'batch': 1, 'batch_quantity': 10}] if mode == 'pins' else []
+                def verify(model, sim, pins, namespace):
+                    error_type = ValueError if mode == 'wrong_error_type' else PinConstraintError
+                    message = 'schedule_resource_overlap' if mode == 'other_error' else 'schedule_staff_shift_invalid'
+                    raise error_type(message)
+                def repair(sim):
+                    repaired.append(True)
+                    if mode == 'missing_result':
+                        return None
+                    if mode == 'changed_genes':
+                        sim['batches'][0]['quantity'] += 1
+                    return sim
+                joint.install_joint_minibatch_search(ga, m, pins=pins, source=EXPANSION,
+                    verify_constraints=verify, repair_candidate=repair)
+                with self.assertRaisesRegex(joint.JointContractError, 'joint_no_feasible_solution'):
+                    ga['optimize'](1, 2)
+                self.assertEqual(bool(repaired), mode in ('missing_result', 'changed_genes', 'still_invalid'))
+                self.assertEqual(ga['scored'], [])
+                self.assertEqual(ga['best_previews'], [])
+
     def test_material_prefix_checked_before_scoring(self):
         m = model(); m['materials'] = [{'id': 'M', 'initial_stock': 15,
             'deliveries': [{'at': '2026-11-24T08:15:00', 'quantity': 15}]}]
@@ -286,6 +349,13 @@ class JointTests(unittest.TestCase):
         fresh = namespace(m)
         install(fresh, m, pins=[pin], source=EXPANSION)
         fresh[joint.STATE_KEY]['load_incumbent'](resume)
+        # The adapter decodes an initial preview before optimize. It must use
+        # the restored ordered partition already, without trusting its fitness.
+        first_decode = fresh['_pp_schedule_sequence'](copy.deepcopy(m), ['O'])
+        self.assertEqual([row['quantity'] for row in first_decode['batches']], sizes)
+        self.assertEqual(fresh['scored'], [])
+        self.assertIsNone(fresh[joint.STATE_KEY]['export_incumbent'](
+            dict(first_decode, valid=True, order_sequence=['O'])))
         invalid = copy.deepcopy(resume); invalid['partitions'][0]['sizes'] = [10, 10, 10]
         with self.assertRaisesRegex(joint.JointContractError, 'joint_pin_quantity_changed'):
             fresh[joint.STATE_KEY]['load_incumbent'](invalid)
@@ -364,12 +434,14 @@ class JointTests(unittest.TestCase):
         path = Path(__file__).with_name('patch.py')
         spec = importlib.util.spec_from_file_location('joint_patch', path)
         patcher = importlib.util.module_from_spec(spec); spec.loader.exec_module(patcher)
-        source = "from pathlib import Path\nSOURCE = Path('/tmp/production_planner.py')\ndef _live_scheduler_preview(sim,model,objective,ga,pins,checkpoint=False):\n    return sim\ndef run(payload,progress):\n    opts={}\n    objective=opts.get('objective') or 'duration'\n    if pins:\n        try: pins=make_constrained_scheduler(ga,pins,normalized)\n        except Exception: raise\n"
+        source = "from pathlib import Path\nSOURCE = Path('/tmp/production_planner.py')\ndef _pp_shift_safe_checkpoint(sim,model,ga):\n    return sim\ndef _live_scheduler_preview(sim,model,objective,ga,pins,checkpoint=False):\n    return sim\ndef run(payload,progress):\n    opts={}\n    objective=opts.get('objective') or 'duration'\n    if pins:\n        try: pins=make_constrained_scheduler(ga,pins,normalized)\n        except Exception: raise\n"
         output = patcher.patch(source)
         self.assertEqual(patcher.patch(output), output)
         self.assertEqual(output.replace(patcher.IMPORT + '\n', '').replace(patcher.CALL, ''), source)
         with self.assertRaisesRegex(ValueError, 'ANCHOR_DRIFT'):
             patcher.patch(source.replace("objective=opts.get('objective') or 'duration'", 'objective="duration"'))
+        with self.assertRaisesRegex(ValueError, 'ANCHOR_DRIFT'):
+            patcher.patch(source.replace('def _pp_shift_safe_checkpoint(', 'def missing_shift_retimer('))
 
 
 if __name__ == '__main__':

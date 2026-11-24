@@ -24,6 +24,8 @@ import uuid
 # the separately verified native package is added inside child_verification.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from native_input_contract import COMPILE_SHA, MAX_BYTES, PY_NAME, InputContractError, compiler_keys, CODE_KEYS, select_code_fields
+from regression_cases import (RegressionError, check_production, cutlets_model, multistage_model,
+                              staff_setup_model, check_staff_setup)
 
 
 EPS = 1e-5
@@ -69,13 +71,14 @@ def number(value):
     return float(value)
 
 
-def partition(plan):
+def partition(plan, allowed_orders=None):
     batches = plan.get('batches') if isinstance(plan, dict) else None
     if not isinstance(batches, list) or not 1 <= len(batches) <= 256:
         raise VerificationError('batch_array_contract')
     values = []
+    allowed_orders = {'SYNTHETIC_ORDER'} if allowed_orders is None else allowed_orders
     for batch in batches:
-        if not isinstance(batch, dict) or str(batch.get('order')) != 'SYNTHETIC_ORDER':
+        if not isinstance(batch, dict) or str(batch.get('order')) not in allowed_orders:
             raise VerificationError('batch_order_contract')
         values.append(number(batch.get('quantity', batch.get('area'))))
     return tuple(sorted(round(value, 8) for value in values))
@@ -118,12 +121,32 @@ def scheduled_genome_digest(plan, sequence):
         return None
 
 
+def checkpoint_genome_matches_plan(plan, model):
+    if not isinstance(plan, dict):
+        return False
+    state = plan.get('resume_state')
+    sequence = plan.get('order_sequence')
+    owned = [str(order['id']) for order in model.get('orders', [])]
+    if (not isinstance(state, dict) or state.get('version') != 2 or not isinstance(sequence, list)
+            or len(sequence) != len(owned) or not all(isinstance(oid, str) for oid in sequence)
+            or len(set(sequence)) != len(sequence) or set(sequence) != set(owned)
+            or state.get('order_sequence') != sequence):
+        return False
+    genome = state.get('batch_genome')
+    if not isinstance(genome, dict) or genome.get('order_sequence') != sequence:
+        return False
+    actual, exported = scheduled_genome_digest(plan, sequence), genome_digest(genome)
+    return actual is not None and actual == exported
+
+
 def check_witness(plan, model, diagnostics):
     if not isinstance(plan, dict) or plan.get('valid') is not True or plan.get('partial') is True:
         raise VerificationError('native_plan_not_valid')
     sizes = partition(plan)
     if abs(sum(sizes) - 30) > EPS or any(value <= 0 or value > 10 + EPS for value in sizes):
         raise VerificationError('batch_quantity_or_capacity')
+    if any(abs(value - round(value)) > 1e-7 for value in sizes):
+        raise VerificationError('fractional_piece_batch')
     rows = plan.get('generic_operations') or plan.get('operations')
     if not isinstance(rows, list):
         raise VerificationError('operation_array_contract')
@@ -192,8 +215,28 @@ def state_metadata(namespace):
 
 def failure_metadata(error):
     result = {'error_type': type(error).__name__}
-    if isinstance(error, VerificationError):
+    if isinstance(error, (VerificationError, RegressionError)):
         result['error_code'] = str(error)
+    allowed_joint = {'joint_native_formatter_contract', 'joint_final_partition_changed',
+        'joint_no_feasible_solution', 'joint_native_expansion_order_changed', 'joint_model_changed_after_install',
+        'joint_pin_quantity_changed', 'joint_pin_genome_changed', 'joint_native_hook_signature',
+        'joint_native_source_contract', 'joint_native_state_missing', 'joint_search_budget'}
+    causes = []
+    seen = {id(error)}
+    current = error.__cause__ or error.__context__
+    while current is not None and id(current) not in seen and len(causes) < 4:
+        seen.add(id(current))
+        row = {'error_type': type(current).__name__}
+        if str(current) in allowed_joint:
+            row['error_code'] = str(current)
+        causes.append(row)
+        current = current.__cause__ or current.__context__
+    if causes:
+        result['causes'] = causes
+    if str(error) in allowed_joint:
+        result['error_code'] = str(error)
+    if isinstance(error, VerificationError) and isinstance(getattr(error, 'safe_details', None), dict):
+        result['details'] = error.safe_details
     return result
 
 
@@ -414,14 +457,18 @@ def synthetic_call_value(value, depth=0):
     return result
 
 
-def observed_run(adapter, diagnostics, model, options):
+def observed_run(adapter, diagnostics, model, options, checker=check_witness):
     factory = adapter._namespace
     state = {'decoder_calls': 0, 'partition_observation_errors': 0, 'distinct_partition_vectors': set(),
              'partition_vectors_truncated': False, 'batch_counts': set(), 'partitions': [],
              'native_raw_valid': 0, 'native_raw_invalid': 0, 'native_raw_validator_errors': 0,
              'first_raw_material_prefix': None, 'first_raw_schedule': None, 'before_optimize_state': None,
              'sampled_hook_calls': {}, 'generic_optimizer_return': None,
-             'optimizer_started': False, 'first_optimized_genome_sha256': None}
+             'optimizer_started': False, 'first_optimized_genome_sha256': None,
+             'first_decoded_genome_sha256': None,
+             'nonintegral_piece_candidate_count': 0, 'published_previews_seen': 0,
+             'published_preview_failures': 0, 'published_preview_errors': [],
+             'published_v2_preview_count': 0, 'published_v2_mismatch_count': 0, 'live_matching_v2_count': 0}
     holder = {}
 
     def make_namespace():
@@ -464,12 +511,16 @@ def observed_run(adapter, diagnostics, model, options):
             state['decoder_calls'] += 1
             # Observe the entire small native run; retain at most 64 vectors.
             try:
+                sequence = args[1] if len(args) > 1 else kwargs.get('order_ids')
+                if state['first_decoded_genome_sha256'] is None:
+                    state['first_decoded_genome_sha256'] = scheduled_genome_digest(result, sequence)
                 if state['optimizer_started'] and state['first_optimized_genome_sha256'] is None:
-                    sequence = args[1] if len(args) > 1 else kwargs.get('order_ids')
                     state['first_optimized_genome_sha256'] = scheduled_genome_digest(result, sequence)
                 if state['first_raw_schedule'] is None:
                     state['first_raw_schedule'] = synthetic_schedule_summary(result)
-                values = partition(result)
+                values = partition(result, {str(order['id']) for order in model['orders']})
+                if state['optimizer_started'] and any(abs(value - round(value)) > 1e-7 for value in values):
+                    state['nonintegral_piece_candidate_count'] += 1
                 digest = hashlib.sha256(json.dumps(values).encode()).hexdigest()
                 state['batch_counts'].add(len(values))
                 if digest not in state['distinct_partition_vectors']:
@@ -503,18 +554,46 @@ def observed_run(adapter, diagnostics, model, options):
 
     adapter._namespace = make_namespace
     model_before = copy.deepcopy(model)
+    options_before = copy.deepcopy(options)
     result = None
     native_error = None
+    started_at = time.perf_counter()
+    def published(progress):
+        if not isinstance(progress, dict):
+            return
+        for key in ('best_preview', 'candidate_preview'):
+            preview = progress.get(key)
+            if preview is None:
+                continue
+            state['published_previews_seen'] += 1
+            try:
+                checker(preview, model, diagnostics)
+                preview_state = preview.get('resume_state') if isinstance(preview, dict) else None
+                if isinstance(preview_state, dict) and preview_state.get('version') == 2:
+                    state['published_v2_preview_count'] += 1
+                    if not checkpoint_genome_matches_plan(preview, model):
+                        state['published_v2_mismatch_count'] += 1
+                        raise VerificationError('published_v2_genome_does_not_match_plan')
+                    if progress.get('running') is True:
+                        state['live_matching_v2_count'] += 1
+            except Exception as error:
+                state['published_preview_failures'] += 1
+                if len(state['published_preview_errors']) < 8:
+                    state['published_preview_errors'].append({'kind': key, **failure_metadata(error)})
     try:
-        result = adapter.run({'model': model, 'options': options}, lambda _progress: None)
+        result = adapter.run({'model': model, 'options': options}, published)
     except Exception as error:
         native_error = failure_metadata(error)
     finally:
         adapter._namespace = factory
     if model != model_before:
         native_error = failure_metadata(VerificationError('caller_model_mutated'))
+    if options != options_before:
+        native_error = failure_metadata(VerificationError('caller_options_mutated'))
     report = {key: value for key, value in state.items() if key not in ('distinct_partition_vectors', 'batch_counts')}
     report['distinct_partition_vectors'] = len(state['distinct_partition_vectors'])
+    report['elapsed_ms'] = round((time.perf_counter() - started_at) * 1000)
+    report['all_published_previews_feasible'] = state['published_previews_seen'] > 0 and state['published_preview_failures'] == 0
     report['observed_batch_counts'] = sorted(state['batch_counts'])
     report['after_optimize_state'] = state_metadata(holder.get('namespace', {}))
     report['functions'] = holder.get('functions', {})
@@ -524,7 +603,7 @@ def observed_run(adapter, diagnostics, model, options):
         report['result'] = {'independent_valid': False, 'reached_lower_bound': False, 'native_error': native_error}
     else:
         try:
-            report['result'] = check_witness(result, model, diagnostics)
+            report['result'] = checker(result, model, diagnostics)
         except Exception as error:
             report['result'] = {'independent_valid': False, 'reached_lower_bound': False, **failure_metadata(error)}
     resume = result.get('resume_state') if isinstance(result, dict) else None
@@ -532,11 +611,19 @@ def observed_run(adapter, diagnostics, model, options):
                                          if isinstance(key, str) and IDENTIFIER.fullmatch(key))[:64]
     incoming = options.get('resume_state')
     requested = genome_digest(incoming.get('batch_genome')) if isinstance(incoming, dict) else None
+    selected_hint = options.get('resume_plan')
+    hinted = genome_digest(selected_hint.get('batch_genome')) if isinstance(selected_hint, dict) else None
+    if hinted is not None:
+        requested = hinted
     exported = genome_digest(resume.get('batch_genome')) if isinstance(resume, dict) else None
     report['ordered_resume'] = {'export_version': resume.get('version') if isinstance(resume, dict) else None,
         'exported_genome_sha256': exported, 'requested_genome_sha256': requested,
+        'requested_gene_source': 'selected_plan_hint' if hinted is not None else 'resume_state' if requested else None,
+        'first_decoded_genome_sha256': state['first_decoded_genome_sha256'],
+        'first_decoded_matches_requested': requested is not None and requested == state['first_decoded_genome_sha256'],
         'first_optimized_genome_sha256': state['first_optimized_genome_sha256'],
         'first_optimized_matches_requested': requested is not None and requested == state['first_optimized_genome_sha256']}
+    report['final_v2_matches_plan'] = checkpoint_genome_matches_plan(result, model)
     joint = result.get('joint_minibatch') if isinstance(result, dict) else None
     if isinstance(joint, dict):
         report['joint_minibatch'] = {key: joint[key] for key in ('evaluated', 'feasible', 'rejected',
@@ -609,6 +696,238 @@ def run_witness_cases(adapter, diagnostics, report, native_namespace):
                  for case in report['cases'].values())
     passed = passed and continuation['result']['not_worse_than_first']
     report['status'] = 'native_witness_pass' if passed else 'native_minibatch_regression'
+    return first, report
+
+
+def check_pin_result(plan, model, diagnostics, pin):
+    result = check_witness(plan, model, diagnostics)
+    rows = plan.get('generic_operations') or plan.get('operations') or []
+    matched = [row for row in rows if row.get('order') == pin['order'] and row.get('operation_id') == pin['operation_id']
+               and row.get('batch') == pin['batch']]
+    if len(matched) != 1:
+        raise VerificationError('pinned_operation_missing')
+    row = matched[0]
+    if (abs(number(row.get('batch_quantity')) - pin['batch_quantity']) > EPS
+            or abs(number(row.get('start_min')) - pin['start_min']) > EPS
+            or abs(number(row.get('end_min')) - pin['end_min']) > EPS
+            or row.get('equipment_ids') != pin['equipment_ids'] or row.get('employee_ids', []) != pin['employee_ids']
+            or row.get('manual_locked') is not True):
+        raise VerificationError('pinned_quantity_time_or_resource_changed')
+    result['pin_quantity_time_resources_verified'] = True
+    return result
+
+
+def stop_checkpoint_child(package_root, output_path):
+    """Terminate this disposable worker immediately after a genuine live checkpoint."""
+    sys.path.insert(0, str(package_root))
+    from ga_workers import full_runtime_adapter as adapter
+    from ga_workers import batch_size_diagnostics as diagnostics
+    model = witness_model()
+    stats = {'previews_seen': 0, 'preview_failures': 0, 'preview_errors': [],
+             'v1_checkpoints': 0, 'v2_checkpoints': 0, 'live_mixed_previews': 0}
+    def progress(event):
+        if not isinstance(event, dict):
+            return
+        for name in ('best_preview', 'candidate_preview'):
+            plan = event.get(name)
+            if plan is None:
+                continue
+            stats['previews_seen'] += 1
+            try:
+                checked = check_witness(plan, model, diagnostics)
+                resume = plan.get('resume_state')
+                if isinstance(resume, dict) and resume.get('version') == 2 and not checkpoint_genome_matches_plan(plan, model):
+                    raise VerificationError('published_v2_genome_does_not_match_plan')
+            except Exception as error:
+                stats['preview_failures'] += 1
+                if len(stats['preview_errors']) < 8:
+                    stats['preview_errors'].append(failure_metadata(error))
+                continue
+            state = plan.get('resume_state') or {}
+            if state.get('version') in (1, 2):
+                stats['v' + str(state['version']) + '_checkpoints'] += 1
+            if event.get('running') is True and checked['mixed_sizes']:
+                stats['live_mixed_previews'] += 1
+            if (event.get('running') is True and number(event.get('percent', 100)) < 100
+                    and state.get('version') == 2 and genome_digest(state.get('batch_genome'))
+                    and checked['mixed_sizes']):
+                payload = {'status': 'stopped_at_live_checkpoint', 'resume_state': state,
+                    'duration_minutes': checked['duration_minutes'], 'batch_count': checked['batch_count'],
+                    'genome_sha256': genome_digest(state['batch_genome']), 'progress_percent': event.get('percent'),
+                    'published_checkpoint_kind': name, 'statistics': stats}
+                with open(output_path, 'x', encoding='utf-8') as stream:
+                    os.chmod(output_path, 0o600)
+                    json.dump(payload, stream, separators=(',', ':'))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                # Same lifecycle as stopping an isolated worker: no further
+                # candidate can run in this process after the checkpoint.
+                os._exit(0)
+    try:
+        adapter.run({'model': model, 'options': {'generations': 500, 'population': 32,
+                    'seed': 1733, 'objective': 'duration'}}, progress)
+        result = {'status': 'no_live_mixed_v2_checkpoint', 'statistics': stats}
+    except Exception as error:
+        result = {'status': 'checkpoint_worker_failed', 'statistics': stats, **failure_metadata(error)}
+    output_path.write_text(json.dumps(result, separators=(',', ':')))
+    os.chmod(output_path, 0o600)
+    return 1
+
+
+def obtain_stopped_checkpoint(package_root):
+    with tempfile.TemporaryDirectory(prefix='native-stop-proof-') as temporary:
+        workspace = Path(temporary)
+        output = workspace / 'checkpoint.json'
+        environment = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8',
+                       'PYTHONDONTWRITEBYTECODE': '1',
+                       **select_code_fields(json.loads(Path('/input/code-inputs.json').read_text()))}
+        command = [sys.executable, '-I', str(Path(__file__).resolve()), '--checkpoint-child', str(package_root),
+                   '--checkpoint-output', str(output)]
+        process = None
+        try:
+            with open(workspace / 'private-worker.log', 'xb') as captured:
+                process = subprocess.Popen(command, env=environment, cwd=workspace, stdin=subprocess.DEVNULL,
+                    stdout=captured, stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    raise VerificationError('stop_checkpoint_timeout')
+        finally:
+            if process is not None and process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=10)
+        if not output.is_file() or output.is_symlink() or output.stat().st_size > 128 * 1024:
+            raise VerificationError('stop_checkpoint_missing_or_oversized')
+        result = json.loads(output.read_text())
+        if process.returncode != 0 or result.get('status') != 'stopped_at_live_checkpoint':
+            error = VerificationError('stop_live_mixed_v2_checkpoint_unavailable')
+            error.safe_details = {key: value for key, value in result.items()
+                if key in ('status', 'statistics', 'error_type', 'error_code', 'causes')}
+            raise error
+        return result
+
+
+def run_overlay_regressions(adapter, diagnostics, report, package_root, first_plan):
+    for name, model, target in (('cutlets_regression', cutlets_model(), 3),
+                                 ('multi_order_stages', multistage_model(), None)):
+        checker = lambda plan, candidate_model, unused, target=target: check_production(plan, candidate_model, target)
+        _, case = observed_run(adapter, diagnostics, model, {'generations': 3, 'population': 8,
+            'seed': 1741, 'objective': 'duration'}, checker=checker)
+        report['cases'][name] = case
+    _, staff_case = observed_run(adapter, diagnostics, staff_setup_model(), {'generations': 3, 'population': 8,
+        'seed': 1747, 'objective': 'duration'}, checker=lambda plan, model, unused: check_staff_setup(plan, model))
+    report['cases']['staff_shift_setup'] = staff_case
+    original_resume = first_plan.get('resume_state') if isinstance(first_plan, dict) else None
+    original_rows = (first_plan.get('generic_operations') or first_plan.get('operations') or []) if isinstance(first_plan, dict) else []
+    selected = next((row for row in original_rows if row.get('order') == 'SYNTHETIC_ORDER'
+        and row.get('operation_id') == 'WORK' and row.get('batch_quantity') == 5), None)
+    pin = None
+    pinned = None
+    if selected is not None and isinstance(original_resume, dict) and original_resume.get('version') == 2:
+        pin = {key: copy.deepcopy(selected[key]) for key in ('order', 'operation_id', 'batch', 'batch_quantity',
+                                                           'start_min', 'end_min', 'equipment_ids')}
+        pin['employee_ids'] = copy.deepcopy(selected.get('employee_ids') or [])
+        pin_checker = lambda plan, candidate_model, diag: check_pin_result(plan, candidate_model, diag, pin)
+        # Keep the original old pin hash unchanged: the native loader must
+        # revalidate the model-bound unscored gene against these new locks.
+        pin_options = {'generations': 3, 'population': 8, 'seed': 1742, 'objective': 'duration',
+                       'locked_operations': [pin], 'continue': True, 'resume_state': copy.deepcopy(original_resume)}
+        pinned, pinned_case = observed_run(adapter, diagnostics, witness_model(), pin_options, checker=pin_checker)
+        pinned_case['pinned_quantity_from_native_mixed_result'] = pin['batch_quantity']
+        pinned_case['original_resume_state_preserved'] = pin_options['resume_state'] == original_resume
+        pinned_case['not_worse_than_unpinned_incumbent'] = (isinstance(pinned, dict)
+            and number(pinned.get('duration_minutes')) <= number(first_plan['duration_minutes']) + EPS)
+    else:
+        pinned_case = {'result': {'independent_valid': False, 'error_code': 'mixed_five_unit_pin_source_missing'}}
+    report['cases']['pinned_quantity_identity'] = pinned_case
+    state = pinned.get('resume_state') if isinstance(pinned, dict) else None
+    if isinstance(state, dict) and state.get('version') == 2:
+        _, continued_case = observed_run(adapter, diagnostics, witness_model(), dict(pin_options,
+            seed=1743, population=6, **{'continue': True, 'resume_state': copy.deepcopy(state)}), checker=pin_checker)
+        report['cases']['pinned_continue'] = continued_case
+        tampered = copy.deepcopy(state)
+        sizes = tampered['batch_genome']['partitions'][0]['sizes']
+        pin_index = pin['batch'] - 1
+        alternate = next(index for index, value in enumerate(sizes) if index != pin_index and value < 10)
+        sizes[pin_index] -= 1
+        sizes[alternate] += 1
+        invalid, invalid_case = observed_run(adapter, diagnostics, witness_model(), dict(pin_options,
+            seed=1744, population=6, **{'continue': True, 'resume_state': tampered}), checker=pin_checker)
+        report['pin_tampered_genome_rejected'] = (invalid is None and invalid_case['decoder_calls'] == 0
+            and invalid_case['result'].get('native_error') is not None)
+        report['pin_rejection_metadata'] = {'decoder_calls': invalid_case['decoder_calls'], 'result': invalid_case['result']}
+    else:
+        report['cases']['pinned_continue'] = {'result': {'independent_valid': False, 'error_code': 'pinned_v2_resume_missing'}}
+        report['pin_tampered_genome_rejected'] = False
+    try:
+        checkpoint = obtain_stopped_checkpoint(package_root)
+        resumed, case = observed_run(adapter, diagnostics, witness_model(), {'generations': 3, 'population': 8,
+            'seed': 1745, 'objective': 'duration', 'continue': True, 'resume_state': checkpoint['resume_state']})
+        case['stopped_checkpoint'] = {key: value for key, value in checkpoint.items() if key != 'resume_state'}
+        case['not_worse_than_stopped_checkpoint'] = (isinstance(resumed, dict)
+            and number(resumed.get('duration_minutes')) <= number(checkpoint['duration_minutes']) + EPS)
+        report['cases']['stop_continue'] = case
+    except Exception as error:
+        report['cases']['stop_continue'] = {'result': {'independent_valid': False, **failure_metadata(error)}}
+    for name, sizes in (('selected_partition_hint', [10, 10, 10]),
+                        ('selected_nondefault_partition_hint', [5, 5, 5, 5, 5, 5])):
+        gene = {'version': 1, 'order_sequence': ['SYNTHETIC_ORDER'],
+                'partitions': [{'order_id': 'SYNTHETIC_ORDER', 'sizes': sizes}]}
+        _, case = observed_run(adapter, diagnostics, witness_model(), {'generations': 3, 'population': 8,
+            'seed': 1746, 'objective': 'duration', 'continue': True,
+            'resume_plan': {'order_sequence': ['SYNTHETIC_ORDER'], 'batch_genome': gene}})
+        report['cases'][name] = case
+    required = ('plain', 'material_delivery', 'continue_fresh_namespace', 'cutlets_regression',
+                'multi_order_stages', 'pinned_quantity_identity', 'pinned_continue', 'stop_continue',
+                'selected_partition_hint', 'selected_nondefault_partition_hint', 'staff_shift_setup')
+    failures = []
+    for name in required:
+        case = report['cases'].get(name, {})
+        if case.get('result', {}).get('independent_valid') is not True:
+            failures.append(name + ':independent_validation')
+        if case.get('all_published_previews_feasible') is not True:
+            failures.append(name + ':published_preview_validation')
+        if case.get('nonintegral_piece_candidate_count', 0) != 0:
+            failures.append(name + ':fractional_piece_candidate')
+        joint = case.get('joint_minibatch', {})
+        for key, bound in (('peak_cache_entries', 32), ('peak_cache_rows', 20000), ('peak_cache_bytes', 33554432)):
+            if key in joint and joint[key] > bound:
+                failures.append(name + ':cache_bound')
+    for name in ('plain', 'material_delivery', 'continue_fresh_namespace'):
+        if report['cases'].get(name, {}).get('result', {}).get('reached_lower_bound') is not True:
+            failures.append(name + ':target_duration')
+    for name in ('continue_fresh_namespace', 'pinned_continue', 'stop_continue'):
+        case = report['cases'].get(name, {})
+        if case.get('ordered_resume', {}).get('first_optimized_matches_requested') is not True:
+            failures.append(name + ':ordered_resume')
+    for name in ('selected_partition_hint', 'selected_nondefault_partition_hint'):
+        resume = report['cases'].get(name, {}).get('ordered_resume', {})
+        if (resume.get('requested_gene_source') != 'selected_plan_hint'
+                or resume.get('first_optimized_matches_requested') is not True
+                or resume.get('first_decoded_matches_requested') is not True):
+            failures.append(name + ':selected_gene_not_applied_first')
+    stop = report['cases'].get('stop_continue', {})
+    if (stop.get('not_worse_than_stopped_checkpoint') is not True
+            or stop.get('stopped_checkpoint', {}).get('statistics', {}).get('preview_failures') != 0):
+        failures.append('stop_continue:checkpoint_preservation')
+    if report.get('pin_tampered_genome_rejected') is not True:
+        failures.append('pins:tampered_gene_accepted')
+    multi = report['cases'].get('multi_order_stages', {})
+    if multi.get('final_v2_matches_plan') is not True:
+        failures.append('multi_order_stages:final_v2_partition_mismatch')
+    if multi.get('live_matching_v2_count', 0) < 1:
+        failures.append('multi_order_stages:live_v2_checkpoint_missing')
+    if staff_case.get('result', {}).get('staff_shift_repaired') is not True:
+        failures.append('staff_shift_setup:native_repair_not_exercised')
+    if staff_case.get('final_v2_matches_plan') is not True:
+        failures.append('staff_shift_setup:final_v2_partition_mismatch')
+    if (pinned_case.get('original_resume_state_preserved') is not True
+            or pinned_case.get('not_worse_than_unpinned_incumbent') is not True
+            or pinned_case.get('pinned_quantity_from_native_mixed_result') != 5):
+        failures.append('pins:new_lock_incumbent_preservation')
+    report['mandatory_gate_failures'] = failures
+    report['release_gate_complete'] = not failures
+    report['status'] = 'native_witness_pass' if not failures else 'native_minibatch_regression'
     return report
 
 
@@ -657,14 +976,15 @@ def child_verification(root, report_path, input_path=Path('/input/code-inputs.js
         native_namespace = adapter._namespace()
         report['namespace_functions_before_baseline'] = diagnostics._native_functions(native_namespace)
         report['namespace_state_before_baseline'] = state_metadata(native_namespace)
-        run_witness_cases(adapter, diagnostics, report, native_namespace)
+        first_plan, _ = run_witness_cases(adapter, diagnostics, report, native_namespace)
         if overlay_gates:
             continuation = report['cases'].get('continue_fresh_namespace', {})
             resume = continuation.get('ordered_resume', {})
             report['ordered_continuation_verified'] = (resume.get('export_version') == 2
                 and resume.get('first_optimized_matches_requested') is True)
-            report['release_gate_complete'] = False
+            run_overlay_regressions(adapter, diagnostics, report, root, first_plan)
             if not report['ordered_continuation_verified']:
+                report['release_gate_complete'] = False
                 report['status'] = 'native_minibatch_regression'
     except BaseException as error:
         # No traceback, native exception text, source line, or private value is exported.
@@ -672,7 +992,7 @@ def child_verification(root, report_path, input_path=Path('/input/code-inputs.js
         report['error_type'] = type(error).__name__
         if isinstance(error, VerificationError):
             report['error_code'] = str(error)
-    report_path.write_text(json.dumps(report, ensure_ascii=False, separators=(',', ':')))
+    report_path.write_text(json.dumps(compact_report(report), ensure_ascii=False, separators=(',', ':')))
     os.chmod(report_path, 0o600)
     return 0 if report['status'] == 'native_witness_pass' else 1
 
@@ -845,6 +1165,8 @@ def public_report(value):
 
 
 def compact_report(report):
+    if report.get('metadata_encoding') == 'deduplicated-schema-and-function-references-v1':
+        return copy.deepcopy(public_report(report))
     result = copy.deepcopy(public_report(report))
     for case in result.get('cases', {}).values():
         counts = {}
@@ -888,7 +1210,7 @@ def compact_report(report):
     return result
 
 
-def run_ephemeral(bundle_path, image_id, timeout=360, public_overlay=None):
+def run_ephemeral(bundle_path, image_id, timeout=360, public_overlay=None, require_release_gate=False):
     if os.geteuid() == 0:
         raise VerificationError('ordinary_runner_user_required')
     binary = shutil.which('docker')
@@ -951,7 +1273,7 @@ def run_ephemeral(bundle_path, image_id, timeout=360, public_overlay=None):
                 'isolation': {'method': 'ephemeral_runner_container', 'network': 'none',
                               'read_only_root': True, 'private_tmpfs': True, 'image_id': image_id}}
             print('NATIVE_BATCHING_VERIFICATION ' + json.dumps(report, ensure_ascii=False, separators=(',', ':')))
-            return process.returncode
+            return 1 if require_release_gate and report.get('release_gate_complete') is not True else process.returncode
     finally:
         os.umask(previous_mask)
 
@@ -962,10 +1284,15 @@ if __name__ == '__main__':
     parser.add_argument('--image-id')
     parser.add_argument('--public-overlay', type=Path)
     parser.add_argument('--overlay-gates', action='store_true')
+    parser.add_argument('--require-release-gate', action='store_true')
+    parser.add_argument('--checkpoint-child', type=Path)
+    parser.add_argument('--checkpoint-output', type=Path)
     parser.add_argument('--child', type=Path)
     parser.add_argument('--report', type=Path)
     parser.add_argument('--timeout', type=int, default=360)
     args = parser.parse_args()
+    if args.checkpoint_child:
+        raise SystemExit(stop_checkpoint_child(args.checkpoint_child, args.checkpoint_output))
     if args.child:
         raise SystemExit(child_verification(args.child, args.report, overlay_gates=args.overlay_gates))
     try:
@@ -974,7 +1301,8 @@ if __name__ == '__main__':
         def interrupted(_signum, _frame):
             raise KeyboardInterrupt()
         signal.signal(signal.SIGTERM, interrupted)
-        raise SystemExit(run_ephemeral(args.bundle, args.image_id, timeout=args.timeout, public_overlay=args.public_overlay))
+        raise SystemExit(run_ephemeral(args.bundle, args.image_id, timeout=args.timeout, public_overlay=args.public_overlay,
+                                     require_release_gate=args.require_release_gate))
     except KeyboardInterrupt:
         print('NATIVE_BATCHING_VERIFICATION_CANCELLED')
         raise SystemExit(130)
