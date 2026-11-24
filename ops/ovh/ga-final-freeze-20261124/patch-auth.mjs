@@ -1,0 +1,21 @@
+import {readFileSync,writeFileSync} from "node:fs";
+import assert from "node:assert/strict";
+const [beforePath,afterPath,languagePath,shimPath]=process.argv.slice(2);
+assert(beforePath&&afterPath&&languagePath&&shimPath,"GA_FINAL_NONBLOCKING_PATCH_INPUTS");
+const original=readFileSync(beforePath,"utf8");
+const language=readFileSync(languagePath,"utf8");
+const shim=readFileSync(shimPath,"utf8");
+const before="return new Response(ppResourceUnitsHtml(enhanced),{";
+const after="return new Response(ppResourceUnitsHtml(ppNonBlockingDbSyncHtml(enhanced)),{";
+assert.equal(original.split(before).length,2,"GA_FINAL_AUTH_FALLBACK_ANCHOR_DRIFT");
+assert(!original.includes(after),"GA_FINAL_ALREADY_PATCHED");
+assert(original.includes('"x-liftorbit-ui":"etalon-modules-compat"'),"GA_FINAL_AUTH_FALLBACK_MISSING");
+assert(language.includes("function ppNonBlockingDbSyncHtml(html:string)"),"GA_FINAL_ASYNC_TRANSFORM_NOT_BUILT");
+assert(language.includes('const syncPattern=/function sync'),"GA_FINAL_ASYNC_TRANSFORM_UNKNOWN");
+assert(shim.includes("window.__PP_ASYNC_DB_SYNC__=true;"),"GA_FINAL_ASYNC_WRITE_SOURCE_UNKNOWN");
+assert(shim.includes("ppWaitForSaves"),"GA_FINAL_PERSISTENCE_ORDER_GUARD_MISSING");
+const result=original.replace(before,after);
+assert.equal(result.replace(after,before),original,"GA_FINAL_NONBLOCKING_CHANGED_UNRELATED_CODE");
+writeFileSync(afterPath,result);
+console.log("GA_FINAL_NONBLOCKING_AUTH_PATCH_PASS",JSON.stringify({oldSize:original.length,newSize:result.length,onlyCompatibilityHtmlChanged:true,
+  preservedUnits:true,existingQueue:true}));
