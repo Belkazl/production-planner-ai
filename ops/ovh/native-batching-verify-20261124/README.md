@@ -25,6 +25,26 @@ input fields, missing modules, oversized members, wrong hashes or a changed
 compiler. It manually writes only validated regular files into a mode-0700
 workspace. No private file is committed, uploaded as an artifact or cached.
 
+## Reviewed correction in the temporary copy
+
+`--public-overlay ops/ovh/joint-minibatch-release-20261124` runs the reviewed
+public preparation script against the verified temporary package before its
+read-only container mount. The original package and code input must remain
+byte-identical. Only `full_runtime_adapter.py`, `joint_minibatch.py` and
+`joint_continuation.py` may differ; the pinned compiler must remain unchanged.
+The public report records all original/candidate package hashes, the input hash
+and hashes of the five public patch helpers. Patch stdout/stderr stays private.
+The workflow selects this mode when the reviewed preparation script is present.
+
+The core gate compares the ordered batch-genome digest from exported state
+with the first optimized schedule in the fresh continuation namespace. Numeric
+representation is normalized, while order and partition positions are retained.
+This avoids treating rediscovery of the same unordered batch sizes as evidence
+of restored continuation. Initial core-gate reports mark `release_gate_complete`
+false until the additional production-preservation regression cases are added.
+Repeated function/contract metadata is stored once in `function_metadata` and
+`contract_schemas`; references preserve the report while reducing log volume.
+
 ## Native execution isolation
 
 The fresh GitHub runner starts a disposable container using the same public

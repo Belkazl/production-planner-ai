@@ -2,6 +2,7 @@
 import argparse
 import ast
 import copy
+import functools
 import hashlib
 import inspect
 import json
@@ -78,6 +79,43 @@ def partition(plan):
             raise VerificationError('batch_order_contract')
         values.append(number(batch.get('quantity', batch.get('area'))))
     return tuple(sorted(round(value, 8) for value in values))
+
+
+def genome_digest(genome):
+    if not isinstance(genome, dict) or genome.get('version') != 1:
+        return None
+    sequence = genome.get('order_sequence')
+    rows = genome.get('partitions')
+    if not isinstance(sequence, list) or not isinstance(rows, list) or len(sequence) != len(rows):
+        return None
+    cleaned = {'version': 1, 'order_sequence': list(map(str, sequence)), 'partitions': []}
+    try:
+        for oid, row in zip(sequence, rows):
+            if not isinstance(row, dict) or row.get('order_id') != oid or not isinstance(row.get('sizes'), list):
+                return None
+            cleaned['partitions'].append({'order_id': str(oid), 'sizes': [round(number(value), 8) for value in row['sizes']]})
+    except VerificationError:
+        return None
+    return hashlib.sha256(json.dumps(cleaned, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def scheduled_genome_digest(plan, sequence):
+    if not isinstance(plan, dict) or not isinstance(sequence, (list, tuple)) or not isinstance(plan.get('batches'), list):
+        return None
+    groups = {str(oid): {} for oid in sequence}
+    try:
+        for row in plan['batches']:
+            oid = str(row.get('order'))
+            batch = row.get('batch')
+            if oid not in groups or type(batch) is not int or batch < 1 or batch in groups[oid]:
+                return None
+            groups[oid][batch] = number(row.get('quantity', row.get('area')))
+        if any(set(parts) != set(range(1, len(parts) + 1)) for parts in groups.values()):
+            return None
+        return genome_digest({'version': 1, 'order_sequence': list(map(str, sequence)), 'partitions': [
+            {'order_id': str(oid), 'sizes': [groups[str(oid)][index] for index in sorted(groups[str(oid)])]} for oid in sequence]})
+    except (VerificationError, TypeError, AttributeError):
+        return None
 
 
 def check_witness(plan, model, diagnostics):
@@ -178,9 +216,15 @@ def contract_shape(value, depth=0):
 
 def synthetic_numeric_fields(value):
     fields = ('area', 'quantity', 'batch_quantity', 'batch_capacity', 'capacity', 'capacity_m2',
-              'batch', 'batch_id', 'start_min', 'end_min', 'duration_min', 'duration_minutes')
+              'batch', 'batch_id', '_batch_quantity', '_batch_capacity', '_batch_count', '_batch_index',
+              'start_min', 'end_min', 'duration_min', 'duration_minutes')
     return {key: value[key] for key in fields if key in value and not isinstance(value[key], bool)
             and isinstance(value[key], (int, float)) and math.isfinite(value[key]) and abs(value[key]) <= 1e9}
+
+
+def synthetic_order(oid):
+    return isinstance(oid, str) and bool(re.fullmatch(
+        r'(?:SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}|__ppb__SYNTHETIC_ORDER__[0-9]{1,8})', oid))
 
 
 def synthetic_model_summary(model, allow_expanded=False):
@@ -202,8 +246,7 @@ def synthetic_model_summary(model, allow_expanded=False):
         result['equipment'].append(row)
     for index, order in enumerate((model.get('orders') or [])[:32]):
         oid = order.get('id') if isinstance(order, dict) else None
-        owned = oid == 'SYNTHETIC_ORDER' or (allow_expanded and isinstance(oid, str)
-            and re.fullmatch(r'SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}', oid))
+        owned = oid == 'SYNTHETIC_ORDER' or (allow_expanded and synthetic_order(oid))
         if not owned:
             result['other_orders'] += 1
             continue
@@ -287,7 +330,7 @@ def synthetic_native_contract(ga, diagnostics, model):
                     result['expansion']['model_items'].append(synthetic_model_summary(item, True))
                     for index, expanded_order in enumerate(item['orders'][:32]):
                         oid = expanded_order.get('id') if isinstance(expanded_order, dict) else None
-                        if isinstance(oid, str) and re.fullmatch(r'SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}', oid):
+                        if synthetic_order(oid):
                             aliases[oid] = 'original' if oid == 'SYNTHETIC_ORDER' else 'expanded_' + str(index + 1)
             relations = []
             for index, item in enumerate(parts[:8]):
@@ -361,7 +404,7 @@ def synthetic_call_value(value, depth=0):
         oid = value.get('id', value.get('order'))
         if oid in ('BIG', 'SMALL'):
             result.update(id=oid, numbers=synthetic_numeric_fields(value))
-        elif isinstance(oid, str) and re.fullmatch(r'SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}', oid):
+        elif synthetic_order(oid):
             result.update(order_alias='original' if oid == 'SYNTHETIC_ORDER' else 'expanded',
                           numbers=synthetic_numeric_fields(value))
             if value.get('equipment_ids') is not None:
@@ -377,7 +420,8 @@ def observed_run(adapter, diagnostics, model, options):
              'partition_vectors_truncated': False, 'batch_counts': set(), 'partitions': [],
              'native_raw_valid': 0, 'native_raw_invalid': 0, 'native_raw_validator_errors': 0,
              'first_raw_material_prefix': None, 'first_raw_schedule': None, 'before_optimize_state': None,
-             'sampled_hook_calls': {}, 'generic_optimizer_return': None}
+             'sampled_hook_calls': {}, 'generic_optimizer_return': None,
+             'optimizer_started': False, 'first_optimized_genome_sha256': None}
     holder = {}
 
     def make_namespace():
@@ -392,6 +436,7 @@ def observed_run(adapter, diagnostics, model, options):
 
         def observe_hook(name, function):
             samples = state['sampled_hook_calls'].setdefault(name, [])
+            @functools.wraps(function)
             def observed_hook(*args, **kwargs):
                 returned = function(*args, **kwargs)
                 if len(samples) < 8:
@@ -413,11 +458,15 @@ def observed_run(adapter, diagnostics, model, options):
             if callable(ga.get(hook)):
                 ga[hook] = observe_hook(hook, ga[hook])
 
+        @functools.wraps(original)
         def observed(*args, **kwargs):
             result = original(*args, **kwargs)
             state['decoder_calls'] += 1
             # Observe the entire small native run; retain at most 64 vectors.
             try:
+                if state['optimizer_started'] and state['first_optimized_genome_sha256'] is None:
+                    sequence = args[1] if len(args) > 1 else kwargs.get('order_ids')
+                    state['first_optimized_genome_sha256'] = scheduled_genome_digest(result, sequence)
                 if state['first_raw_schedule'] is None:
                     state['first_raw_schedule'] = synthetic_schedule_summary(result)
                 values = partition(result)
@@ -442,8 +491,10 @@ def observed_run(adapter, diagnostics, model, options):
                 state['partition_observation_errors'] += 1
             return result
 
+        @functools.wraps(native_optimize)
         def optimize(*args, **kwargs):
             state['before_optimize_state'] = state_metadata(ga)
+            state['optimizer_started'] = True
             return native_optimize(*args, **kwargs)
 
         ga['_pp_schedule_sequence'] = observed
@@ -479,6 +530,18 @@ def observed_run(adapter, diagnostics, model, options):
     resume = result.get('resume_state') if isinstance(result, dict) else None
     report['resume_field_names'] = sorted(key for key in (resume or {})
                                          if isinstance(key, str) and IDENTIFIER.fullmatch(key))[:64]
+    incoming = options.get('resume_state')
+    requested = genome_digest(incoming.get('batch_genome')) if isinstance(incoming, dict) else None
+    exported = genome_digest(resume.get('batch_genome')) if isinstance(resume, dict) else None
+    report['ordered_resume'] = {'export_version': resume.get('version') if isinstance(resume, dict) else None,
+        'exported_genome_sha256': exported, 'requested_genome_sha256': requested,
+        'first_optimized_genome_sha256': state['first_optimized_genome_sha256'],
+        'first_optimized_matches_requested': requested is not None and requested == state['first_optimized_genome_sha256']}
+    joint = result.get('joint_minibatch') if isinstance(result, dict) else None
+    if isinstance(joint, dict):
+        report['joint_minibatch'] = {key: joint[key] for key in ('evaluated', 'feasible', 'rejected',
+            'peak_cache_entries', 'peak_cache_rows', 'peak_cache_bytes') if isinstance(joint.get(key), (int, float))
+            and not isinstance(joint[key], bool) and math.isfinite(joint[key]) and 0 <= joint[key] <= 1e12}
     return result, report
 
 
@@ -492,11 +555,18 @@ def native_baseline(adapter, diagnostics, model, namespace=None):
     sim = ga['_pp_schedule_sequence'](normalized, [order['id'] for order in normalized['orders']])
     errors = ga['_pp_validate_generic'](normalized, copy.deepcopy(sim))
     sizes = partition(sim)
-    return {'kind': 'original_native_default_decoder', 'duration_minutes': number(sim['duration_minutes']),
+    result = {'kind': 'original_native_default_decoder', 'duration_minutes': number(sim['duration_minutes']),
             'batch_count': len(sizes), 'batch_sizes': list(sizes), 'native_validation_passed': not bool(errors),
             'raw_schedule': synthetic_schedule_summary(sim),
             'material_prefix': diagnostics.material_prefix_summary(normalized, sim),
             'capacity_max_reference_minutes': 30, 'mixed_optimal_lower_bound_minutes': 20}
+    preview = ga.get('_pp_progress_preview')
+    if callable(preview):
+        try:
+            result['explicit_native_preview'] = synthetic_schedule_summary(preview(normalized, copy.deepcopy(sim), 'duration'))
+        except Exception as error:
+            result['explicit_native_preview'] = failure_metadata(error)
+    return result
 
 
 def run_witness_cases(adapter, diagnostics, report, native_namespace):
@@ -564,7 +634,7 @@ def compiled_function_metadata(source):
     return {'functions': found, 'matching_function_count': count, 'functions_truncated': count > len(found)}
 
 
-def child_verification(root, report_path, input_path=Path('/input/code-inputs.json')):
+def child_verification(root, report_path, input_path=Path('/input/code-inputs.json'), overlay_gates=False):
     report = {'format': 'native-minibatch-verification-v1', 'status': 'started', 'phase': 'imports', 'cases': {}}
     try:
         selected = select_code_fields(json.loads(input_path.read_text()))
@@ -588,6 +658,14 @@ def child_verification(root, report_path, input_path=Path('/input/code-inputs.js
         report['namespace_functions_before_baseline'] = diagnostics._native_functions(native_namespace)
         report['namespace_state_before_baseline'] = state_metadata(native_namespace)
         run_witness_cases(adapter, diagnostics, report, native_namespace)
+        if overlay_gates:
+            continuation = report['cases'].get('continue_fresh_namespace', {})
+            resume = continuation.get('ordered_resume', {})
+            report['ordered_continuation_verified'] = (resume.get('export_version') == 2
+                and resume.get('first_optimized_matches_requested') is True)
+            report['release_gate_complete'] = False
+            if not report['ordered_continuation_verified']:
+                report['status'] = 'native_minibatch_regression'
     except BaseException as error:
         # No traceback, native exception text, source line, or private value is exported.
         report['status'] = 'failed'
@@ -663,7 +741,79 @@ def unpack_private_bundle(bundle_path, root):
     return fields, manifest
 
 
-def docker_command(binary, image_id, root, harness, container_name):
+def package_hashes(package):
+    entries = list(package.iterdir())
+    if not 5 <= len(entries) <= 64:
+        raise VerificationError('overlay_package_file_count')
+    result, total = {}, 0
+    for path in sorted(entries):
+        info = path.lstat()
+        if not PY_NAME.fullmatch(path.name) or not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > 4 * 1024 * 1024:
+            raise VerificationError('overlay_package_file_contract')
+        data = path.read_bytes()
+        total += len(data)
+        if total > MAX_BYTES:
+            raise VerificationError('overlay_package_too_large')
+        ast.parse(data, filename='<verified-native-package>')
+        result['ga_workers/' + path.name] = hashlib.sha256(data).hexdigest()
+    return result
+
+
+def apply_public_overlay(overlay_directory, root, original_hashes):
+    if overlay_directory.name != 'joint-minibatch-release-20261124' or overlay_directory.is_symlink():
+        raise VerificationError('public_overlay_directory_contract')
+    public_root = overlay_directory.resolve(strict=True).parent
+    helpers = ('joint-minibatch-release-20261124/prepare_overlay.py',
+               'joint-minibatch-search-20261124/joint_minibatch.py',
+               'joint-minibatch-search-20261124/patch.py',
+               'native-batching-continuation-20261124/joint_continuation.py',
+               'native-batching-continuation-20261124/patch_worker.py')
+    helper_hashes = {}
+    for relative in helpers:
+        path = public_root / relative
+        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(public_root) or path.stat().st_size > 4 * 1024 * 1024:
+            raise VerificationError('public_overlay_helper_contract')
+        data = path.read_bytes()
+        ast.parse(data, filename='<reviewed-public-overlay>')
+        helper_hashes[relative] = hashlib.sha256(data).hexdigest()
+    source = root / 'ga_workers'
+    candidate_root = root / 'candidate'
+    candidate_root.mkdir(mode=0o700)
+    target = candidate_root / 'ga_workers'
+    command = [sys.executable, '-I', str(public_root / helpers[0]), str(source), str(target)]
+    environment = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+    process = None
+    try:
+        with open(root / 'private-overlay-output.log', 'xb') as captured:
+            os.chmod(root / 'private-overlay-output.log', 0o600)
+            process = subprocess.Popen(command, env=environment, cwd=root, stdin=subprocess.DEVNULL,
+                stdout=captured, stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                raise VerificationError('public_overlay_timeout')
+    finally:
+        if process is not None and process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=10)
+    if process.returncode != 0:
+        raise VerificationError('public_overlay_patch_failed')
+    if package_hashes(source) != original_hashes:
+        raise VerificationError('public_overlay_mutated_original_package')
+    candidate_hashes = package_hashes(target)
+    additions = {'ga_workers/joint_minibatch.py', 'ga_workers/joint_continuation.py'}
+    if set(candidate_hashes) != set(original_hashes) | additions:
+        raise VerificationError('public_overlay_unexpected_package_files')
+    changed = sorted(name for name in candidate_hashes if candidate_hashes[name] != original_hashes.get(name))
+    if set(changed) != additions | {'ga_workers/full_runtime_adapter.py'}:
+        raise VerificationError('public_overlay_unexpected_changed_files')
+    if candidate_hashes['ga_workers/compile_legacy_ga.py'] != COMPILE_SHA:
+        raise VerificationError('public_overlay_changed_compiler')
+    return target, {'format': 'reviewed-public-native-overlay-v1', 'public_helper_hashes': helper_hashes,
+                    'changed_package_files': changed}, candidate_hashes
+
+
+def docker_command(binary, image_id, root, harness, container_name, package=None, overlay=False):
     if not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
         raise VerificationError('runner_image_id_invalid')
     if not re.fullmatch(r'pp-native-verify-[a-f0-9]{32}', container_name):
@@ -675,14 +825,14 @@ def docker_command(binary, image_id, root, harness, container_name):
                '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m', '--workdir=/tmp',
                '--env', 'PATH=/usr/local/bin:/usr/bin:/bin', '--env', 'LANG=C.UTF-8',
                '--env', 'PYTHONDONTWRITEBYTECODE=1', '--env', 'PYTHONUNBUFFERED=1']
-    for host, target, readonly in ((root / 'ga_workers', '/native/ga_workers', True),
+    for host, target, readonly in ((package or root / 'ga_workers', '/native/ga_workers', True),
                                   (root / 'code-inputs.json', '/input/code-inputs.json', True),
                                   (harness, '/verify', True), (root / 'report', '/report', False)):
         if ',' in str(host):
             raise VerificationError('runner_mount_path_invalid')
         command += ['--mount', 'type=bind,source=' + str(host) + ',target=' + target + (',readonly' if readonly else '')]
     return command + [image_id, 'python3', '-I', '/verify/verify_native.py', '--child', '/native',
-                      '--report', '/report/safe-report.json']
+                      '--report', '/report/safe-report.json'] + (['--overlay-gates'] if overlay else [])
 
 
 def public_report(value):
@@ -694,7 +844,51 @@ def public_report(value):
     return value
 
 
-def run_ephemeral(bundle_path, image_id, timeout=360):
+def compact_report(report):
+    result = copy.deepcopy(public_report(report))
+    for case in result.get('cases', {}).values():
+        counts = {}
+        for name, samples in case.get('sampled_hook_calls', {}).items():
+            unique = {}
+            for sample in samples:
+                unique.setdefault(json.dumps(sample, sort_keys=True, separators=(',', ':')), sample)
+            counts[name] = {'captured': len(samples), 'distinct_captured': len(unique), 'retained': min(2, len(unique))}
+            case['sampled_hook_calls'][name] = list(unique.values())[:2]
+        if counts:
+            case['sampled_hook_counts'] = counts
+    schemas, schema_ids, functions, function_ids = {}, {}, {}, {}
+    def intern(value):
+        if isinstance(value, dict):
+            if {'binding', 'parameters', 'references', 'kind'}.issubset(value):
+                encoded = json.dumps(value, sort_keys=True, separators=(',', ':'))
+                if encoded not in function_ids:
+                    key = 'f' + str(len(functions) + 1)
+                    function_ids[encoded] = key
+                    functions[key] = value
+                return {'function_ref': function_ids[encoded]}
+            output = {}
+            for key, item in value.items():
+                if key == 'contract' and isinstance(item, dict):
+                    encoded = json.dumps(item, sort_keys=True, separators=(',', ':'))
+                    if encoded not in schema_ids:
+                        name = 's' + str(len(schemas) + 1)
+                        schema_ids[encoded] = name
+                        schemas[name] = item
+                    output[key] = {'schema_ref': schema_ids[encoded]}
+                else:
+                    output[key] = intern(item)
+            return output
+        if isinstance(value, list):
+            return [intern(item) for item in value]
+        return value
+    result = intern(result)
+    result['contract_schemas'] = schemas
+    result['function_metadata'] = functions
+    result['metadata_encoding'] = 'deduplicated-schema-and-function-references-v1'
+    return result
+
+
+def run_ephemeral(bundle_path, image_id, timeout=360, public_overlay=None):
     if os.geteuid() == 0:
         raise VerificationError('ordinary_runner_user_required')
     binary = shutil.which('docker')
@@ -708,12 +902,19 @@ def run_ephemeral(bundle_path, image_id, timeout=360):
             root = Path(scratch)
             os.chmod(root, 0o700)
             fields, manifest = unpack_private_bundle(bundle_path, root)
+            candidate_package = root / 'ga_workers'
+            candidate_hashes = dict(manifest['source_hashes'])
+            overlay_manifest = None
+            if public_overlay is not None:
+                candidate_package, overlay_manifest, candidate_hashes = apply_public_overlay(public_overlay, root, manifest['source_hashes'])
+                if hashlib.sha256((root / 'code-inputs.json').read_bytes()).hexdigest() != manifest['code_inputs_sha256']:
+                    raise VerificationError('public_overlay_mutated_code_inputs')
             output = root / 'report'
             output.mkdir(mode=0o700)
             report_path = output / 'safe-report.json'
             harness = Path(__file__).resolve().parent
             container_name = 'pp-native-verify-' + uuid.uuid4().hex
-            command = docker_command(binary, image_id, root, harness, container_name)
+            command = docker_command(binary, image_id, root, harness, container_name, candidate_package, public_overlay is not None)
             process = None
             environment = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}
             try:
@@ -740,10 +941,12 @@ def run_ephemeral(bundle_path, image_id, timeout=360):
             if (not report_path.is_file() or report_path.is_symlink()
                     or report_path.stat().st_size > 1024 * 1024):
                 raise VerificationError('safe_report_missing_or_too_large')
-            report = public_report(json.loads(report_path.read_text()))
+            report = compact_report(json.loads(report_path.read_text()))
             report['provenance'] = {'compiler_sha256': manifest['compiler_sha256'],
-                'adapter_sha256': manifest['source_hashes'].get('ga_workers/full_runtime_adapter.py'),
-                'code_fields_count': len(fields), 'native_code_changed': False,
+                'adapter_sha256': candidate_hashes.get('ga_workers/full_runtime_adapter.py'),
+                'source_hashes': manifest['source_hashes'], 'candidate_source_hashes': candidate_hashes,
+                'code_inputs_sha256': manifest['code_inputs_sha256'], 'overlay': overlay_manifest,
+                'code_fields_count': len(fields), 'native_code_changed': public_overlay is not None,
                 'production_writes': False, 'ephemeral_private_test_authorized': True,
                 'isolation': {'method': 'ephemeral_runner_container', 'network': 'none',
                               'read_only_root': True, 'private_tmpfs': True, 'image_id': image_id}}
@@ -757,19 +960,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--image-id')
+    parser.add_argument('--public-overlay', type=Path)
+    parser.add_argument('--overlay-gates', action='store_true')
     parser.add_argument('--child', type=Path)
     parser.add_argument('--report', type=Path)
     parser.add_argument('--timeout', type=int, default=360)
     args = parser.parse_args()
     if args.child:
-        raise SystemExit(child_verification(args.child, args.report))
+        raise SystemExit(child_verification(args.child, args.report, overlay_gates=args.overlay_gates))
     try:
         if not args.bundle or not args.image_id:
             raise VerificationError('explicit_private_bundle_and_image_required')
         def interrupted(_signum, _frame):
             raise KeyboardInterrupt()
         signal.signal(signal.SIGTERM, interrupted)
-        raise SystemExit(run_ephemeral(args.bundle, args.image_id, timeout=args.timeout))
+        raise SystemExit(run_ephemeral(args.bundle, args.image_id, timeout=args.timeout, public_overlay=args.public_overlay))
     except KeyboardInterrupt:
         print('NATIVE_BATCHING_VERIFICATION_CANCELLED')
         raise SystemExit(130)

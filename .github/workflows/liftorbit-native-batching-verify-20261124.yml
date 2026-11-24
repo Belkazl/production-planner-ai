@@ -70,13 +70,17 @@ jobs:
             < ops/ovh/native-batching-verify-20261124/native_input_contract.py \
             > "$RUNNER_TEMP/native-batching-private.bundle"
           test -s "$RUNNER_TEMP/native-batching-private.bundle"
-      - name: Run the original native engine without network or inherited credentials
+      - name: Verify the native engine and the reviewed correction without network
         shell: bash
         run: |
           set -euo pipefail
+          overlay_args=()
+          if test -f ops/ovh/joint-minibatch-release-20261124/prepare_overlay.py; then
+            overlay_args=(--public-overlay ops/ovh/joint-minibatch-release-20261124)
+          fi
           PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/native-batching-verify-20261124/verify_native.py \
             --bundle "$RUNNER_TEMP/native-batching-private.bundle" \
-            --image-id "$(cat "$RUNNER_TEMP/native-batching-image")" --timeout 360
+            --image-id "$(cat "$RUNNER_TEMP/native-batching-image")" --timeout 360 "${overlay_args[@]}"
       - name: Remove all ephemeral transfer files
         if: always()
         shell: bash

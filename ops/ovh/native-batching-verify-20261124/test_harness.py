@@ -304,6 +304,64 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(summary[0]['enumerate_arguments'], [['sizes']])
         self.assertNotIn('private-source-value', json.dumps(summary))
 
+    def test_ordered_genome_digest_preserves_part_order_and_normalizes_numbers(self):
+        genome = {'version': 1, 'order_sequence': ['SYNTHETIC_ORDER'], 'partitions': [
+            {'order_id': 'SYNTHETIC_ORDER', 'sizes': [10, 5, 10, 5]}]}
+        reordered = copy.deepcopy(genome); reordered['partitions'][0]['sizes'] = [10, 10, 5, 5]
+        floating = copy.deepcopy(genome); floating['partitions'][0]['sizes'] = [10.0, 5.0, 10.0, 5.0]
+        self.assertNotEqual(verification.genome_digest(genome), verification.genome_digest(reordered))
+        self.assertEqual(verification.genome_digest(genome), verification.genome_digest(floating))
+        plan = example_plan()
+        for i, row in enumerate(plan['batches'], 1):
+            row['batch'] = i
+        self.assertEqual(verification.scheduled_genome_digest(plan, ['SYNTHETIC_ORDER']), verification.genome_digest(genome))
+
+    def test_expanded_synthetic_ids_and_numeric_metadata_are_visible(self):
+        model = verification.witness_model()
+        model['orders'][0].update(id='__ppb__SYNTHETIC_ORDER__1', quantity=10, _batch_quantity=10,
+                                  _batch_count=3, _batch_index=1, _parent_order_id='SYNTHETIC_ORDER')
+        report = verification.synthetic_model_summary(model, True)
+        self.assertEqual(report['other_orders'], 0)
+        self.assertEqual(report['orders'][0]['_batch_quantity'], 10)
+        self.assertEqual(report['orders'][0]['alias'], 'expanded_1')
+
+    def test_metadata_compression_keeps_results_and_interns_repeated_contracts(self):
+        schema = {'kind': 'object', 'keys': ['capacity', 'quantity'], 'entry_count': 2}
+        function = {'binding': 'native', 'parameters': ['model'], 'references': [], 'kind': 'python'}
+        sample = {'arguments': {'model': {'contract': schema}}, 'returned': {'contract': schema}}
+        report = {'status': 'native_minibatch_regression', 'cases': {'plain': {
+            'result': {'independent_valid': False}, 'sampled_hook_calls': {'hook': [sample] * 8},
+            'functions': [function] * 8, 'final_schedule': {'contract': schema}}}}
+        result = verification.compact_report(report)
+        self.assertEqual(result['cases']['plain']['result'], {'independent_valid': False})
+        self.assertEqual(len(result['cases']['plain']['sampled_hook_calls']['hook']), 1)
+        self.assertEqual(len(result['contract_schemas']), 1)
+        self.assertEqual(len(result['function_metadata']), 1)
+        self.assertEqual(result['cases']['plain']['sampled_hook_counts']['hook']['captured'], 8)
+
+    def test_public_overlay_changes_only_three_files_and_preserves_input(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / 'ga_workers'; package.mkdir()
+            names = ('__init__.py', 'compile_legacy_ga.py', 'full_runtime_adapter.py', 'constraints.py', 'continuation.py')
+            for name in names:
+                (package / name).write_text('# public test module\n')
+            before = verification.package_hashes(package)
+            public = root / 'public'
+            overlay = public / 'joint-minibatch-release-20261124'; overlay.mkdir(parents=True)
+            for relative in ('joint-minibatch-search-20261124/joint_minibatch.py', 'joint-minibatch-search-20261124/patch.py',
+                             'native-batching-continuation-20261124/joint_continuation.py', 'native-batching-continuation-20261124/patch_worker.py'):
+                path = public / relative; path.parent.mkdir(exist_ok=True); path.write_text('# public test helper\n')
+            (overlay / 'prepare_overlay.py').write_text("import sys,shutil\nfrom pathlib import Path\na,b=map(Path,sys.argv[1:])\nshutil.copytree(a,b)\n(b/'full_runtime_adapter.py').write_text('# public correction\\n')\n(b/'joint_minibatch.py').write_text('# public joint\\n')\n(b/'joint_continuation.py').write_text('# public continuation\\n')\n")
+            with mock_patch.object(verification, 'COMPILE_SHA', before['ga_workers/compile_legacy_ga.py']):
+                target, manifest, after = verification.apply_public_overlay(overlay, root, before)
+            self.assertEqual(verification.package_hashes(package), before)
+            self.assertEqual(set(manifest['changed_package_files']), {'ga_workers/full_runtime_adapter.py',
+                             'ga_workers/joint_minibatch.py', 'ga_workers/joint_continuation.py'})
+            self.assertEqual(len(manifest['public_helper_hashes']), 5)
+            self.assertEqual(target.name, 'ga_workers')
+            self.assertEqual(set(after), set(before) | {'ga_workers/joint_minibatch.py', 'ga_workers/joint_continuation.py'})
+
 
 if __name__ == '__main__':
     unittest.main()
