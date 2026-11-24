@@ -29,6 +29,12 @@ jobs:
           from pathlib import Path
           import re
           root=Path.home()/"liftorbit-migration/sources/ovh-app/current"
+          b=root/"language-build.ts"
+          print("NONBLOCKING_DB_TRANSFORM_SOURCE",b.exists())
+          if b.exists():
+            for i,line in enumerate(b.read_text(errors="replace").splitlines(),1):
+              if i>48:break
+              print("DB_BUILD_SRC",i,line[:300])
           for filename in ["restart-optimizer-ui.js","stop-ui.js","auth-runtime.js","gantt-details.js","language-ui.js","restart-optimizer-html.js","restart-optimizer-server.js"]:
             p=root/filename
             if not p.exists():continue
