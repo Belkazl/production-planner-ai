@@ -1,0 +1,125 @@
+name: Restore auth UI compatibility with unbounded GA transport
+on:
+  push:
+    branches: [main, fix/ga-no-deadline-auth-page-20261124]
+    paths:
+      - .github/workflows/liftorbit-ga-auth-no-deadline-release-20261124.yml
+      - ops/ovh/ga-no-deadline-20261124/patch-auth.mjs
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-ga-auth-no-deadline-release
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Patch authenticated compatibility page, deploy, browser verify and rollback both files on QA failure
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration
+          app="$root/sources/ovh-app/current"
+          scp_call "$USER@$HOST:$app/auth-runtime.js" "$d/old.js"
+          node ops/ovh/ga-no-deadline-20261124/patch-auth.mjs "$d/old.js" "$d/new.js"
+          node --check "$d/new.js"
+          node - "$d/old.js" "$d/new.js" <<'JS'
+          const fs=require("node:fs"),assert=require("node:assert/strict"),vm=require("node:vm");
+          const [oldCode,newCode]=process.argv.slice(2).map(p=>fs.readFileSync(p,"utf8"));
+          const old="for(const [before,after] of gaProgressRecovery){";
+          const changed='for(const [before,after] of (gaTransport.includes("ppRouteGaDiagnosticsOutsideValidator")&&gaTransport.includes("for(;;)")?[]:gaProgressRecovery)){';
+          assert.equal(newCode.replace(changed,old),oldCode);
+          assert(newCode.includes("ppResourceUnitsHtml(ppNonBlockingDbSyncHtml(enhanced))"));
+          const simulate=transport=>{
+            let gaTransport=transport, applied=0;
+            const gaProgressRecovery=[["const deadline=Date.now()+15*60*1000;let transient=0;","const deadline=Date.now()+15*60*1000;let transient=0,badProgressAt=0;"]];
+            const run='for(const [before,after] of (gaTransport.includes("ppRouteGaDiagnosticsOutsideValidator")&&gaTransport.includes("for(;;)")?[]:gaProgressRecovery)){if(gaTransport.split(before).length!==2)throw new Error("CHANGED");gaTransport=gaTransport.replace(before,after);applied++}';
+            vm.runInNewContext(run,{gaTransport,gaProgressRecovery}, {timeout:1000});
+            return {bypassed:transport.includes("ppRouteGaDiagnosticsOutsideValidator")&&transport.includes("for(;;)"),applied};
+          };
+          assert.equal(simulate("for(;;) ppRouteGaDiagnosticsOutsideValidator").applied,0);
+          assert.equal(simulate("const deadline=Date.now()+15*60*1000;let transient=0;").applied,1);
+          console.log("GA_AUTH_OLD_AND_NEW_TRANSPORT_COMPAT_PREDEPLOY_PASS");
+          JS
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo GA_AUTH_NO_DEADLINE_PREFLIGHT_PASS
+            exit 0
+          fi
+          oldsha=$(sha256sum "$d/old.js"|cut -d' ' -f1)
+          newsha=$(sha256sum "$d/new.js"|cut -d' ' -f1)
+          stage="$root/sources/ovh-app/auth-runtime.ga-no-deadline.next"
+          scp_call "$d/new.js" "$USER@$HOST:$stage"
+          ssh_call "$USER@$HOST" bash -s -- "$oldsha" "$newsha" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          target="$root/sources/ovh-app/current/auth-runtime.js"
+          stage="$root/sources/ovh-app/auth-runtime.ga-no-deadline.next"
+          backup="$root/patch-backups/ga-no-deadline-auth-20261124"
+          sha(){ sha256sum "$1"|cut -d' ' -f1; }
+          test "$(sha "$target")" = "$1"
+          test "$(sha "$stage")" = "$2"
+          # Verify a complete emergency rollback to the pre-upgrade transport is possible.
+          test -f "$root/patch-backups/ga-no-runtime-deadline-20261124/async-plan-transport.js"
+          mkdir -p "$backup"
+          cp -p "$target" "$backup/auth-runtime.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/auth-runtime.js" "$target" || true
+            cp -p "$root/patch-backups/ga-no-runtime-deadline-20261124/async-plan-transport.js" "$root/sources/ovh-app/current/async-plan-transport.js" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_AUTH_COMPAT_EMERGENCY_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$stage" "$target"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for n in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$target")" = "$2"
+          trap - ERR
+          echo GA_AUTH_NEW_TRANSPORT_DEPLOYED_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$app/auth-runtime.js" "$d/verified.js"
+          test "$(sha256sum "$d/verified.js"|cut -d' ' -f1)" = "$newsha"
+          set +e
+          node ops/ovh/ga-no-deadline-20261124/live-browser.mjs
+          qa=$?
+          set -e
+          if [ "$qa" -ne 0 ];then
+            echo GA_AUTH_NEW_TRANSPORT_BROWSER_QA_FAILED_ROLLING_BACK
+            ssh_call "$USER@$HOST" bash -s <<'ROLLBACK'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          cp -p "$root/patch-backups/ga-no-deadline-auth-20261124/auth-runtime.js" "$root/sources/ovh-app/current/auth-runtime.js"
+          cp -p "$root/patch-backups/ga-no-runtime-deadline-20261124/async-plan-transport.js" "$root/sources/ovh-app/current/async-plan-transport.js"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$root/patch-backups/ga-no-deadline-auth-20261124/qa-rollback-private.log" 2>&1
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          echo GA_AUTH_COMPAT_EMERGENCY_ROLLBACK_VERIFIED
+          ROLLBACK
+            exit "$qa"
+          fi
+          h=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health || true)
+          auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/api/auth/me || true)
+          test "$h" = 200 && test "$auth" = 401
+          echo GA_AUTH_NO_DEADLINE_FULL_BROWSER_AND_HEALTH_PASS
