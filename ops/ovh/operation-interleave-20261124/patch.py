@@ -18,14 +18,17 @@ LEGACY_FINAL = (
     "        result=dict(result)\n"
     "        result['operation_interleave']=copy.deepcopy({key:interleave_diagnostic.get(key) for key in ('version','eligible','improved_candidates','fallback_reason')})\n"
 )
-FINAL = LEGACY_FINAL.replace("'fallback_reason')", "'fallback_reason','model_field_mismatches')")
+FIVE_KEY_FINAL = LEGACY_FINAL.replace("'fallback_reason')", "'fallback_reason','model_field_mismatches')")
+FINAL = LEGACY_FINAL.replace("'fallback_reason')", "'fallback_reason','model_field_mismatches','native_contract_shape')")
 
 
 def patch(source):
-    if LEGACY_FINAL in source:
-        if source.count(LEGACY_FINAL) != 1 or FINAL in source or source.count(IMPORT) != 1 or source.count(CALL) != 1:
+    previous = [fragment for fragment in (LEGACY_FINAL, FIVE_KEY_FINAL) if fragment in source]
+    if previous:
+        old = previous[0]
+        if len(previous) != 1 or source.count(old) != 1 or FINAL in source or source.count(IMPORT) != 1 or source.count(CALL) != 1:
             raise RuntimeError("INTERLEAVE_PARTIAL_DIAGNOSTICS")
-        source = source.replace(LEGACY_FINAL, "", 1)
+        source = source.replace(old, "", 1)
     if ("result['operation_interleave']" in source or "interleave_diagnostic=" in source) and FINAL not in source:
         raise RuntimeError("INTERLEAVE_PARTIAL_DIAGNOSTICS")
     if IMPORT in source or CALL in source or FINAL in source:

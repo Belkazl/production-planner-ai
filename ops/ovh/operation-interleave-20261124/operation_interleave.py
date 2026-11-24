@@ -8,6 +8,7 @@ No imported plan, account state, random seed, or GA counters are used here.
 """
 import copy
 import math
+import re
 from collections import OrderedDict
 from datetime import datetime, timedelta
 
@@ -16,6 +17,7 @@ EPS = 1e-7
 MAX_OPERATIONS = 64
 VERSION = "operation-interleave-v1-20261124"
 DIAGNOSTIC_KEY = "_PP_OPERATION_INTERLEAVE_DIAGNOSTIC"
+SCHEMA_FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 FIELD_SCOPES = frozenset({"model", "equipment", "process", "operation", "requirement", "order"})
 FIELD_ALLOWED = {
     "model": ("scheduler_mode", "start", "quantity_unit", "objective", "equipment", "autoclaves", "employees", "materials", "material", "setup_rules", "shifts", "orders", "technical_processes", "name", "description"),
@@ -23,7 +25,7 @@ FIELD_ALLOWED = {
     "process": ("id", "name", "operations", "description"),
     "operation": ("id", "name", "sequence", "duration_min", "resource_requirements", "description"),
     "requirement": ("id", "type", "resource_type", "match_mode", "resource_ref", "resource_refs", "quantity", "unit", "consumption_rule", "kind"),
-    "order": ("id", "name", "quantity", "unit", "technical_process_id", "description"),
+    "order": ("id", "name", "quantity", "unit", "technical_process_id", "description", "operations"),
 }
 # Diagnostic vocabulary only: none of these extra fields become eligible.
 # Unknown names and every field value are excluded from public diagnostics.
@@ -46,7 +48,7 @@ DIAGNOSTIC_REASONS = frozenset({
     "unsupported_employees", "unsupported_materials", "unsupported_material", "unsupported_setup_rules", "unsupported_shifts",
     "equipment_missing", "invalid_identity", "nonfinite_number", "nonunary_capacity", "duplicate_process",
     "process_operations_missing", "operation_invalid", "not_one_equipment_requirement", "nonequipment_requirement",
-    "nonunit_requirement", "unsupported_consumption", "unsupported_match", "unsupported_order", "unsupported_size",
+    "nonunit_requirement", "unsupported_consumption", "unsupported_match", "unsupported_order", "unsupported_order_operations", "unsupported_size",
     "model_changed", "bad_order_sequence", "context_missing", "invalid_native_candidate", "unsupported_setup_operations",
     "unsupported_errors", "unsupported_validation_errors", "unsupported_conflicts", "unsupported_violations",
     "unsupported_changeovers", "nonzero_setup", "incomplete_operations", "operation_array_missing", "duplicate_operations",
@@ -107,7 +109,7 @@ def _keys(value, allowed, scope):
 
 
 def _model_field_mismatches(model):
-    """Bounded schema-only diagnostics; no IDs, arbitrary keys, or values."""
+    """Account-scoped schema names/shapes only; no field values or inner keys."""
     collected = {scope: {"fields": {}, "other": False, "truncated": False, "seen": 0} for scope in FIELD_SCOPES}
 
     def inspect(value, scope):
@@ -119,11 +121,11 @@ def _model_field_mismatches(model):
         if not isinstance(value, dict):
             return True
         for key in set(value) - set(FIELD_ALLOWED[scope]) - {"__ppid"}:
-            if key not in KNOWN_FIELD_NAMES:
+            if not isinstance(key, str) or SCHEMA_FIELD_NAME.fullmatch(key) is None:
                 state["other"] = True
                 continue
             item = value[key]
-            kind = "null" if item is None else "boolean" if isinstance(item, bool) else "number" if isinstance(item, (int, float)) else "string" if isinstance(item, str) else "array" if isinstance(item, list) else "object" if isinstance(item, dict) else "other"
+            kind = _shape_kind(item)
             empty = item is None or isinstance(item, (str, list, dict)) and len(item) == 0
             zero = isinstance(item, (int, float)) and not isinstance(item, bool) and item == 0
             previous = state["fields"].get(key)
@@ -165,8 +167,43 @@ def _model_field_mismatches(model):
         state = collected[scope]
         keys = sorted(state["fields"])
         if keys or state["other"] or state["truncated"]:
-            result.append({"scope": scope, "fields": [state["fields"][key] for key in keys[:8]], "other": state["other"], "truncated": state["truncated"] or len(keys) > 8})
+            result.append({"scope": scope, "fields": [state["fields"][key] for key in keys[:16]], "other": state["other"], "truncated": state["truncated"] or len(keys) > 16})
     return result
+
+
+def _shape_kind(value):
+    return "null" if value is None else "boolean" if isinstance(value, bool) else "number" if isinstance(value, (int, float)) else "string" if isinstance(value, str) else "array" if isinstance(value, list) else "object" if isinstance(value, dict) else "other"
+
+
+def _native_contract_shape(sim):
+    fields = ("ctx", "operations", "generic_operations", "batches", "fitness", "duration_minutes", "setup_operations", "operator_wait_minutes", "machine_idle_minutes")
+    shapes = {key: {"present": isinstance(sim, dict) and key in sim, "kind": _shape_kind(sim[key]) if isinstance(sim, dict) and key in sim else "missing"} for key in fields}
+    match = None
+    if isinstance(sim, dict):
+        fitness, duration = sim.get("fitness"), sim.get("duration_minutes")
+        if all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in (fitness, duration)):
+            match = abs(fitness - duration) <= EPS
+    return {"result_kind": _shape_kind(sim), "fields": shapes, "fitness_matches_duration": match}
+
+
+def _capture_native_shape(diagnostic, sim):
+    if diagnostic["native_contract_shape"] is None:
+        try:
+            diagnostic["native_contract_shape"] = _native_contract_shape(sim)
+        except Exception:
+            # Observation cannot replace a successful native result with failure.
+            pass
+
+
+def _install_observer(ga, original, diagnostic):
+    if not callable(original):
+        return
+    def observed(*args, **kwargs):
+        sim = original(*args, **kwargs)
+        _capture_native_shape(diagnostic, sim)
+        return sim
+    observed._pp_operation_interleave_version = VERSION
+    ga["_pp_schedule_sequence"] = observed
 
 
 def _identifier(value):
@@ -227,6 +264,7 @@ def _model_spec(model):
     orders = {}
     for order in model.get("orders") or []:
         _keys(order, FIELD_ALLOWED["order"], "order")
+        _require(order.get("operations") is None or isinstance(order.get("operations"), list) and not order["operations"], "unsupported_order_operations")
         oid, pid = _identifier(order.get("id")), _identifier(order.get("technical_process_id"))
         quantity = _number(order.get("quantity"))
         _require(oid not in orders and pid in processes and quantity >= 1 and quantity.is_integer(), "unsupported_order")
@@ -435,8 +473,8 @@ def install_operation_interleave(ga, model, objective="duration", pins=None):
     original = ga.get("_pp_schedule_sequence")
     validate = ga.get("_pp_validate_generic")
     if getattr(original, "_pp_operation_interleave_version", None) == VERSION and isinstance(ga.get(DIAGNOSTIC_KEY), dict):
-        return True
-    diagnostic = {"version": VERSION, "eligible": False, "improved_candidates": 0, "fallback_reason": None, "model_field_mismatches": []}
+        return bool(ga[DIAGNOSTIC_KEY].get("eligible"))
+    diagnostic = {"version": VERSION, "eligible": False, "improved_candidates": 0, "fallback_reason": None, "model_field_mismatches": [], "native_contract_shape": None}
     ga[DIAGNOSTIC_KEY] = diagnostic
 
     def record_fallback(reason):
@@ -447,6 +485,7 @@ def install_operation_interleave(ga, model, objective="duration", pins=None):
     if objective != "duration" or pins or not callable(original) or not callable(validate):
         record_fallback("objective_not_supported" if objective != "duration" else "manual_pins" if pins else "native_hooks_missing")
         diagnostic["model_field_mismatches"] = _model_field_mismatches(model)
+        _install_observer(ga, original, diagnostic)
         return False
     try:
         spec = _model_spec(model)
@@ -455,6 +494,7 @@ def install_operation_interleave(ga, model, objective="duration", pins=None):
         record_fallback(str(exc) if isinstance(exc, Unsupported) else "runtime_contract_unsupported")
         diagnostic["model_field_mismatches"] = _model_field_mismatches(model)
         _diagnostic("ineligible", reason=diagnostic["fallback_reason"])
+        _install_observer(ga, original, diagnostic)
         return False
 
     diagnostic["eligible"] = True
@@ -465,6 +505,7 @@ def install_operation_interleave(ga, model, objective="duration", pins=None):
     def interleaved(candidate_model, order_ids):
         # Exceptions from the actual decoder keep their original semantics.
         base = original(candidate_model, order_ids)
+        _capture_native_shape(diagnostic, base)
         try:
             _require(candidate_model == model_snapshot, "model_changed")
             ids = list(map(str, order_ids))

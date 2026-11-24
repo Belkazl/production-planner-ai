@@ -21,6 +21,8 @@ cancellation keep their existing behavior.
 - Unit-capacity machines; native unit batches cover the complete order quantity.
 - No employees, shifts, materials, setups, releases, deadlines, extra dependency
   fields or manual pins. Unknown model fields or runtime contracts fall back.
+- A normalized `order.operations` is permitted only when null or an empty list;
+  nonempty inline operations and other value types remain unsupported.
 - Existing wait/idle metrics must match recognized definitions before updating
   them. Ambiguous metrics also cause fallback. Other objectives are untouched.
 
@@ -28,7 +30,7 @@ Only derived dispatch times are cached (at most 16 entries). Plans, contexts and
 native validation results are never cached. The model specification is built
 once and checked against an immutable model snapshot on every candidate. A
 candidate already attaining the lower bound for its assigned resources skips
-retiming. Larger production models use the original decoder without a wrapper.
+retiming. Larger production models use the original decoder without retiming.
 
 ## Integration
 
@@ -67,12 +69,18 @@ fallback reason without emitting IDs, model data or private source.
 The final public result also receives a copied `operation_interleave` diagnostic
 object after normal ownership validation. Its fields are `version`,
 `eligible`, `improved_candidates` (native candidate evaluations improved by this
-decoder), `fallback_reason` (the first fixed code, or null), and
-`model_field_mismatches`. For ineligible models the latter identifies all six
-schema scopes, up to eight known extra field names per scope, and only each
-field's kind and aggregated `empty`/`zero` booleans. Unknown names become
-`other:true`; field or record limits set `truncated:true`. No field values,
-arbitrary names, model IDs or inner object keys are exposed. This diagnostic
+decoder), `fallback_reason` (the first fixed code, or null),
+`model_field_mismatches`, and `native_contract_shape`. For ineligible models the
+mismatch array identifies all six schema scopes and up to sixteen actual extra
+property names per scope, restricted to `^[A-Za-z_][A-Za-z0-9_]{0,63}$`, with each
+field's kind and aggregated `empty`/`zero` booleans. Rejected names become
+`other:true`; field or record limits set `truncated:true`. The native shape lists
+only presence/types for fixed expected top-level fields and whether numeric
+fitness equals duration. An ineligible model uses a forwarding observer that
+returns the exact original simulation object and propagates native exceptions;
+it observes only the first successful native call. No field values, model IDs or
+inner object keys are exposed. Actual property names appear only in the
+account-scoped result; stdout keeps the fixed/known/other reason vocabulary. This diagnostic
 does not make any unsupported field eligible. The state belongs
 to that run's GA namespace, never to a global module object. Original simulation
 objects and GA counters are unchanged; the UI does not receive a warning or a
