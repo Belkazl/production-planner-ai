@@ -35,6 +35,20 @@ jobs:
             data=p.read_text(errors="replace")
             lines=data.splitlines()
             print("SOURCE",filename,"CHARS",len(data),"LINES",len(lines))
+            if filename=="restart-optimizer-ui.js":
+              for lo,hi in [(1388,1455),(1460,1755),(1270,1347)]:
+                print("DETAIL",filename,lo,hi)
+                for j in range(lo-1,min(hi,len(lines))):
+                  line=lines[j]
+                  if re.search(r'password|private.key|authorization|secret|bearer|api[_-]?key',line,re.I):line="[REDACTED]"
+                  print(f"DETAIL_SRC {j+1:04d} {line[:440]}")
+            if filename=="auth-runtime.js":
+              for lo,hi in [(96,164),(210,245)]:
+                print("DETAIL",filename,lo,hi)
+                for j in range(lo-1,min(hi,len(lines))):
+                  line=lines[j]
+                  if re.search(r'password|private.key|authorization|secret|bearer|api[_-]?key',line,re.I):line="[REDACTED]"
+                  print(f"DETAIL_SRC {j+1:04d} {line[:440]}")
             terms=['MutationObserver','renderPlan(','renderKpisWithDelta','requestAnimationFrame','ppProjectAfterPlan','planResult','pp:optimizer-done','ga-complete','ppNativeOneOwnerProgressV4',
               'ppAutoIntermediate','ppAutomaticIntermediate','ppLightweightLiveGanttV2','ppResolveDuplicateGaProgress','ppSingleGa',
               '__ppOptimizationInFlight=false','opt.onclick','__ppOptimizerCommittedPlan',
