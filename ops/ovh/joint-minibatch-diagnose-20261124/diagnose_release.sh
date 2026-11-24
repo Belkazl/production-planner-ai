@@ -61,6 +61,90 @@ STAGES = {
     'runtime_report': r'(?m)^LIFTORBIT_SERVICE ',
     'update_complete': r'(?m)^OVH_STAGING_RUNTIME_UPDATE_ATTEMPTED$',
 }
+TRACE_FILES = (
+    '<stdin>', '<string>', 'Dockerfile', 'test_process_isolation.py', 'test_full_runtime.py',
+    'manager.py', 'server.py', 'fixture.py', 'full_runtime_adapter.py', 'compile_legacy_ga.py',
+    'continuation.py', 'constraints.py', 'joint_minibatch.py', 'joint_continuation.py',
+    'python-ga-upstream.mjs', 'python-ga-upstream.test.mjs', 'python-ga-state.test.mjs',
+    'ga-account-owned-recovery.test.mjs', 'account-model-boundary.cjs', 'ga-process-workers.cjs',
+    'python-ga-upstream-build.ts', 'ga-worker-build.ts', 'build-bridge.ts', 'index.ts',
+    'auth-runtime.js', 'restart-optimizer-ui.js', 'other',
+)
+EXCEPTION_CLASSES = ('AssertionError', 'SyntaxError', 'IndentationError', 'TabError',
+    'ModuleNotFoundError', 'ImportError', 'PermissionError', 'NameError', 'TypeError',
+    'ReferenceError', 'RuntimeError', 'ValueError', 'TimeoutError', 'OSError')
+PUBLIC_TESTS = (
+    'test_ten_real_child_processes_and_isolated_plans',
+    'test_candidate_preview_stays_account_isolated',
+    'test_hard_cancel_one_while_other_jobs_finish',
+    'test_cancel_queued_job_without_spawning',
+    'test_timeout_terminates_cpu_process',
+    'test_private_http_auth_and_tenant_ownership',
+)
+COMMAND_KINDS = {
+    'python_tests': r'\bpython(?:3)?\b.*\bunittest\b',
+    'python_compile': r'\bpython(?:3)?\b.*\bpy_compile\b',
+    'python_inline': r'\bpython(?:3)?\b.*(?:\s-c(?:\s|$)|\s-(?:\s|$))',
+    'bun_tests': r'\bbun\s+(?:test\b|(?:run\s+)?tests/)',
+    'bun_build': r'\bbun\s+(?:build\b|run\s+[A-Za-z0-9_.-]*build[A-Za-z0-9_.-]*)',
+    'node_tests': r'\bnode\s+(?:--test\b|tests/)',
+    'package_install': r'\b(?:pip|pip3|npm|bun)\s+install\b|\bapt-get\s+.*install\b',
+}
+
+def build_metadata(label, text):
+    # Extract only fixed enums and bounded integers. Never forward stack source,
+    # arbitrary basenames, test names, commands or assertion messages.
+    frames, steps, commands, errors = (collections.Counter() for _ in range(4))
+    for raw in text.splitlines():
+        if len(raw) > 16384:
+            continue
+        prefix = re.match(r'^#([0-9]{1,4})\s+(?:[0-9]+(?:\.[0-9]+)?\s+)?', raw)
+        step = int(prefix.group(1)) if prefix else 0
+        line = raw[prefix.end():] if prefix else raw
+        header = re.match(r'^#([0-9]{1,4})\s+\[([^\]\r\n]{1,200})\]\s+(RUN|COPY|ADD|FROM|WORKDIR|ENV|EXPOSE|CMD)\b(.*)$', raw)
+        if header:
+            words = header.group(2).split()
+            service = words[0] if words and words[0] in SERVICES else 'other'
+            index = re.search(r'\b([0-9]{1,4})/([0-9]{1,4})\b', header.group(2))
+            position, total = (int(index.group(1)), int(index.group(2))) if index else (0, 0)
+            steps[(int(header.group(1)), service, position, total, header.group(3).lower())] += 1
+            kinds = [name for name, pattern in COMMAND_KINDS.items() if re.search(pattern, header.group(4))]
+            for kind in kinds or ['other']:
+                commands[(int(header.group(1)), kind)] += 1
+        if re.match(r'^ERROR\b', line):
+            errors[step] += 1
+        py = re.search(r'\bFile [\"\']([^\"\'\r\n]{1,512})[\"\'], line ([0-9]{1,7})\b', line)
+        if py:
+            name = py.group(1).replace('\\', '/').rsplit('/', 1)[-1]
+            known = name in TRACE_FILES
+            frames[(step, name if known else 'other', int(py.group(2)) if known else 0, 0)] += 1
+        # JS/Bun frames and Dockerfile diagnostics; only known literal basenames.
+        for name in TRACE_FILES:
+            if name in ('other', '<stdin>', '<string>'):
+                continue
+            for match in re.finditer(r'(?<![A-Za-z0-9_.-])' + re.escape(name) + r':([0-9]{1,7})(?::([0-9]{1,7}))?(?![0-9])', line):
+                frames[(step, name, int(match.group(1)), int(match.group(2) or 0))] += 1
+    lines = []
+    for (step, service, index, total, kind), count in sorted(steps.items())[:32]:
+        lines.append(f'JOINT_RELEASE_DIAG_BUILD_STEP {label} step={step} service={service} index={index} total={total} kind={kind} count={count}')
+    for (step, kind), count in sorted(commands.items())[:32]:
+        lines.append(f'JOINT_RELEASE_DIAG_BUILD_COMMAND {label} step={step} kind={kind} count={count}')
+    for step, count in sorted(errors.items())[:32]:
+        lines.append(f'JOINT_RELEASE_DIAG_BUILD_ERROR {label} step={step} count={count}')
+    for (step, name, number, column), count in sorted(frames.items())[:32]:
+        lines.append(f'JOINT_RELEASE_DIAG_TRACE {label} step={step} file={name} line={number} column={column} count={count}')
+    for name in EXCEPTION_CLASSES:
+        count = len(re.findall(r'\b' + re.escape(name) + r'\b', text))
+        if count:
+            lines.append(f'JOINT_RELEASE_DIAG_EXCEPTION {label} class={name} count={count}')
+    for name in PUBLIC_TESTS:
+        # Only unittest FAIL/ERROR identifiers, not arbitrary appearances in commands.
+        count = len(re.findall(r'(?m)^(?:#[0-9]{1,4}\s+[0-9.]+\s+)?(?:FAIL|ERROR):\s+' + re.escape(name) + r'\b', text))
+        if count:
+            lines.append(f'JOINT_RELEASE_DIAG_TEST {label} name={name} count={count}')
+    if re.search(r'\bERR_ASSERTION\b', text):
+        lines.append(f'JOINT_RELEASE_DIAG_ASSERTION_KIND {label} label=node_assertion')
+    return lines
 
 def valid_manifest(text):
     rows = [line.split('\t') for line in text.splitlines()]
@@ -189,6 +273,7 @@ def classified_lines(label, text):
         if service in statuses:
             name, state, health, oom = statuses[service]
             lines.append(f'JOINT_RELEASE_DIAG_LOG_SERVICE {label} {name} state={state} health={health} oom={oom}')
+    lines.extend(build_metadata(label, text))
     return lines
 
 def inspect_log(label):
@@ -272,6 +357,13 @@ def allowed_line(line):
         r'JOINT_RELEASE_DIAG_FILE (?:current|stage|backup) (?:upstream|restart_ui|adapter|joint_search|joint_continuation) status=(?:ok|missing|unreadable|symlink_refused|not_regular|outside_root) mode=[0-7]{4} owner=(?:ci|root|other|unknown) group=(?:ci|root|other|unknown) readable=[01] bytes=[0-9]+',
         r'JOINT_RELEASE_DIAG_SOURCE (?:upstream|restart_ui|adapter|joint_search|joint_continuation) old_match=[01] expected_missing=[01] manifest_valid=[01]',
         r'JOINT_RELEASE_DIAG_ROLLBACK old_matches=[0-5] expected=5 new_modules_absent=[0-2]',
+        rf'JOINT_RELEASE_DIAG_BUILD_STEP {label} step=[0-9]{{1,4}} service=(?:' + '|'.join(SERVICES) + r'|other) index=[0-9]{1,4} total=[0-9]{1,4} kind=(?:run|copy|add|from|workdir|env|expose|cmd) count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_BUILD_COMMAND {label} step=[0-9]{{1,4}} kind=(?:' + '|'.join(COMMAND_KINDS) + r'|other) count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_BUILD_ERROR {label} step=[0-9]{{1,4}} count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_TRACE {label} step=[0-9]{{1,4}} file=(?:' + '|'.join(re.escape(name) for name in TRACE_FILES) + r') line=[0-9]{1,7} column=[0-9]{1,7} count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_EXCEPTION {label} class=(?:' + '|'.join(EXCEPTION_CLASSES) + r') count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_TEST {label} name=(?:' + '|'.join(PUBLIC_TESTS) + r') count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_ASSERTION_KIND {label} label=node_assertion',
         r'JOINT_RELEASE_DIAG_INTERNAL_ERROR',
         r'JOINT_RELEASE_DIAG_DONE',
     ]
@@ -310,6 +402,32 @@ def main():
         assert any('permission_denied count=3' in line for line in permission)
         assert all(allowed_line(line) for line in permission)
         assert secret not in '\n'.join(permission)
+        trace = build_metadata('update', '\n'.join([
+            '#17 [ga-worker 5/5] RUN python -m unittest tests.test_process_isolation ' + secret,
+            '#17 0.52 FAIL: test_cancel_queued_job_without_spawning (private.' + secret + ')',
+            '#17 0.53   File "/srv/tests/test_process_isolation.py", line 99, in ' + secret,
+            '#17 0.54     self.assertEqual(' + secret + ')',
+            '#17 0.55 AssertionError: ' + secret,
+            '#17 ERROR: process ' + secret,
+            '#18 [app 8/8] RUN python3 - <<PY ' + secret,
+            '#18 0.10   File "<stdin>", line 31, in <module>',
+            '#18 0.10   File "/private/' + secret + '.py", line 999, in ' + secret,
+            '#18 0.10   at /app/tests/python-ga-upstream.test.mjs:76:9 ' + secret,
+            '#18 0.10   at /private/' + secret + '.mjs:123:4',
+            'Dockerfile:8',
+            '#19 [private-' + secret + ' 2/3] RUN ' + secret,
+            '#19 0.10 FAIL: private_test_' + secret + ' (private)',
+        ]))
+        assert all(allowed_line(line) for line in trace)
+        assert secret not in '\n'.join(trace)
+        assert any('file=<stdin> line=31 column=0' in line for line in trace)
+        assert any('file=test_process_isolation.py line=99 column=0' in line for line in trace)
+        assert any('file=python-ga-upstream.test.mjs line=76 column=9' in line for line in trace)
+        assert any('file=other line=0 column=0' in line for line in trace)
+        assert any('service=ga-worker index=5 total=5 kind=run' in line for line in trace)
+        assert any('step=18 kind=python_inline' in line for line in trace)
+        assert any('name=test_cancel_queued_job_without_spawning count=1' in line for line in trace)
+        assert not allowed_line('JOINT_RELEASE_DIAG_TRACE update step=1 file=' + secret + '.py line=1 column=0 count=1')
         print('JOINT_RELEASE_DIAG_SELF_TEST_PASS')
     elif mode == '--filter' and len(sys.argv) == 3:
         with pathlib.Path(sys.argv[2]).open('rb') as handle:
