@@ -52,8 +52,9 @@ jobs:
             let gaTransport=transport, applied=0;
             const gaProgressRecovery=[["const deadline=Date.now()+15*60*1000;let transient=0;","const deadline=Date.now()+15*60*1000;let transient=0,badProgressAt=0;"]];
             const run='for(const [before,after] of (gaTransport.includes("ppRouteGaDiagnosticsOutsideValidator")&&gaTransport.includes("for(;;)")?[]:gaProgressRecovery)){if(gaTransport.split(before).length!==2)throw new Error("CHANGED");gaTransport=gaTransport.replace(before,after);applied++}';
-            vm.runInNewContext(run,{gaTransport,gaProgressRecovery}, {timeout:1000});
-            return {bypassed:transport.includes("ppRouteGaDiagnosticsOutsideValidator")&&transport.includes("for(;;)"),applied};
+            const context={gaTransport,gaProgressRecovery,applied:0};
+            vm.runInNewContext(run,context,{timeout:1000});
+            return {bypassed:transport.includes("ppRouteGaDiagnosticsOutsideValidator")&&transport.includes("for(;;)"),applied:context.applied};
           };
           assert.equal(simulate("for(;;) ppRouteGaDiagnosticsOutsideValidator").applied,0);
           assert.equal(simulate("const deadline=Date.now()+15*60*1000;let transient=0;").applied,1);
