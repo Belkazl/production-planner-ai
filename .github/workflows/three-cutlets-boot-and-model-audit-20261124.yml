@@ -1,0 +1,46 @@
+name: Inspect startup migration and project model keys
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-boot-and-model-audit-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: View sanitized auth startup, storage and deployment scripts
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/"liftorbit-migration"
+          files=[
+           (root/"sources/current/auth/index.ts",[(1,110),(114,164),(172,240),(240,299)]),
+           (Path("/usr/local/sbin/liftorbit-ops"),[(1,80)])
+          ]
+          for p,ranges in files:
+            if not p.exists():continue
+            ls=p.read_text(errors="replace").splitlines()
+            print("FILE_START",p.name,len(ls))
+            for lo,hi in ranges:
+              for n in range(lo,min(hi,len(ls))+1):
+                line=ls[n-1]
+                if re.search(r'(password|token|secret|credential|private.key|authorization|DATABASE_URL|PGPASSWORD|process.env|Bun.env|cookie|passwd_hash)',line,re.I):line="[REDACTED]"
+                print("SOURCE",p.name,n,line[:300])
+          PY
