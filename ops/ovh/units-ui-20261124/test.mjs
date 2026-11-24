@@ -28,7 +28,7 @@ test('auth patch runs after canonical units, preserves unrelated source and is i
   const dir = mkdtempSync(join(tmpdir(), 'pp-units-ui-'));
   try {
     const tail = '\nfunction ppProjectTextImportHtml(html){return html;}\n';
-    const call = 'ppResourceUnitsHtml(ppGanttZoom500Html(ppOptimizerLifecycleHtml(ppNonBlockingDbSyncHtml(enhanced))))';
+    const call = 'ppProjectTextImportHtml(ppResourceUnitsHtml(ppGanttZoom500Html(ppOptimizerLifecycleHtml(ppNonBlockingDbSyncHtml(enhanced)))))';
     const before = 'function page(enhanced){return new Response(' + call + ',{headers:{"x-liftorbit-ui":"etalon-modules-compat"}})}\n' + tail;
     const input = join(dir, 'before.js'), output = join(dir, 'after.js'), repeat = join(dir, 'repeat.js');
     const run = (a, b) => spawnSync(process.execPath, [join(here, 'patch.mjs'), a, b], {encoding: 'utf8'});
@@ -42,10 +42,20 @@ test('auth patch runs after canonical units, preserves unrelated source and is i
     new vm.Script(patched);
     result = run(output, repeat); assert.equal(result.status, 0, result.stderr);
     assert.equal(readFileSync(repeat, 'utf8'), patched);
-    writeFileSync(input, before.replace('ppResourceUnitsHtml(', 'unknownCanonicalHelper('));
+    const withoutOuter = before.replace('ppProjectTextImportHtml(' + call.slice('ppProjectTextImportHtml('.length), call.slice('ppProjectTextImportHtml('.length, -1));
+    writeFileSync(input, withoutOuter);
+    result = run(input, join(dir, 'without-outer.js')); assert.equal(result.status, 0, result.stderr);
+    const sentinel = 'PRIVATE_SOURCE_SENTINEL_MUST_NOT_APPEAR';
+    writeFileSync(input, before.replace('ppResourceUnitsHtml(', 'unknownCanonicalHelper(') + '\n//' + sentinel);
     result = run(input, join(dir, 'rejected.js'));
     assert.notEqual(result.status, 0);
     assert(!existsSync(join(dir, 'rejected.js')));
+    assert(result.stderr.includes('RESOURCE_UNITS_INLINE_WRAPPERS'));
+    assert(!result.stderr.includes(sentinel));
+    writeFileSync(input, before.replace('ppResourceUnitsHtml(', 'ppResourceUnitsHtml(ppResourceUnitsHtml(').replace('enhanced)', 'enhanced))'));
+    result = run(input, join(dir, 'duplicate.js'));
+    assert.notEqual(result.status, 0);
+    assert(!existsSync(join(dir, 'duplicate.js')));
   } finally { rmSync(dir, {recursive: true, force: true}); }
 });
 
