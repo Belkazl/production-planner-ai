@@ -103,7 +103,7 @@ try{
  await send2;
  const result=await page.evaluate(async token=>{
   const r=await fetch("/api/db-storage",{cache:"no-store"});
-  const d=await r.json();return {http:r.status(),revision:JSON.parse(d.storage["pp.ga-final.nonblocking."+token]).revision};
+  const d=await r.json();return {http:r.status,revision:JSON.parse(d.storage["pp.ga-final.nonblocking."+token]).revision};
  },token);
  assert.equal(result.revision,2);
  console.log("GA_FINAL_ASYNC_CONSECUTIVE_SAVE_ORDER_PASS",JSON.stringify({secondWriteMs:fast,...result}));
