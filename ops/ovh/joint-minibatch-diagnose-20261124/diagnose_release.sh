@@ -67,6 +67,12 @@ TRACE_FILES = (
     'continuation.py', 'constraints.py', 'joint_minibatch.py', 'joint_continuation.py',
     'python-ga-upstream.mjs', 'python-ga-upstream.test.mjs', 'python-ga-state.test.mjs',
     'ga-account-owned-recovery.test.mjs', 'account-model-boundary.cjs', 'ga-process-workers.cjs',
+    'continuation-compat-contract.cjs', 'async-plan-transport-contract.cjs',
+    'ga-continuation-resume-safe.test.mjs', 'continue-seed-guard.test.mjs',
+    'stored-completed-recovery.test.mjs', 'jsonb-decode.test.mjs',
+    'ga-resource-integration.cjs', 'ga-resource-repair.cjs', 'start-over-ui.cjs',
+    'start-over-session.cjs', 'optimizer-action-labels.cjs', 'gantt-details.cjs',
+    'order-accordion.cjs', 'production-order-etalon-smoke.cjs',
     'python-ga-upstream-build.ts', 'ga-worker-build.ts', 'build-bridge.ts', 'index.ts',
     'auth-runtime.js', 'restart-optimizer-ui.js', 'other',
 )
@@ -90,11 +96,37 @@ COMMAND_KINDS = {
     'node_tests': r'\bnode\s+(?:--test\b|tests/)',
     'package_install': r'\b(?:pip|pip3|npm|bun)\s+install\b|\bapt-get\s+.*install\b',
 }
+APP_BUILD_TESTS = tuple(name for name in TRACE_FILES if name.endswith(('.cjs', '.test.mjs')))
+ASSERTION_OPERATORS = ('strictEqual', 'deepStrictEqual', 'notStrictEqual',
+    'notDeepStrictEqual', 'equal', 'deepEqual', 'notEqual', 'match', 'doesNotMatch',
+    'ok', 'throws', 'rejects', 'fail')
+
+def inspect_dockerfile():
+    import hashlib
+    try:
+        data = bounded_read(ROOT / 'sources/ovh-app/current/Dockerfile', 65536)
+        text = data.decode('utf-8')
+        known, unknown = [], 0
+        for number, line in enumerate(text.splitlines(), 1):
+            if number > 9999:
+                raise ValueError()
+            for match in re.finditer(r'(?<![A-Za-z0-9_./-])tests/([A-Za-z0-9_.-]+)', line):
+                name = match.group(1)
+                if name in APP_BUILD_TESTS:
+                    known.append((number, name))
+                else:
+                    unknown += 1
+        print(f'JOINT_RELEASE_DIAG_DOCKERFILE status=ok bytes={len(data)} sha256={hashlib.sha256(data).hexdigest()} known_tests={len(known)} unknown_test_refs={unknown}')
+        for number, name in known[:64]:
+            print(f'JOINT_RELEASE_DIAG_DOCKER_TEST file={name} line={number}')
+    except (OSError, ValueError, UnicodeError):
+        print('JOINT_RELEASE_DIAG_DOCKERFILE status=rejected')
 
 def build_metadata(label, text):
     # Extract only fixed enums and bounded integers. Never forward stack source,
     # arbitrary basenames, test names, commands or assertion messages.
-    frames, steps, commands, errors = (collections.Counter() for _ in range(4))
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+    frames, steps, commands, errors, mentions = (collections.Counter() for _ in range(5))
     for raw in text.splitlines():
         if len(raw) > 16384:
             continue
@@ -124,6 +156,9 @@ def build_metadata(label, text):
                 continue
             for match in re.finditer(r'(?<![A-Za-z0-9_.-])' + re.escape(name) + r':([0-9]{1,7})(?::([0-9]{1,7}))?(?![0-9])', line):
                 frames[(step, name, int(match.group(1)), int(match.group(2) or 0))] += 1
+        for name in APP_BUILD_TESTS:
+            if re.search(r'(?<![A-Za-z0-9_.-])' + re.escape(name) + r'(?![A-Za-z0-9_.-])', line):
+                mentions[(step, name)] += 1
     lines = []
     for (step, service, index, total, kind), count in sorted(steps.items())[:32]:
         lines.append(f'JOINT_RELEASE_DIAG_BUILD_STEP {label} step={step} service={service} index={index} total={total} kind={kind} count={count}')
@@ -133,6 +168,12 @@ def build_metadata(label, text):
         lines.append(f'JOINT_RELEASE_DIAG_BUILD_ERROR {label} step={step} count={count}')
     for (step, name, number, column), count in sorted(frames.items())[:32]:
         lines.append(f'JOINT_RELEASE_DIAG_TRACE {label} step={step} file={name} line={number} column={column} count={count}')
+    for (step, name), count in sorted(mentions.items())[:64]:
+        lines.append(f'JOINT_RELEASE_DIAG_PUBLIC_TEST_MENTION {label} step={step} file={name} count={count}')
+    for operator in ASSERTION_OPERATORS:
+        count = len(re.findall(r'\boperator\s*:\s*[\"\']' + re.escape(operator) + r'[\"\']', text))
+        if count:
+            lines.append(f'JOINT_RELEASE_DIAG_ASSERTION_OPERATOR {label} operator={operator} count={count}')
     for name in EXCEPTION_CLASSES:
         count = len(re.findall(r'\b' + re.escape(name) + r'\b', text))
         if count:
@@ -364,6 +405,11 @@ def allowed_line(line):
         rf'JOINT_RELEASE_DIAG_EXCEPTION {label} class=(?:' + '|'.join(EXCEPTION_CLASSES) + r') count=[0-9]+',
         rf'JOINT_RELEASE_DIAG_TEST {label} name=(?:' + '|'.join(PUBLIC_TESTS) + r') count=[0-9]+',
         rf'JOINT_RELEASE_DIAG_ASSERTION_KIND {label} label=node_assertion',
+        r'JOINT_RELEASE_DIAG_DOCKERFILE status=ok bytes=[0-9]+ sha256=[0-9a-f]{64} known_tests=[0-9]+ unknown_test_refs=[0-9]+',
+        r'JOINT_RELEASE_DIAG_DOCKERFILE status=rejected',
+        r'JOINT_RELEASE_DIAG_DOCKER_TEST file=(?:' + '|'.join(re.escape(name) for name in APP_BUILD_TESTS) + r') line=[0-9]{1,4}',
+        rf'JOINT_RELEASE_DIAG_PUBLIC_TEST_MENTION {label} step=[0-9]{{1,4}} file=(?:' + '|'.join(re.escape(name) for name in APP_BUILD_TESTS) + r') count=[0-9]+',
+        rf'JOINT_RELEASE_DIAG_ASSERTION_OPERATOR {label} operator=(?:' + '|'.join(ASSERTION_OPERATORS) + r') count=[0-9]+',
         r'JOINT_RELEASE_DIAG_INTERNAL_ERROR',
         r'JOINT_RELEASE_DIAG_DONE',
     ]
@@ -413,6 +459,8 @@ def main():
             '#18 0.10   File "<stdin>", line 31, in <module>',
             '#18 0.10   File "/private/' + secret + '.py", line 999, in ' + secret,
             '#18 0.10   at /app/tests/python-ga-upstream.test.mjs:76:9 ' + secret,
+            '#18 0.11   at /app/tests/\x1b[31mcontinuation-compat-contract.cjs\x1b[0m:42:7 ' + secret,
+            '#18 0.12   operator: "match", actual: "' + secret + '", expected: "' + secret + '"',
             '#18 0.10   at /private/' + secret + '.mjs:123:4',
             'Dockerfile:8',
             '#19 [private-' + secret + ' 2/3] RUN ' + secret,
@@ -423,6 +471,8 @@ def main():
         assert any('file=<stdin> line=31 column=0' in line for line in trace)
         assert any('file=test_process_isolation.py line=99 column=0' in line for line in trace)
         assert any('file=python-ga-upstream.test.mjs line=76 column=9' in line for line in trace)
+        assert any('file=continuation-compat-contract.cjs line=42 column=7' in line for line in trace)
+        assert any('operator=match count=1' in line for line in trace)
         assert any('file=other line=0 column=0' in line for line in trace)
         assert any('service=ga-worker index=5 total=5 kind=run' in line for line in trace)
         assert any('step=18 kind=python_inline' in line for line in trace)
@@ -442,6 +492,7 @@ def main():
         print(f'JOINT_RELEASE_DIAG_FILTER accepted={accepted} rejected={rejected}')
     elif mode == '--remote' and len(sys.argv) == 1:
         inspect_sources()
+        inspect_dockerfile()
         inspect_log('update')
         inspect_log('rollback')
         inspect_operation('status')
