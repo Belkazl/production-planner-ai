@@ -1,0 +1,56 @@
+name: Inspect tenant project storage schema for 3 cutlets
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-account-schema-inspection-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Read project model schema and safe admin capabilities, no writes
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re
+          home=Path.home()/"liftorbit-migration"
+          app=home/"sources/ovh-app/current"
+          files=[
+            ("tenant-model-runtime.js",[(1,240)]),
+            ("auth-runtime.js",[(1,96),(165,230),(300,429)]),
+            ("nonblocking-db-shim.js",[(1,140)]),
+            ("db-storage-runtime.js",[(1,200)]),
+            ("auth-storage.js",[(1,210)]),
+            ("build-bridge.ts",[(40,81)])
+          ]
+          for name,ranges in files:
+           p=app/name
+           if not p.exists():print("MISSING",name);continue
+           lines=p.read_text(errors="replace").splitlines()
+           print("FILE",name,len(lines))
+           for a,b in ranges:
+            print("SOURCE_SPAN",name,a,b)
+            for i in range(a-1,min(b,len(lines))):
+             line=lines[i]
+             if re.search(r'(private.key|process.env|Bun.env|secret|credential|password|authorization|database_url|bearer|api[_-]?key|token|cookie)',line,re.I):
+              line="[REDACTED]"
+             print("SOURCE_LINE",name,i+1,line[:310])
+          print("TOP_LEVEL_SCRIPT_CANDIDATES",sorted([p.name for p in app.iterdir() if re.search("account|storage|project|database|tenant|schema|postgres",p.name,re.I)])[:80])
+          print("TOP_LEVEL_MIGRATION_METADATA",sorted([p.name for p in home.iterdir()])[:40])
+          PY
