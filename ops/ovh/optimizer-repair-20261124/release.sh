@@ -74,6 +74,17 @@ target_for(){
   esac
 }
 sha(){ if test -f "$1"; then sha256sum "$1" | cut -d' ' -f1; else printf MISSING; fi; }
+public_health(){
+  local endpoint="$1" expected="$2" attempt observed
+  for attempt in $(seq 1 6); do
+    observed=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$endpoint" 2>/dev/null) || observed=000
+    [[ "$observed" =~ ^[0-9]{3}$ ]] || observed=000
+    echo OPTIMIZER_REPAIR_PUBLIC_HEALTH "$deployment_phase" "attempt=$attempt" "code=$observed" "expected=$expected"
+    if test "$observed" = "$expected"; then return 0; fi
+    if test "$attempt" -lt 6; then sleep 5; fi
+  done
+  return 1
+}
 test "$(wc -l < "$manifest")" -eq 5
 test "$(cut -f1 "$manifest" | sort -u | wc -l)" -eq 5
 while IFS=$'\t' read -r name old_sha new_sha; do
@@ -92,6 +103,7 @@ while IFS=$'\t' read -r name old_sha new_sha; do
 done < "$manifest"
 rollback(){
   trap - ERR
+  echo OPTIMIZER_REPAIR_FAILED_PHASE "$deployment_phase"
   while IFS=$'\t' read -r name old_sha new_sha; do
     target=$(target_for "$name")
     if test "$old_sha" = MISSING; then
@@ -100,25 +112,39 @@ rollback(){
       cp -p "$backup/$name" "$target"
     fi
   done < "$manifest"
-  sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
-  echo OPTIMIZER_REPAIR_ROLLBACK_ATTEMPTED
+  rollback_update_exit=0
+  sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || rollback_update_exit=$?
+  echo OPTIMIZER_REPAIR_ROLLBACK_UPDATE_EXIT "$rollback_update_exit"
+  if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then
+    echo OPTIMIZER_REPAIR_ROLLBACK_HEALTH_PASS
+  else
+    echo OPTIMIZER_REPAIR_ROLLBACK_HEALTH_UNCONFIRMED
+  fi
 }
+deployment_phase=install_sources
 trap rollback ERR
 while IFS=$'\t' read -r name old_sha new_sha; do
   cp -p "$stage/$name" "$(target_for "$name")"
 done < "$manifest"
+deployment_phase=update_services
 sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+deployment_phase=service_health
 ready=no
 for attempt in $(seq 1 36); do
   if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1; then ready=yes; break; fi
   sleep 5
 done
 test "$ready" = yes
+echo OPTIMIZER_REPAIR_SERVICE_HEALTH_PASS
+deployment_phase=source_hashes
 while IFS=$'\t' read -r name old_sha new_sha; do
-  test "$(sha "$(target_for "$name")")" = "$new_sha"
+  test "$(sha "$(target_for "$name")")" = "$new_sha" || { echo OPTIMIZER_REPAIR_SOURCE_VERIFY_FAILED "$name"; false; }
 done < "$manifest"
-test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/__bridge_health)" = 200
-test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.liftorbit.app/api/auth/me)" = 401
+echo OPTIMIZER_REPAIR_SOURCE_HASHES_PASS
+deployment_phase=public_bridge_health
+public_health https://app.liftorbit.app/__bridge_health 200
+deployment_phase=public_auth_health
+public_health https://app.liftorbit.app/api/auth/me 401
 trap - ERR
 echo OPTIMIZER_REPAIR_DEPLOY_AND_HEALTH_PASS
 REMOTE
