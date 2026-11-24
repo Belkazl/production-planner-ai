@@ -35,6 +35,21 @@ jobs:
            if p.exists():
             print("GA_FOLDER",area)
             for f in sorted(p.glob("*.py")):print("GA_PYTHON_FILE",f.relative_to(root),f.stat().st_size)
+          for filename,spans in [
+            ("ga_python_workers/ga_workers/server.py",[(1,105)]),
+            ("ga_python_workers/ga_workers/manager.py",[(70,100),(135,185)]),
+            ("ga_python_workers/ga_workers/full_runtime_adapter.py",[(1,115),(127,155)]),
+            ("ga_python_workers/ga_workers/compile_legacy_ga.py",[(1,105)])]:
+           p=root/filename
+           if not p.exists():continue
+           lines=p.read_text(errors="replace").splitlines()
+           print("PATH_EXACT",filename)
+           for lo,hi in spans:
+            print("DETAIL",lo,hi)
+            for n in range(lo,min(hi,len(lines))+1):
+             line=lines[n-1]
+             if re.search(r'(password|private.key|authorization|bearer|credential|secret|api[_-]?key)',line,re.I):line="[REDACTED]"
+             print("EXACT_SRC",f"{n:04d}",line[:350])
           for filename in ["python-ga-upstream.mjs","ga_python_workers/ga_workers/full_runtime_adapter.py","ga_python_workers/ga_workers/compile_legacy_ga.py"]:
            p=root/filename
            if not p.exists():continue
