@@ -1,0 +1,42 @@
+name: Verify available non-disruptive account database access
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-nonrestart-db-audit-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Verify Docker socket permissions and host bridge without changing state
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          import os,subprocess,stat,socket
+          from pathlib import Path
+          for path in ("/opt/liftorbit/full.compose.yml","/var/run/docker.sock","/proc/net/arp","/proc/net/route"):
+            p=Path(path)
+            print("HOST_FILE",path,"exists",p.exists(),"readable",os.access(path,os.R_OK))
+            if p.exists():print("HOST_MODE",path,oct(p.stat().st_mode & 0o777))
+          for cmd in (["docker","ps","--format","{{.Names}}"],["ip","-4","-o","addr","show"],["getent","hosts","postgres-auth"]):
+            try:
+              r=subprocess.run(cmd,capture_output=True,text=True,timeout=3)
+              value=r.stdout if r.returncode==0 else r.stderr
+              print("CHECK_COMMAND",cmd[0],cmd[1],"code",r.returncode,"data",value[:1400].replace("\n",";"))
+            except Exception as e:print("CHECK_UNAVAILABLE",cmd[0],type(e).__name__)
+          PY
