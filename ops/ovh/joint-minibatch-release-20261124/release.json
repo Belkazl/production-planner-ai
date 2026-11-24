@@ -1,5 +1,5 @@
 {
-  "candidate_commit": "3aa9bddc66d5a21a7cd7ec0604c846918f3e8c97",
+  "candidate_commit": "97200cf35fd09de7a1aad720afd9dc4eb57a3668",
   "code_inputs_sha256": "bc6cbb714aa3128bd9cddb2f78e42ed1417eff9b7bd8c34897ad1d863a11d290",
   "package_after": {
     "ga_workers/__init__.py": "ce811f310f61e2f4cec3bce7fc68dd47ffe2e83596e33b7748f1c1cc9186443d",
@@ -35,16 +35,17 @@
   },
   "public_sources": {
     ".github/workflows/liftorbit-joint-minibatch-release-20261124.yml": "9c12cff5e881552be2d2da7654ea1fb6580c8c8183f66c4345b7451fee05d96c",
-    ".github/workflows/liftorbit-native-batching-verify-20261124.yml": "6f27675b495855468cdf01052d2c159d7ad5fee17f67f8824502d548bc28b773",
+    ".github/workflows/liftorbit-native-batching-verify-20261124.yml": "70d8c6a65eb1bd5d84192fd0aab56b556ddfb21e0189873c6f0ae29b2f2293ef",
+    "ops/ovh/joint-minibatch-release-20261124/preflight_app.sh": "a83ceb2da0c5dab216edfc761e005b07aeb7b7ff66823c7bcb4aceff72054e6d",
     "ops/ovh/joint-minibatch-release-20261124/prepare_overlay.py": "5dc0d9d86153478546ef5536aad1dca54876b6387f4df52f6758268c0ba45038",
     "ops/ovh/joint-minibatch-release-20261124/release.sh": "3b2140f1230188bdc861221d51e168c7fb204756eca7483c24ea9f5ae6e707e7",
-    "ops/ovh/joint-minibatch-release-20261124/release_guard.py": "8d6fd7291ef8c211a99e33ff7c7e8b2047ed6832851c3bfc5f3fa1a29e9aff3d",
+    "ops/ovh/joint-minibatch-release-20261124/release_guard.py": "370e14939b27896e9b101b09899c5993fbe898079cb68646c2b4fdd7f4a4bd35",
     "ops/ovh/joint-minibatch-release-20261124/stage.py": "1695c1edd91c0ae1d0e8af6ea97a8455d9767b63b32cc23f6c847533f49d21c4",
     "ops/ovh/joint-minibatch-search-20261124/joint_minibatch.py": "a368dca1ec1b1aaab0bd7c91f6e7d39c7c259d82f9c49d8df5f3186502c548cc",
     "ops/ovh/joint-minibatch-search-20261124/patch.py": "04b772420f35e89e576dafb93027c6382f7b85c7e126bda907b960a8e79ebca8",
     "ops/ovh/native-batching-continuation-20261124/continuation.mjs": "0f04b7b7d84db4c48804494ef71f2ab2d8d30d3a43ff74fa905fc355a6fe4756",
     "ops/ovh/native-batching-continuation-20261124/joint_continuation.py": "3f5b02e919f12d3a611b5f8d7638ce886c6f41dfe04c03794cffeb22b415efd8",
-    "ops/ovh/native-batching-continuation-20261124/patch.mjs": "81fdb9558cd1314d6b65797353d47e877627694f639f3a9e5363858619b6a3f7",
+    "ops/ovh/native-batching-continuation-20261124/patch.mjs": "0e75bdff5cb08943aff0508718ed8d9f4ffabb9bc15fc6cd8d3718acf09aab7b",
     "ops/ovh/native-batching-continuation-20261124/patch_ui.mjs": "1d6a906584b24f8a37f4cc0e21b3bcda80351f8835f8aee0c0d1ab2b0fa518e1",
     "ops/ovh/native-batching-continuation-20261124/patch_worker.py": "72737f1e87c71235fcfd844c7d8f680fc2de044d62eee4d21f72dd767767bc38",
     "ops/ovh/native-batching-continuation-20261124/selected_genome_ui.mjs": "67e055d802966210787c449deecccf5f31bd7cdb25c5d0bbf85d378ab283446f",
@@ -54,5 +55,5 @@
     "ops/ovh/native-batching-verify-20261124/verify_native.py": "5cfb11491fc707098318a2ea415da0e0ce11a1c088d2462b4ef8a346b2d524b2"
   },
   "schema": 1,
-  "verification_run_id": 45474165773
+  "verification_run_id": 45475842859
 }
