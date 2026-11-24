@@ -45,6 +45,10 @@ jobs:
           scp_call "$DEPLOY_USER@$DEPLOY_HOST:$source_root/current/auth-runtime.js" "$tmp/auth-before.js"
           node ops/ovh/project-text-import-20261124/patch.mjs "$tmp/auth-before.js" "$tmp/auth-after.js"
           node --check "$tmp/auth-after.js"
+          if cmp -s "$tmp/auth-before.js" "$tmp/auth-after.js"; then
+            echo PROJECT_IMPORT_ALREADY_DEPLOYED
+            exit 0
+          fi
           old_sha=$(sha256sum "$tmp/auth-before.js" | cut -d' ' -f1)
           new_sha=$(sha256sum "$tmp/auth-after.js" | cut -d' ' -f1)
           scp_call "$tmp/auth-after.js" "$DEPLOY_USER@$DEPLOY_HOST:$source_root/auth-runtime.project-text-import.next"

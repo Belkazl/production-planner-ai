@@ -53,6 +53,85 @@ function harness(options = {}) {
   return {dom, w, state, get, button, setInput, close: () => w.close()};
 }
 
+function schedule(minutes) {
+  const starts = minutes === 3 ? [0,1,0,2,1,2] : [0,1,0,1,2,3];
+  const stamp = min => `2026-11-24T08:0${min}:00`;
+  const ops = [1,2,3].flatMap((order,i)=>[1,2].map((sequence,j)=>({
+    order:`C${order}`,operation_id:`S${sequence}`,sequence,duration_min:1,
+    batch_id:`C${order}.1`,batch:1,batch_quantity:1,equipment_ids:[`P${sequence===1?(order===2?2:1):(order===2?1:2)}`],employee_ids:[],
+    start_min:starts[i*2+j],end_min:starts[i*2+j]+1,start:stamp(starts[i*2+j]),end:stamp(starts[i*2+j]+1)
+  })));
+  return {ok:true,valid:true,start:fixture.start,finish:stamp(minutes),duration_minutes:minutes,operation_count:6,batch_count:3,
+    operations:copy(ops),generic_operations:copy(ops),errors:[],validation_errors:[],conflicts:[],violations:[],
+    batches:[1,2,3].map(n=>({order:`C${n}`,batch_id:`C${n}.1`,batch:1,start_min:Math.min(...ops.filter(o=>o.order===`C${n}`).map(o=>o.start_min)),end_min:Math.max(...ops.filter(o=>o.order===`C${n}`).map(o=>o.end_min))}))};
+}
+const referencePayload = () => ({format:'prodplan-project-v2',project:{name:'Imported',model:copy(fixture),lastPlan:{...schedule(3),algorithm:'operation_level_reference_scheduler',calculation_origin:'offline_existing_operation_scheduler'}},plan_name:'Эталонное решение — 3 минуты (планировщик операций)'});
+function populatedProjects() {
+  const projects=baseProjects(); Object.assign(projects[2],{model:copy(fixture),revision:2,lastPlan:{...schedule(4),algorithm:'generic_resource_scheduler',optimization_run:3,total_generations:440},history:[{run:3}],savedPlans:Array.from({length:35},(_,i)=>({id:`old-${i}`,name:`Old ${i}`,plan:{duration_minutes:20+i}}))}); return projects;
+}
+const planHarness = options => {const h=harness({projects:populatedProjects(),...options});h.setInput(referencePayload());return h;};
+
+test('matching reference plan preserves project and all saved plans, including the previous GA result', async () => {
+  const h=planHarness();
+  try {
+    const before=copy(h.state.projects); await h.button('[data-plan]').onclick();
+    const p=h.get('empty'); assert.equal(h.state.writes,1); assert.deepEqual(h.state.opened,['empty']);
+    assert.deepEqual(h.state.projects.slice(0,2),before.slice(0,2));
+    for(const k of ['id','name','model','revision','history','messages','createdAt']) assert.deepEqual(p[k],before[2][k]);
+    assert.equal(p.savedPlans.length,37); assert.deepEqual(copy(p.savedPlans.slice(2)),before[2].savedPlans);
+    assert.deepEqual(p.savedPlans[1].plan,before[2].lastPlan); assert.match(p.savedPlans[1].name,/4 мин/);
+    assert.equal(p.savedPlans[1].optimization_run,3); assert.equal(p.savedPlans[1].total_generations,440);
+    assert.equal(p.savedPlans[0].name,referencePayload().plan_name); assert.equal(p.savedPlans[0].duration_minutes,3);
+    assert.equal(p.savedPlans[0].optimization_run,0); assert.equal(p.savedPlans[0].total_generations,0);
+    assert.equal(p.lastPlan.algorithm,'operation_level_reference_scheduler'); assert.equal(p.lastPlan.calculation_origin,'offline_existing_operation_scheduler');
+    assert.equal(p.lastPlan.optimization_run,undefined); assert.equal(p.lastPlan.total_generations,undefined);
+    assert.equal(p.lastPlan._revision,2); assert.deepEqual(p.savedPlans[0].plan,p.lastPlan);
+  } finally {h.close();}
+});
+
+test('plan import rejects mismatched models and incomplete or invalid schedules before any request', async () => {
+  const changes = [
+    d=>{d.project.model.orders[0].quantity=2;}, d=>{d.project.lastPlan=null;}, d=>{d.project.lastPlan.partial=true;},
+    d=>{d.project.lastPlan.validation_errors=['bad'];}, d=>{d.project.lastPlan.operation_count=5;},
+    d=>{d.project.lastPlan.operations.pop();d.project.lastPlan.generic_operations.pop();},
+    d=>{d.project.lastPlan.operations[0].equipment_ids=['P2'];d.project.lastPlan.generic_operations=copy(d.project.lastPlan.operations);},
+    d=>{d.project.lastPlan.operations[0].start_min=-1;d.project.lastPlan.generic_operations=copy(d.project.lastPlan.operations);},
+    d=>{d.project.lastPlan.operations[0].batch_quantity=2;d.project.lastPlan.generic_operations=copy(d.project.lastPlan.operations);},
+    d=>{d.project.lastPlan.operations[4].start_min=0;d.project.lastPlan.operations[4].end_min=1;d.project.lastPlan.operations[4].start='2026-11-24T08:00:00';d.project.lastPlan.operations[4].end='2026-11-24T08:01:00';d.project.lastPlan.generic_operations=copy(d.project.lastPlan.operations);},
+    d=>{d.project.lastPlan.operations[5].start_min=0;d.project.lastPlan.operations[5].end_min=1;d.project.lastPlan.operations[5].start='2026-11-24T08:00:00';d.project.lastPlan.operations[5].end='2026-11-24T08:01:00';d.project.lastPlan.generic_operations=copy(d.project.lastPlan.operations);},
+    d=>{d.project.lastPlan.duration_minutes=2;}, d=>{d.project.lastPlan.finish='2026-11-24T08:04:00';},
+    d=>{d.project.lastPlan.batches[0].end_min=3;}, d=>{d.project.lastPlan.generic_operations[0].start='2026-11-24T09:00:00';}
+  ];
+  for(const change of changes) {
+    const h=planHarness(); try {const before=copy(h.state.projects),data=referencePayload();change(data);h.setInput(data);await h.button('[data-plan]').onclick();assert(h.button('#pmJsonError').textContent);assert.equal(h.state.apiCalls.length,0);assert.equal(h.state.writes,0);assert.deepEqual(h.state.projects,before);} finally {h.close();}
+  }
+});
+
+test('plan import guards changes to selection, model, revision, current plan and deletion across validation', async () => {
+  const changes=[h=>{h.state.activeId='existing-a';},h=>{h.get('empty').model.orders[0].quantity=2;},h=>{h.get('empty').revision++;},h=>{h.get('empty').lastPlan.duration_minutes=9;},h=>{h.state.projects=h.state.projects.filter(p=>p.id!=='empty');}];
+  for(const change of changes) {
+    const pending=deferred(),h=planHarness({api:()=>pending.promise});
+    try {const operation=h.button('[data-plan]').onclick();assert.equal(h.state.apiCalls.length,1);change(h);const before=copy(h.state.projects);pending.resolve({model:copy(fixture),model_ready:true});await operation;assert.equal(h.state.writes,0);assert.deepEqual(h.state.projects,before);assert(h.button('#pmJsonError').textContent);} finally {h.close();}
+  }
+});
+
+test('plan cancellation prevents a pending write and server readiness false remains blocking', async () => {
+  for(const action of ['cancel','not-ready','different-model']) {
+    const pending=deferred(),h=planHarness({api:()=>pending.promise});
+    try {const before=copy(h.state.projects),operation=h.button('[data-plan]').onclick();if(action==='cancel')h.button('[data-cancel]').click();pending.resolve({model:action==='different-model'?{orders:[]}:copy(fixture),model_ready:action!=='not-ready'});await operation;assert.equal(h.state.writes,0);assert.deepEqual(h.state.projects,before);} finally {h.close();}
+  }
+});
+
+test('concurrent saved plans and metadata remain intact and duplicate previous plan is not added', async () => {
+  const pending=deferred(),h=planHarness({api:()=>pending.promise});
+  try {const operation=h.button('[data-plan]').onclick();const p=h.get('empty'),extra={id:'saved-while-validating',plan:copy(p.lastPlan)};p.savedPlans.push(extra);p.name='Renamed meanwhile';p.history.push({run:4});const before=copy(p);pending.resolve({model:copy(fixture),model_ready:true});await operation;assert.equal(h.state.writes,1);assert.equal(p.savedPlans.length,before.savedPlans.length+1);assert.deepEqual(copy(p.savedPlans.slice(1)),before.savedPlans);assert.equal(p.name,before.name);assert.deepEqual(p.history,before.history);} finally {h.close();}
+});
+
+test('matching ignores only UI __ppid while saved snapshots retain current metadata', async () => {
+  const projects=populatedProjects();projects[2].model.equipment[0].__ppid='native-ui-id';
+  const h=planHarness({projects});try {await h.button('[data-plan]').onclick();assert.equal(h.state.writes,1);assert.equal(h.get('empty').savedPlans[0].model_snapshot.equipment[0].__ppid,'native-ui-id');} finally {h.close();}
+});
+
 test('invalid JSON and invalid model shapes never reach persistence', async () => {
   for (const value of ['{', {}, {projects: []}, {project: {model: []}}, {project: {model: {orders: {}}}}, {model: fixture}]) {
     const h = harness();
@@ -233,6 +312,23 @@ if (existsSync(nativePath)) {
     } finally {w.close();}
   });
 }
+
+const nativeSavedPath = '/tmp/liftorbit-text-import-test/native-saved-plans.js';
+if (existsSync(nativeSavedPath)) test('imported records match native Saved Plans snapshot and signature exactly', async () => {
+  const source=readFileSync(nativeSavedPath,'utf8');
+  const helpers=vm.runInNewContext(`(()=>{${source.slice(source.indexOf('const c='),source.indexOf('function diff('))};return {proj,hash}})()`);
+  const projects=populatedProjects();projects[2].model.equipment[0].__ppid='native-id';
+  const h=planHarness({projects});
+  try {await h.button('[data-plan]').onclick();assert.equal(h.state.writes,1);const p=h.get('empty'),record=p.savedPlans[0],snapshot=helpers.proj(p.model);assert.deepEqual(record.model_snapshot,copy(snapshot));assert.equal(record.model_signature,helpers.hash(snapshot));} finally {h.close();}
+});
+
+const liveModelPath='/tmp/liftorbit-text-import-test/live-model.json',livePlanPath='/tmp/liftorbit-text-import-test/live-progress.json',referencePath='/tmp/liftorbit-text-import-test/reference-project.json';
+if ([liveModelPath,livePlanPath,referencePath].every(existsSync)) test('exact live model accepts the actual operation scheduler reference and preserves the live GA result', async () => {
+  const model=JSON.parse(readFileSync(liveModelPath,'utf8')).model,plan=JSON.parse(readFileSync(livePlanPath,'utf8')).result,data=JSON.parse(readFileSync(referencePath,'utf8'));
+  const projects=populatedProjects();Object.assign(projects[2],{model,lastPlan:plan});
+  const h=planHarness({projects});
+  try {h.setInput(data);await h.button('[data-plan]').onclick();assert.equal(h.state.writes,1,h.button('#pmJsonError')?.textContent);const p=h.get('empty');assert.equal(p.lastPlan.duration_minutes,3);assert.equal(p.lastPlan.operation_count,6);assert.deepEqual(p.savedPlans[1].plan,plan);assert.equal(p.lastPlan.total_generations,undefined);assert.equal(p.lastPlan.reference_schedule.validation.valid,true);} finally {h.close();}
+});
 
 let failures = 0;
 for (const [name, fn] of tests) {
