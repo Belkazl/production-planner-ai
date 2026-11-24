@@ -1,0 +1,146 @@
+name: LiftOrbit GA completion by worker state, not elapsed wall time
+on:
+  push:
+    branches: [main, fix/ga-no-runtime-deadline-20261124]
+    paths:
+      - .github/workflows/liftorbit-ga-no-runtime-deadline-release-20261124.yml
+      - ops/ovh/ga-no-deadline-20261124/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-ga-no-runtime-deadline-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight exact client, backend and config changes; safely deploy on main only
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration
+          app="$root/sources/ovh-app/current"
+          scp_call "$USER@$HOST:$app/async-plan-transport.js" "$d/client-old.js"
+          scp_call "$USER@$HOST:$app/python-ga-upstream.mjs" "$d/upstream-old.mjs"
+          scp_call "$USER@$HOST:$root/production/current/ga-worker.json" "$d/config-old.json"
+          node ops/ovh/ga-no-deadline-20261124/patch.mjs             "$d/client-old.js" "$d/client-new.js"             "$d/upstream-old.mjs" "$d/upstream-new.mjs"             "$d/config-old.json" "$d/config-new.json"
+          node --check "$d/client-new.js"
+          node --check "$d/upstream-new.mjs"
+          node ops/ovh/ga-no-deadline-20261124/test.mjs             "$d/client-old.js" "$d/client-new.js"             "$d/upstream-old.mjs" "$d/upstream-new.mjs"             "$d/config-old.json" "$d/config-new.json"
+          ssh_call "$USER@$HOST" bash -s <<'CHECK'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          worker="$root/sources/current/ga/ga_workers/server.py"
+          python3 - "$worker" <<'PY'
+          import pathlib,sys
+          text=pathlib.Path(sys.argv[1]).read_text()
+          assert "timeout_s=0" in text,"active Python worker still enforces job deadline"
+          print("GA_ACTIVE_WORKER_ALREADY_NO_TIMEOUT_PASS")
+          PY
+          for file in "$root/sources/ovh-app/current/async-plan-transport.js"                       "$root/sources/ovh-app/current/python-ga-upstream.mjs"                       "$root/production/current/ga-worker.json";do
+            test -w "$file" || { echo GA_RELEASE_FILE_NOT_WRITABLE;exit 5; }
+          done
+          echo GA_RUNTIME_TARGETS_WRITABLE_PASS
+          CHECK
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo GA_NO_RUNTIME_DEADLINE_BRANCH_PREFLIGHT_PASS
+            exit 0
+          fi
+          old1=$(sha256sum "$d/client-old.js"|cut -d' ' -f1)
+          old2=$(sha256sum "$d/upstream-old.mjs"|cut -d' ' -f1)
+          old3=$(sha256sum "$d/config-old.json"|cut -d' ' -f1)
+          new1=$(sha256sum "$d/client-new.js"|cut -d' ' -f1)
+          new2=$(sha256sum "$d/upstream-new.mjs"|cut -d' ' -f1)
+          new3=$(sha256sum "$d/config-new.json"|cut -d' ' -f1)
+          scp_call "$d/client-new.js" "$USER@$HOST:$root/sources/ovh-app/async-plan-transport.ga-no-deadline.next"
+          scp_call "$d/upstream-new.mjs" "$USER@$HOST:$root/sources/ovh-app/python-ga-upstream.ga-no-deadline.next"
+          scp_call "$d/config-new.json" "$USER@$HOST:$root/sources/ovh-app/ga-worker-config.ga-no-deadline.next"
+          ssh_call "$USER@$HOST" bash -s -- "$old1" "$old2" "$old3" "$new1" "$new2" "$new3" <<'REMOTE'
+          set -euo pipefail
+          root="$HOME/liftorbit-migration"
+          targets=("$root/sources/ovh-app/current/async-plan-transport.js"
+                   "$root/sources/ovh-app/current/python-ga-upstream.mjs"
+                   "$root/production/current/ga-worker.json")
+          staged=("$root/sources/ovh-app/async-plan-transport.ga-no-deadline.next"
+                  "$root/sources/ovh-app/python-ga-upstream.ga-no-deadline.next"
+                  "$root/sources/ovh-app/ga-worker-config.ga-no-deadline.next")
+          backup="$root/patch-backups/ga-no-runtime-deadline-20261124"
+          sha(){ sha256sum "$1"|cut -d' ' -f1; }
+          for i in 0 1 2;do
+            case "$i" in 0)old="$1";new="$4";;1)old="$2";new="$5";;2)old="$3";new="$6";;esac
+            test "$(sha "${targets[$i]}")" = "$old" || { echo GA_RUNTIME_SOURCE_DRIFT;exit 5; }
+            test "$(sha "${staged[$i]}")" = "$new" || { echo GA_RUNTIME_UPLOAD_MISMATCH;exit 5; }
+          done
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          for i in 0 1 2;do cp -p "${targets[$i]}" "$backup/$(basename "${targets[$i]}")";done
+          rollback(){
+            trap - ERR
+            for i in 0 1 2;do cp -p "$backup/$(basename "${targets[$i]}")" "${targets[$i]}" || true;done
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GA_NO_RUNTIME_DEADLINE_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          for i in 0 1 2;do mv "${staged[$i]}" "${targets[$i]}";done
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for n in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          for i in 0 1 2;do
+            case "$i" in 0)new="$4";;1)new="$5";;2)new="$6";;esac
+            test "$(sha "${targets[$i]}")" = "$new"
+          done
+          trap - ERR
+          echo GA_NO_RUNTIME_DEADLINE_OVH_DEPLOYED_SMOKE_PASS
+          REMOTE
+          scp_call "$USER@$HOST:$app/async-plan-transport.js" "$d/live-client.js"
+          scp_call "$USER@$HOST:$app/python-ga-upstream.mjs" "$d/live-upstream.mjs"
+          scp_call "$USER@$HOST:$root/production/current/ga-worker.json" "$d/live-config.json"
+          test "$(sha256sum "$d/live-client.js"|cut -d' ' -f1)" = "$new1"
+          test "$(sha256sum "$d/live-upstream.mjs"|cut -d' ' -f1)" = "$new2"
+          test "$(sha256sum "$d/live-config.json"|cut -d' ' -f1)" = "$new3"
+          echo GA_NO_RUNTIME_DEADLINE_DEPLOYED_SOURCE_SHA_PASS
+      - name: Public app health and account protection
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          passed=no
+          for i in $(seq 1 12);do
+            h=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            auth=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [ "$h" = 200 ] && [ "$auth" = 401 ];then passed=yes;break;fi
+            sleep 5
+          done
+          test "$passed" = yes
+          echo GA_NO_RUNTIME_DEADLINE_PUBLIC_HEALTH_PASS
+  browser:
+    if: github.ref == 'refs/heads/main'
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Verify published no-deadline browser and Validator
+        run: node ops/ovh/ga-no-deadline-20261124/live-browser.mjs
