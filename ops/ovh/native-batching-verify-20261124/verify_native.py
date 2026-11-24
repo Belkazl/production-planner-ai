@@ -3,6 +3,7 @@ import argparse
 import ast
 import copy
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -151,12 +152,232 @@ def state_metadata(namespace):
     return result
 
 
+def failure_metadata(error):
+    result = {'error_type': type(error).__name__}
+    if isinstance(error, VerificationError):
+        result['error_code'] = str(error)
+    return result
+
+
+def contract_shape(value, depth=0):
+    kind = ('object' if isinstance(value, dict) else 'tuple' if isinstance(value, tuple)
+            else 'array' if isinstance(value, list) else 'boolean' if isinstance(value, bool)
+            else 'number' if isinstance(value, (int, float)) else 'string' if isinstance(value, str)
+            else 'null' if value is None else 'other')
+    result = {'kind': kind}
+    if isinstance(value, dict):
+        keys = sorted(key for key in value if isinstance(key, str) and IDENTIFIER.fullmatch(key))
+        result.update(keys=keys[:40], keys_truncated=len(keys) > 40, entry_count=len(value))
+    elif isinstance(value, (list, tuple)):
+        result['length'] = len(value)
+        if depth < 2:
+            result['items'] = [contract_shape(item, depth + 1) for item in value[:8]]
+            result['items_truncated'] = len(value) > 8
+    return result
+
+
+def synthetic_numeric_fields(value):
+    fields = ('area', 'quantity', 'batch_quantity', 'batch_capacity', 'capacity', 'capacity_m2',
+              'batch', 'batch_id', 'start_min', 'end_min', 'duration_min', 'duration_minutes')
+    return {key: value[key] for key in fields if key in value and not isinstance(value[key], bool)
+            and isinstance(value[key], (int, float)) and math.isfinite(value[key]) and abs(value[key]) <= 1e9}
+
+
+def synthetic_model_summary(model, allow_expanded=False):
+    result = {'contract': contract_shape(model), 'equipment': [], 'orders': [], 'other_orders': 0}
+    if not isinstance(model, dict):
+        return result
+    for equipment in (model.get('equipment') or [])[:16]:
+        if not isinstance(equipment, dict) or equipment.get('id') not in ('BIG', 'SMALL'):
+            continue
+        row = {'id': equipment['id'], **synthetic_numeric_fields(equipment), 'contract': contract_shape(equipment)}
+        for key in ('unit', 'capacity_unit'):
+            if equipment.get(key) in ('шт.', 'шт', 'pcs', 'items', 'item', 'm2', 'м²'):
+                row[key] = equipment[key]
+        timing = equipment.get('timing_profile')
+        if isinstance(timing, dict):
+            row['timing_profile'] = synthetic_numeric_fields(timing)
+            if timing.get('timing_mode') in ('fixed', 'throughput'):
+                row['timing_profile']['timing_mode'] = timing['timing_mode']
+        result['equipment'].append(row)
+    for index, order in enumerate((model.get('orders') or [])[:32]):
+        oid = order.get('id') if isinstance(order, dict) else None
+        owned = oid == 'SYNTHETIC_ORDER' or (allow_expanded and isinstance(oid, str)
+            and re.fullmatch(r'SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}', oid))
+        if not owned:
+            result['other_orders'] += 1
+            continue
+        row = {'alias': 'original' if oid == 'SYNTHETIC_ORDER' else 'expanded_' + str(index + 1),
+               **synthetic_numeric_fields(order), 'contract': contract_shape(order)}
+        for key in ('unit', 'quantity_unit', 'batch_unit'):
+            if order.get(key) in ('шт.', 'шт', 'pcs', 'items', 'item', 'm2', 'м²'):
+                row[key] = order[key]
+        result['orders'].append(row)
+    return result
+
+
+def synthetic_schedule_summary(plan):
+    result = {'contract': contract_shape(plan), 'operations': [], 'batches': [], 'omitted_rows': 0}
+    if not isinstance(plan, dict):
+        return result
+    result.update(synthetic_numeric_fields(plan))
+    result['native_valid'] = plan.get('valid') is True
+    for row in (plan.get('generic_operations') or plan.get('operations') or [])[:64]:
+        if not isinstance(row, dict) or row.get('order') != 'SYNTHETIC_ORDER' or row.get('operation_id') != 'WORK':
+            result['omitted_rows'] += 1
+            continue
+        record = {**synthetic_numeric_fields(row), 'contract': contract_shape(row)}
+        ids = row.get('equipment_ids') or []
+        record['equipment_ids'] = [rid for rid in ids if rid in ('BIG', 'SMALL')]
+        record['other_equipment_count'] = len(ids) - len(record['equipment_ids'])
+        result['operations'].append(record)
+    for row in (plan.get('batches') or [])[:64]:
+        if isinstance(row, dict) and row.get('order') == 'SYNTHETIC_ORDER':
+            result['batches'].append(synthetic_numeric_fields(row))
+    return result
+
+
+def synthetic_native_contract(ga, diagnostics, model):
+    result = {'functions': []}
+    names = ('_pp_batch_equipment_fits', '_pp_order_batch_capacity', '_pp_expand_capacity_batches',
+             '_pp_eligible_equipment', '_pp_schedule_operation', '_pp_schedule_sequence',
+             '_pp_schedule_sequence_unbatched', '_pp_ctx', '_pp_obj_key', '_pp_progress_preview', '_pp_setup_generic_apply')
+    for name in names:
+        if callable(ga.get(name)):
+            result['functions'].append(diagnostics._function_metadata(name, ga[name], ga))
+    normalized = ga['canonicalize_model'](copy.deepcopy(model))
+    result['normalized_model'] = synthetic_model_summary(normalized)
+    result['native_ready'] = bool(ga['model_ready'](normalized))
+    order = next((row for row in normalized.get('orders', []) if row.get('id') == 'SYNTHETIC_ORDER'), None)
+    if order is None:
+        return result
+    capacity = ga.get('_pp_order_batch_capacity')
+    if callable(capacity):
+        try:
+            value = capacity(copy.deepcopy(normalized), copy.deepcopy(order))
+            result['order_capacity'] = number(value)
+        except Exception as error:
+            result['order_capacity_error'] = failure_metadata(error)
+    fits = ga.get('_pp_batch_equipment_fits')
+    result['equipment_fit_probes'] = []
+    if callable(fits):
+        for quantity in (5, 10):
+            candidate = copy.deepcopy(order)
+            candidate['quantity'] = quantity
+            candidate['area'] = quantity
+            for equipment in normalized.get('equipment', []):
+                if equipment.get('id') not in ('BIG', 'SMALL'):
+                    continue
+                row = {'quantity': quantity, 'area': quantity, 'equipment': equipment['id']}
+                try:
+                    fit = fits(copy.deepcopy(candidate), copy.deepcopy(equipment))
+                    row['result'] = fit if isinstance(fit, bool) else contract_shape(fit)
+                except Exception as error:
+                    row['error'] = failure_metadata(error)
+                result['equipment_fit_probes'].append(row)
+    expand = ga.get('_pp_expand_capacity_batches')
+    if callable(expand):
+        try:
+            expanded = expand(copy.deepcopy(normalized), ['SYNTHETIC_ORDER'], [])
+            result['expansion'] = {'contract': contract_shape(expanded), 'model_items': []}
+            parts = list(expanded) if isinstance(expanded, (list, tuple)) else [expanded]
+            aliases = {'SYNTHETIC_ORDER': 'original'}
+            for item in parts[:8]:
+                if isinstance(item, dict) and isinstance(item.get('orders'), list):
+                    result['expansion']['model_items'].append(synthetic_model_summary(item, True))
+                    for index, expanded_order in enumerate(item['orders'][:32]):
+                        oid = expanded_order.get('id') if isinstance(expanded_order, dict) else None
+                        if isinstance(oid, str) and re.fullmatch(r'SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}', oid):
+                            aliases[oid] = 'original' if oid == 'SYNTHETIC_ORDER' else 'expanded_' + str(index + 1)
+            relations = []
+            for index, item in enumerate(parts[:8]):
+                if isinstance(item, list) and all(isinstance(value, str) for value in item):
+                    relations.append({'item_index': index, 'sequence': [aliases.get(value, 'other') for value in item[:32]]})
+                elif isinstance(item, dict) and item and all(key in aliases for key in item):
+                    rows = []
+                    for key, value in list(item.items())[:32]:
+                        row = {'key_alias': aliases[key], 'value_contract': contract_shape(value)}
+                        if isinstance(value, str):
+                            row['value_alias'] = aliases.get(value, 'other')
+                        elif isinstance(value, dict):
+                            row['numbers'] = synthetic_numeric_fields(value)
+                            row['identity_fields'] = {name: aliases[val] for name, val in value.items()
+                                if isinstance(name, str) and IDENTIFIER.fullmatch(name) and isinstance(val, str) and val in aliases}
+                        rows.append(row)
+                    relations.append({'item_index': index, 'mapping': rows})
+            result['expansion']['relations'] = relations
+        except Exception as error:
+            result['expansion_error'] = failure_metadata(error)
+    return result
+
+
+def adapter_continuation_metadata(source):
+    tree = ast.parse(source)
+    calls = []
+    for function in tree.body:
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ('load_resume_state', 'export_resume_state'):
+                calls.append({'function': function.name, 'callee': node.func.id,
+                    'arguments': [value.id if isinstance(value, ast.Name) else type(value).__name__.lower() for value in node.args],
+                    'keywords': [item.arg for item in node.keywords if item.arg]})
+    compact = ''.join(source.split())
+    return {'calls': calls[:16], 'calls_truncated': len(calls) > 16,
+        'has_native_state_opts_anchor': "native_state=opts.get('resume_state')" in compact or 'native_state=opts.get("resume_state")' in compact,
+        'has_version_one_guard': any(isinstance(node, ast.Compare) and any(isinstance(op, ast.NotEq) for op in node.ops)
+            and any(isinstance(value, ast.Constant) and value.value == 1 for value in node.comparators)
+            and isinstance(node.left, ast.Call) and isinstance(node.left.func, ast.Attribute) and node.left.func.attr == 'get'
+            and node.left.args and isinstance(node.left.args[0], ast.Constant) and node.left.args[0].value == 'version'
+            for node in ast.walk(tree))}
+
+
+def expansion_ast_metadata(source):
+    result = []
+    for function in ast.walk(ast.parse(source)):
+        if not isinstance(function, ast.FunctionDef) or function.name != '_pp_expand_capacity_batches':
+            continue
+        row = {'function': function.name, 'enumerate_arguments': [], 'capacity_arguments': [], 'return_shapes': []}
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id in ('enumerate', '_pp_order_batch_capacity'):
+                    values = [arg.id if isinstance(arg, ast.Name) and IDENTIFIER.fullmatch(arg.id)
+                              else type(arg).__name__.lower() for arg in node.args]
+                    row['enumerate_arguments' if node.func.id == 'enumerate' else 'capacity_arguments'].append(values)
+            elif isinstance(node, ast.Return):
+                row['return_shapes'].append({'kind': type(node.value).__name__.lower(),
+                    'arity': len(node.value.elts) if isinstance(node.value, (ast.Tuple, ast.List)) else None})
+        result.append({key: value[:16] if isinstance(value, list) else value for key, value in row.items()})
+    return result[:8]
+
+
+def synthetic_call_value(value, depth=0):
+    result = {'contract': contract_shape(value)}
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and abs(value) <= 1e9:
+        result['number'] = value
+    elif isinstance(value, bool):
+        result['boolean'] = value
+    elif isinstance(value, dict):
+        oid = value.get('id', value.get('order'))
+        if oid in ('BIG', 'SMALL'):
+            result.update(id=oid, numbers=synthetic_numeric_fields(value))
+        elif isinstance(oid, str) and re.fullmatch(r'SYNTHETIC_ORDER[A-Za-z0-9_:#.\-~]{0,80}', oid):
+            result.update(order_alias='original' if oid == 'SYNTHETIC_ORDER' else 'expanded',
+                          numbers=synthetic_numeric_fields(value))
+            if value.get('equipment_ids') is not None:
+                result['equipment_ids'] = [key for key in value['equipment_ids'] if key in ('BIG', 'SMALL')]
+    elif isinstance(value, (list, tuple)) and depth < 2:
+        result['items'] = [synthetic_call_value(item, depth + 1) for item in value[:8]]
+    return result
+
+
 def observed_run(adapter, diagnostics, model, options):
     factory = adapter._namespace
     state = {'decoder_calls': 0, 'partition_observation_errors': 0, 'distinct_partition_vectors': set(),
              'partition_vectors_truncated': False, 'batch_counts': set(), 'partitions': [],
              'native_raw_valid': 0, 'native_raw_invalid': 0, 'native_raw_validator_errors': 0,
-             'first_raw_material_prefix': None, 'before_optimize_state': None}
+             'first_raw_material_prefix': None, 'first_raw_schedule': None, 'before_optimize_state': None,
+             'sampled_hook_calls': {}, 'generic_optimizer_return': None}
     holder = {}
 
     def make_namespace():
@@ -169,11 +390,36 @@ def observed_run(adapter, diagnostics, model, options):
         if not callable(original) or not callable(native_optimize):
             raise VerificationError('native_hooks_missing')
 
+        def observe_hook(name, function):
+            samples = state['sampled_hook_calls'].setdefault(name, [])
+            def observed_hook(*args, **kwargs):
+                returned = function(*args, **kwargs)
+                if len(samples) < 8:
+                    try:
+                        bound = inspect.signature(function).bind_partial(*args, **kwargs)
+                        samples.append({'arguments': {key: synthetic_call_value(value) for key, value in bound.arguments.items()
+                            if IDENTIFIER.fullmatch(key)}, 'returned': synthetic_call_value(returned)})
+                    except Exception as error:
+                        samples.append({'observation_error': failure_metadata(error)})
+                if name == '_pp_optimize_generic' and state['generic_optimizer_return'] is None:
+                    try:
+                        state['generic_optimizer_return'] = synthetic_schedule_summary(returned)
+                    except Exception as error:
+                        state['generic_optimizer_return'] = {'observation_error': failure_metadata(error)}
+                return returned
+            return observed_hook
+
+        for hook in ('_pp_eligible_equipment', '_pp_schedule_operation', '_pp_obj_key', '_pp_progress_preview', '_pp_optimize_generic'):
+            if callable(ga.get(hook)):
+                ga[hook] = observe_hook(hook, ga[hook])
+
         def observed(*args, **kwargs):
             result = original(*args, **kwargs)
             state['decoder_calls'] += 1
             # Observe the entire small native run; retain at most 64 vectors.
             try:
+                if state['first_raw_schedule'] is None:
+                    state['first_raw_schedule'] = synthetic_schedule_summary(result)
                 values = partition(result)
                 digest = hashlib.sha256(json.dumps(values).encode()).hexdigest()
                 state['batch_counts'].add(len(values))
@@ -192,7 +438,7 @@ def observed_run(adapter, diagnostics, model, options):
                         state['native_raw_invalid' if errors else 'native_raw_valid'] += 1
                     except Exception:
                         state['native_raw_validator_errors'] += 1
-            except (VerificationError, TypeError, ValueError, KeyError):
+            except Exception:
                 state['partition_observation_errors'] += 1
             return result
 
@@ -206,20 +452,32 @@ def observed_run(adapter, diagnostics, model, options):
 
     adapter._namespace = make_namespace
     model_before = copy.deepcopy(model)
+    result = None
+    native_error = None
     try:
         result = adapter.run({'model': model, 'options': options}, lambda _progress: None)
+    except Exception as error:
+        native_error = failure_metadata(error)
     finally:
         adapter._namespace = factory
     if model != model_before:
-        raise VerificationError('caller_model_mutated')
+        native_error = failure_metadata(VerificationError('caller_model_mutated'))
     report = {key: value for key, value in state.items() if key not in ('distinct_partition_vectors', 'batch_counts')}
     report['distinct_partition_vectors'] = len(state['distinct_partition_vectors'])
     report['observed_batch_counts'] = sorted(state['batch_counts'])
-    report['after_optimize_state'] = state_metadata(holder['namespace'])
-    report['functions'] = holder['functions']
-    report['functions_after_run'] = diagnostics._native_functions(holder['namespace'])
-    report['result'] = check_witness(result, model, diagnostics)
-    report['resume_field_names'] = sorted(key for key in (result.get('resume_state') or {})
+    report['after_optimize_state'] = state_metadata(holder.get('namespace', {}))
+    report['functions'] = holder.get('functions', {})
+    report['functions_after_run'] = diagnostics._native_functions(holder.get('namespace', {}))
+    report['final_schedule'] = synthetic_schedule_summary(result)
+    if native_error is not None:
+        report['result'] = {'independent_valid': False, 'reached_lower_bound': False, 'native_error': native_error}
+    else:
+        try:
+            report['result'] = check_witness(result, model, diagnostics)
+        except Exception as error:
+            report['result'] = {'independent_valid': False, 'reached_lower_bound': False, **failure_metadata(error)}
+    resume = result.get('resume_state') if isinstance(result, dict) else None
+    report['resume_field_names'] = sorted(key for key in (resume or {})
                                          if isinstance(key, str) and IDENTIFIER.fullmatch(key))[:64]
     return result, report
 
@@ -236,8 +494,52 @@ def native_baseline(adapter, diagnostics, model, namespace=None):
     sizes = partition(sim)
     return {'kind': 'original_native_default_decoder', 'duration_minutes': number(sim['duration_minutes']),
             'batch_count': len(sizes), 'batch_sizes': list(sizes), 'native_validation_passed': not bool(errors),
+            'raw_schedule': synthetic_schedule_summary(sim),
             'material_prefix': diagnostics.material_prefix_summary(normalized, sim),
             'capacity_max_reference_minutes': 30, 'mixed_optimal_lower_bound_minutes': 20}
+
+
+def run_witness_cases(adapter, diagnostics, report, native_namespace):
+    options = {'generations': 24, 'population': 24, 'seed': 1729, 'objective': 'duration'}
+    plain_model = witness_model()
+    try:
+        report['synthetic_contract'] = synthetic_native_contract(native_namespace, diagnostics, plain_model)
+    except Exception as error:
+        report['synthetic_contract'] = failure_metadata(error)
+    report['phase'] = 'native_plain_witness'
+    try:
+        report['baseline'] = native_baseline(adapter, diagnostics, plain_model, native_namespace)
+    except Exception as error:
+        report['baseline'] = failure_metadata(error)
+    first, plain = observed_run(adapter, diagnostics, plain_model, options)
+    report['cases']['plain'] = plain
+    report['phase'] = 'native_material_witness'
+    _, material = observed_run(adapter, diagnostics, witness_model(True), options)
+    report['cases']['material_delivery'] = material
+    report['phase'] = 'native_fresh_namespace_continuation'
+    resume = first.get('resume_state') if isinstance(first, dict) else None
+    if isinstance(resume, dict):
+        continued, continuation = observed_run(adapter, diagnostics, plain_model,
+            {'generations': 3, 'population': 6, 'seed': 1730, 'objective': 'duration', 'continue': True,
+             'resume_state': copy.deepcopy(resume)})
+        try:
+            continuation['result']['not_worse_than_first'] = number(continued['duration_minutes']) <= number(first['duration_minutes']) + EPS
+            continuation['prior_partition_observed'] = list(partition(first)) in continuation['partitions']
+        except Exception as error:
+            continuation['comparison_error'] = failure_metadata(error)
+            continuation['result']['not_worse_than_first'] = False
+    else:
+        continuation = {'result': {'independent_valid': False, 'reached_lower_bound': False,
+            'not_worse_than_first': False, 'error_code': 'native_resume_state_missing'}}
+    report['cases']['continue_fresh_namespace'] = continuation
+    # Lower-bound rediscovery is not proof of native-genome persistence. The
+    # bridge and first-loaded-candidate contract are separate acceptance gates.
+    report['phase'] = 'complete'
+    passed = all(case['result'].get('independent_valid') is True and case['result'].get('reached_lower_bound') is True
+                 for case in report['cases'].values())
+    passed = passed and continuation['result']['not_worse_than_first']
+    report['status'] = 'native_witness_pass' if passed else 'native_minibatch_regression'
+    return report
 
 
 def compiled_function_metadata(source):
@@ -274,40 +576,18 @@ def child_verification(root, report_path, input_path=Path('/input/code-inputs.js
         from ga_workers import compile_legacy_ga as compiler
         from ga_workers import full_runtime_adapter as adapter
         from ga_workers import batch_size_diagnostics as diagnostics
+        report['adapter_continuation_contract'] = adapter_continuation_metadata((root / 'ga_workers/full_runtime_adapter.py').read_text())
         report['phase'] = 'native_build'
         compiler.build()
         compiled = Path('/tmp/production_planner.py').read_bytes()
         report['compiled_sha256'] = hashlib.sha256(compiled).hexdigest()
         report['phase'] = 'compiled_binding_metadata'
         report['compiled_functions'] = compiled_function_metadata(compiled)
+        report['capacity_expansion_ast_contract'] = expansion_ast_metadata(compiled)
         native_namespace = adapter._namespace()
         report['namespace_functions_before_baseline'] = diagnostics._native_functions(native_namespace)
         report['namespace_state_before_baseline'] = state_metadata(native_namespace)
-        report['phase'] = 'native_plain_witness'
-        options = {'generations': 24, 'population': 24, 'seed': 1729, 'objective': 'duration'}
-        plain_model = witness_model()
-        report['baseline'] = native_baseline(adapter, diagnostics, plain_model, native_namespace)
-        first, plain = observed_run(adapter, diagnostics, plain_model, options)
-        report['cases']['plain'] = plain
-        report['phase'] = 'native_material_witness'
-        _, material = observed_run(adapter, diagnostics, witness_model(True), options)
-        report['cases']['material_delivery'] = material
-        report['phase'] = 'native_fresh_namespace_continuation'
-        resume = first.get('resume_state')
-        if not isinstance(resume, dict):
-            raise VerificationError('native_resume_state_missing')
-        continued, continuation = observed_run(adapter, diagnostics, plain_model,
-            {'generations': 3, 'population': 6, 'seed': 1730, 'objective': 'duration', 'continue': True,
-             'resume_state': copy.deepcopy(resume)})
-        continuation['result']['not_worse_than_first'] = number(continued['duration_minutes']) <= number(first['duration_minutes']) + EPS
-        continuation['prior_partition_observed'] = list(partition(first)) in continuation['partitions']
-        report['cases']['continue_fresh_namespace'] = continuation
-        # The bridge contract is reviewed separately: this directly tests the
-        # worker's real exported state, never manufactures batch-state fields.
-        report['phase'] = 'complete'
-        restored = all(case['result']['reached_lower_bound'] for case in report['cases'].values())
-        restored = restored and continuation['result']['not_worse_than_first']
-        report['status'] = 'native_witness_pass' if restored else 'native_minibatch_regression'
+        run_witness_cases(adapter, diagnostics, report, native_namespace)
     except BaseException as error:
         # No traceback, native exception text, source line, or private value is exported.
         report['status'] = 'failed'

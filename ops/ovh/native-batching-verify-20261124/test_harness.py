@@ -257,6 +257,53 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(result, {'functions': [{'name': 'native', 'nested': {'parameters': ['model']}}],
                                   'duration_minutes': 20})
 
+    def test_invalid_native_assignment_is_reported_without_weakening_checker(self):
+        plan = example_plan()
+        plan['operations'][0]['equipment_ids'] = ['SMALL']
+        adapter = types.SimpleNamespace()
+        adapter._namespace = lambda: {'_pp_schedule_sequence': lambda *a, **k: plan,
+            'optimize': lambda *a, **k: plan}
+        adapter.run = lambda payload, progress: {**copy.deepcopy(plan), 'resume_state': {'version': 1}}
+        native, report = verification.observed_run(adapter, self.diagnostics, verification.witness_model(), {})
+        self.assertFalse(report['result']['independent_valid'])
+        self.assertEqual(report['result']['error_code'], 'native_duration_or_capacity')
+        self.assertEqual(report['final_schedule']['operations'][0]['equipment_ids'], ['SMALL'])
+        self.assertEqual(report['final_schedule']['operations'][0]['batch_quantity'], 10)
+        self.assertIn('resume_state', native)
+
+    def test_all_cases_continue_after_independent_failure_and_preserve_errors(self):
+        plan = {**example_plan(), 'resume_state': {'version': 1}}
+        failed = {'result': {'independent_valid': False, 'reached_lower_bound': False,
+                            'error_code': 'native_duration_or_capacity'}, 'partitions': [[5, 5, 10, 10]]}
+        passed = {'result': {'independent_valid': True, 'reached_lower_bound': True}, 'partitions': [[5, 5, 10, 10]]}
+        report = {'cases': {}}
+        with mock_patch.object(verification, 'synthetic_native_contract', return_value={}), \
+             mock_patch.object(verification, 'native_baseline', side_effect=verification.VerificationError('test_baseline_failure')), \
+             mock_patch.object(verification, 'observed_run', side_effect=[(plan, copy.deepcopy(failed)),
+                 (plan, copy.deepcopy(passed)), (plan, copy.deepcopy(failed))]) as observed:
+            verification.run_witness_cases(object(), self.diagnostics, report, {})
+        self.assertEqual(observed.call_count, 3)
+        self.assertEqual(set(report['cases']), {'plain', 'material_delivery', 'continue_fresh_namespace'})
+        self.assertEqual(report['status'], 'native_minibatch_regression')
+        self.assertEqual(report['cases']['plain']['result']['error_code'], 'native_duration_or_capacity')
+        self.assertEqual(report['phase'], 'complete')
+
+    def test_synthetic_summaries_exclude_foreign_values_and_ast_body_literals(self):
+        model = verification.witness_model()
+        model['orders'].append({'id': 'foreign-customer-value', 'quantity': 123456})
+        model['equipment'][0]['description'] = 'private-equipment-description'
+        plan = example_plan()
+        plan['operations'].append({'order': 'foreign-customer-value', 'operation_id': 'WORK', 'start_min': 987654})
+        report = {'model': verification.synthetic_model_summary(model), 'plan': verification.synthetic_schedule_summary(plan)}
+        encoded = json.dumps(report)
+        for secret in ('foreign-customer-value', 'private-equipment-description', '987654', '123456'):
+            self.assertNotIn(secret, encoded)
+        source = "def _pp_expand_capacity_batches(model, ids, locks):\n    cap = _pp_order_batch_capacity(model, current_order)\n    secret = 'private-source-value'\n    for index, size in enumerate(sizes):\n        pass\n    return model, ids, {}\n"
+        summary = verification.expansion_ast_metadata(source)
+        self.assertEqual(summary[0]['capacity_arguments'], [['model', 'current_order']])
+        self.assertEqual(summary[0]['enumerate_arguments'], [['sizes']])
+        self.assertNotIn('private-source-value', json.dumps(summary))
+
 
 if __name__ == '__main__':
     unittest.main()
