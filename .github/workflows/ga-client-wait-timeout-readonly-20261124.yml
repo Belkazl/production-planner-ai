@@ -1,0 +1,69 @@
+name: Diagnose client wait timeout source (read-only)
+on:
+  push:
+    branches: [diagnose/ga-client-wait-timeout-20261124]
+    paths: [.github/workflows/ga-client-wait-timeout-readonly-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Locate timeout literal in actual OVH source, report state preservation
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          from pathlib import Path
+          import re,json
+          root=Path.home()/"liftorbit-migration"
+          targets=[
+           root/"sources/ovh-app/current",
+           root/"sources/current/ga/ga_workers"
+          ]
+          symbols=[
+            "ga_client_wait_timeout","client_wait_timeout","ga_upstream_aborted",
+            "maxWaitMs","PP_PY_GA_TIMEOUT_S","ga_worker_timeout","ga_wait_timeout"
+          ]
+          for base in targets:
+            for path in base.rglob("*"):
+              if not path.is_file() or path.suffix not in (".js",".mjs",".ts",".py",".json",".html"):continue
+              if any(x in path.parts for x in ("node_modules",".git","__pycache__","dist","patch-backups","public")):continue
+              try:
+                if path.stat().st_size > 950000:continue
+                s=path.read_text(errors="replace")
+              except (OSError,ValueError):continue
+              if not any(key in s for key in symbols):continue
+              print("TIMEOUT_SOURCE_PATH",str(path.relative_to(root)),"SIZE",len(s))
+              lines=s.splitlines()
+              selected=set()
+              for i,line in enumerate(lines):
+                if any(key in line for key in symbols):
+                  for j in range(max(0,i-7),min(len(lines),i+9)):
+                    selected.add(j)
+              for i in sorted(selected):
+                line=lines[i]
+                if re.search("password|private.key|authorization|bearer|credential|secret|api[_-]?key",line,re.I):
+                  line="[REDACTED]"
+                print("TIMEOUT_SOURCE",str(path.name),i+1,line[:360])
+          cfg=root/"production/current/ga-worker.json"
+          if cfg.exists():
+            obj=json.loads(cfg.read_text())
+            value=obj.get("PP_PY_GA_TIMEOUT_S")
+            try:value=int(value) if value is not None else None
+            except (TypeError,ValueError):value="invalid"
+            print("GA_WORKER_TIMEOUT_SECONDS",value)
+          PY
