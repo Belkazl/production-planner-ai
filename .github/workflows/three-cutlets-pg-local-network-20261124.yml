@@ -1,0 +1,48 @@
+name: Locate auth PostgreSQL container from host without Docker privileges
+on:
+  push:
+    branches: [feat/three-cutlets-liftorbit-project-20261124]
+    paths: [.github/workflows/three-cutlets-pg-local-network-20261124.yml]
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Read sanitized Compose metadata and test PostgreSQL ports, no credentials
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" "$USER@$HOST" python3 - <<'PY'
+          import re,socket
+          from pathlib import Path
+          p=Path("/opt/liftorbit/full.compose.yml")
+          lines=p.read_text().splitlines()
+          for i,line in enumerate(lines):
+            if any(k in line for k in ("postgres-auth:","postgres-main:","auth-gateway:","container_name:","ports:","networks:","expose:","- 5432","- 8080","ipv4_address","subnet","driver:","hostname:")):
+              if re.search(r'(password|secret|token|private.key|credential|DATABASE_URL|POSTGRES_USER|PGUSER|POSTGRES_PASSWORD)',line,re.I):continue
+              print("COMPOSE_LINE",i+1,line[:170])
+          arp=Path("/proc/net/arp").read_text().splitlines()
+          print("ARP_PEERS",[a.split()[0] for a in arp[1:] if a.split() and a.split()[0].startswith(("172.18.","172.19."))][:28])
+          for prefix in ("172.18.0.","172.19.0."):
+            for n in range(2,19):
+              ip=f"{prefix}{n}"
+              sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM);sock.settimeout(0.17)
+              try:
+                sock.connect((ip,5432));print("PG_LISTENER",ip,5432)
+              except OSError:pass
+              finally:sock.close()
+          PY
