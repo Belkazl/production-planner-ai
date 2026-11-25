@@ -1,0 +1,19 @@
+name: Diagnose real restart button lifecycle
+on:
+  push:
+    branches: [fix/restart-button-lifecycle-20261125]
+    paths:
+      - .github/workflows/liftorbit-restart-button-diagnose-20261125.yml
+      - ops/ovh/restart-button-20261125/diagnose.mjs
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - run: node ops/ovh/restart-button-20261125/diagnose.mjs
