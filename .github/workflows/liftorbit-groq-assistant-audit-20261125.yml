@@ -31,6 +31,16 @@ jobs:
                   print("GROQ_COMPLETION_PASS",r.status)
           except urllib.error.HTTPError as e:
               print("GROQ_HTTP_STATUS",e.code)
+              raw=e.read(8192)
+              try:
+                  err=json.loads(raw).get("error",{})
+                  if not isinstance(err,dict):err={}
+              except Exception:err={}
+              message=str(err.get("message","")).lower()
+              code=err.get("code")
+              known={"model_permission_blocked_org","model_permission_blocked_project","invalid_api_key","organization_restricted","access_denied","unsupported_country_region_territory","permission_denied"}
+              print("GROQ_SAFE_ERROR_CODE",code if code in known else "other")
+              print("GROQ_ERROR_CLASS",json.dumps({"json_error":bool(err),"region":any(x in message for x in ("region","country","territory")),"permissions":any(x in message for x in ("permission","blocked","forbidden","access")),"organization":"organization" in message,"project":"project" in message,"verification":any(x in message for x in ("verify","verification","email")),"billing":any(x in message for x in ("billing","spend","payment")),"html_response":b"<html" in raw.lower(),"cloudflare":b"cloudflare" in raw.lower(),"waf":b"access denied" in raw.lower()}))
               raise SystemExit(3)
           except Exception:
               print("GROQ_COMPLETION_FAILED")
@@ -69,6 +79,16 @@ jobs:
                   print('AI_SOURCE',str(p),hashlib.sha256(source.encode()).hexdigest(),sorted(set(patterns))[:30],provider)
           for p in (Path('/opt/liftorbit/secrets/app.json'),Path('/opt/liftorbit/secrets/planner.json'),Path('/opt/liftorbit/secrets/auth.json')):
               print('CONFIG_ACCESS',p.name,'readable='+str(os.access(p,os.R_OK)),'writable='+str(os.access(p,os.W_OK)))
+          p=Path("tenant-model-runtime.js")
+          lines=p.read_text().splitlines()
+          selected=set()
+          for i,line in enumerate(lines):
+              if re.search(r'/api/chat|assistant_reply|function .*chat|function .*Chat|function .*Assistant',line,re.I):
+                  selected.update(range(max(0,i-8),min(len(lines),i+25)))
+          for i in sorted(selected)[:170]:
+              line=lines[i]
+              if re.search(r'password|api.key|secret|credential|authorization|cookie|database_url|private.key|process.env|Bun.env',line,re.I):line='[redacted]'
+              print("CHAT_CODE",i+1,line[:360])
           print('AUDIT_DONE')
           PY
           REMOTE
