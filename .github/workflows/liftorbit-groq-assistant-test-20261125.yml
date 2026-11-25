@@ -1,0 +1,31 @@
+name: Verify Groq assistant isolation and UI behavior
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths:
+      - .github/workflows/liftorbit-groq-assistant-test-20261125.yml
+      - ops/ovh/groq-assistant-20261125/assistant-runtime.js
+      - ops/ovh/groq-assistant-20261125/assistant-ui.mjs
+      - ops/ovh/groq-assistant-20261125/patch.mjs
+      - ops/ovh/groq-assistant-20261125/test.mjs
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install disposable browser-DOM test dependency
+        run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock jsdom@26.1.0
+      - name: Validate server syntax and run regression suite
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/groq-assistant-20261125/assistant-runtime.js
+          node --check ops/ovh/groq-assistant-20261125/patch.mjs
+          node --test ops/ovh/groq-assistant-20261125/test.mjs
