@@ -1,0 +1,21 @@
+name: Weekly calendar real editor preflight
+on:
+  push:
+    branches: [feat/weekly-shift-calendars-20261125]
+    paths:
+      - .github/workflows/liftorbit-weekly-calendar-editor-preflight-20261125.yml
+      - ops/ovh/weekly-shift-calendars-20261125/calendar-editor.js
+      - ops/ovh/weekly-shift-calendars-20261125/patch-ui.mjs
+      - ops/ovh/weekly-shift-calendars-20261125/browser.mjs
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - run: node ops/ovh/weekly-shift-calendars-20261125/browser.mjs

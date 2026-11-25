@@ -41,6 +41,7 @@ function ppWCMount(){
   });
   if(!table||!table.parentElement)return;
   const parent=table.parentElement,old=parent.querySelector('[data-pp-weekly-calendar]');
+  if(old&&old.__ppEmployeeTable===table)return;
   if(old)old.remove();
   const ru=String(document.documentElement.lang||'').startsWith('ru')||Array.from(table.querySelectorAll('th')).some(x=>x.textContent.trim()==='Сотрудник');
   const t=(en,rs)=>ru?rs:en;
@@ -50,7 +51,7 @@ function ppWCMount(){
   const el=(tag,txt)=>{const x=document.createElement(tag);if(txt!==undefined)x.textContent=txt;return x};
   const button=(txt,click)=>{const b=el('button',txt);b.type='button';b.className='pp-edit-input';b.addEventListener('click',click);return b};
   const input=(type,value,change)=>{const x=el('input');x.type=type;x.value=value;x.className='pp-edit-input';x.addEventListener('input',()=>change(x.value));return x};
-  const panel=el('section');panel.dataset.ppWeeklyCalendar='1';panel.style.cssText='display:grid;gap:12px;margin:0 0 16px;padding:16px;border:1px solid #d7e1ee;border-radius:10px;';
+  const panel=el('section');panel.dataset.ppWeeklyCalendar='1';panel.__ppEmployeeTable=table;panel.style.cssText='display:grid;gap:12px;margin:0 0 16px;padding:16px;border:1px solid #d7e1ee;border-radius:10px;';
   const head=el('div');head.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
   head.append(el('strong',t('Work schedules','Рабочие графики')));
   const controls=el('div');controls.style.cssText='display:flex;gap:8px;flex-wrap:wrap';head.append(controls);
@@ -61,24 +62,24 @@ function ppWCMount(){
   const render=()=>{
     content.replaceChildren();
     for(const id of Object.keys(state)){
-      const cal=state[id],card=el('div');card.style.cssText='display:grid;gap:10px;padding:12px;border:1px solid #d7e1ee;border-radius:8px';
+      const cal=state[id],card=el('div');card.dataset.ppShift=id;card.style.cssText='display:grid;gap:10px;padding:12px;border:1px solid #d7e1ee;border-radius:8px';
       const row=el('div');row.style.cssText='display:flex;gap:12px;flex-wrap:wrap;align-items:center';
-      row.append(el('strong',id));
+      row.append(el('strong',cal?.name||id));
       if(!cal){
         row.append(el('span',t('Schedule is not configured','График не настроен')),button(t('Configure','Настроить'),()=>{state[id]={name:id,days:[1,2,3,4,5],start:'08:00',end:'17:00',full_day:false,breaks:[]};dirty.add(id);render()}));card.append(row);content.append(card);continue;
       }
       const mark=()=>dirty.add(id);
-      const field=(txt,type,value,change)=>{const label=el('label',txt+' ');label.append(input(type,value,v=>{change(v);mark()}));return label};
-      row.append(field(t('Name','Название'),'text',cal.name||id,v=>cal.name=v),
-        field(t('Start','Начало'),'time',cal.start,v=>cal.start=v),
-        field(t('End','Окончание'),'time',cal.end,v=>cal.end=v));
-      const full=el('label'),check=el('input');check.type='checkbox';check.checked=cal.full_day===true;check.addEventListener('change',()=>{cal.full_day=check.checked;mark()});full.append(check,document.createTextNode(t(' 24 hours (same start/end)',' 24 часа (одинаковое время)')));row.append(full);
+      const field=(key,txt,type,value,change)=>{const label=el('label',txt+' '),control=input(type,value,v=>{change(v);mark()});control.dataset.ppCalendarField=key;label.append(control);return label};
+      row.append(field('name',t('Name','Название'),'text',cal.name||id,v=>cal.name=v),
+        field('start',t('Start','Начало'),'time',cal.start,v=>cal.start=v),
+        field('end',t('End','Окончание'),'time',cal.end,v=>cal.end=v));
+      const full=el('label'),check=el('input');check.type='checkbox';check.dataset.ppCalendarFullDay='1';check.checked=cal.full_day===true;check.addEventListener('change',()=>{cal.full_day=check.checked;mark()});full.append(check,document.createTextNode(t(' 24 hours (same start/end)',' 24 часа (одинаковое время)')));row.append(full);
       card.append(row);
       const days=el('div');days.style.cssText='display:flex;gap:12px;flex-wrap:wrap';
-      labels.forEach((label,i)=>{const l=el('label'),c=el('input');c.type='checkbox';c.checked=cal.days.includes(i+1);c.addEventListener('change',()=>{cal.days=cal.days.filter(x=>x!==i+1);if(c.checked)cal.days.push(i+1);mark()});l.append(c,document.createTextNode(' '+label));days.append(l)});card.append(days);
+      labels.forEach((label,i)=>{const l=el('label'),c=el('input');c.type='checkbox';c.dataset.ppCalendarDay=String(i+1);c.checked=cal.days.includes(i+1);c.addEventListener('change',()=>{cal.days=cal.days.filter(x=>x!==i+1);if(c.checked)cal.days.push(i+1);mark()});l.append(c,document.createTextNode(' '+label));days.append(l)});card.append(days);
       const breaks=el('div');breaks.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:center';breaks.append(el('span',t('Breaks','Перерывы')));
-      cal.breaks.forEach((pair,index)=>{const r=el('div');r.style.cssText='display:flex;gap:4px;align-items:center';r.append(input('time',pair[0],v=>{pair[0]=v;mark()}),el('span','–'),input('time',pair[1],v=>{pair[1]=v;mark()}),button('×',()=>{cal.breaks.splice(index,1);mark();render()}));breaks.append(r)});
-      breaks.append(button(t('+ Break','+ Перерыв'),()=>{cal.breaks.push(['12:00','13:00']);mark();render()}));card.append(breaks);
+      cal.breaks.forEach((pair,index)=>{const r=el('div');r.dataset.ppCalendarBreak=String(index);r.style.cssText='display:flex;gap:4px;align-items:center';r.append(input('time',pair[0],v=>{pair[0]=v;mark()}),el('span','–'),input('time',pair[1],v=>{pair[1]=v;mark()}),button('×',()=>{cal.breaks.splice(index,1);mark();render()}));breaks.append(r)});
+      const addBreak=button(t('+ Break','+ Перерыв'),()=>{cal.breaks.push(['12:00','13:00']);mark();render()});addBreak.dataset.ppAddBreak='1';breaks.append(addBreak);card.append(breaks);
       content.append(card);
     }
   };
@@ -91,11 +92,11 @@ function ppWCMount(){
       for(const id of dirty){const cal=state[id];if(!cal)throw Error('Invalid shift');next.shifts[id]=ppWCBlocks(cal);next.shift_calendars[id]=JSON.parse(JSON.stringify(cal))}
     }catch(e){message.textContent=String(e.message||e);return}
     saving=true;commit.disabled=true;message.textContent='';
-    try{await save(next,'employees');queueMicrotask(()=>ppWCMount())}
+    try{await save(next,'Сотрудники');if(JSON.stringify(model?.shift_calendars)!==JSON.stringify(next.shift_calendars)){message.textContent=t('Schedules were not saved. Please retry.','Графики не сохранены. Повторите попытку.');return}dirty.clear();if(panel.isConnected){panel.remove();queueMicrotask(()=>ppWCMount())}}
     catch(e){message.textContent=t('Unable to save schedules','Не удалось сохранить графики')}
     finally{saving=false;commit.disabled=false}
   });
-  controls.append(add,commit);panel.append(head,content,message);render();parent.insertBefore(panel,table);
+  add.dataset.ppAddShift='1';commit.dataset.ppSaveSchedules='1';controls.append(add,commit);panel.append(head,content,message);render();parent.insertBefore(panel,table);
   const headers=Array.from(table.querySelectorAll('th')).map(x=>x.textContent.trim().toLowerCase());
   const column=headers.findIndex(x=>/^(schedule|график|расписание)$/.test(x));
   for(const row of table.querySelectorAll('tbody tr')){
