@@ -134,3 +134,19 @@ test('candidate alone is withheld until the native solver publishes a complete b
     assert.equal(s.events.find(e=>e.kind==='preview').data.plan._pp_preview_origin,'best');
   }finally{await s.close();}
 });
+test('clipped best retains only native presentation context and full KPIs for baseline migration',async()=>{
+  const context={model_key:JSON.stringify({...model,objective:'duration'}),pin_key:null,objective:'duration'};
+  const best={...plan(),_pp_native_schedule_v1:{version:'integrated-native-setup-v1-20261125',
+    context:{...context,unrelated:'not part of the preview contract'},signature:'full-plan-only'}};
+  const h=makeHarness({best}),s=await h.subscribe();
+  try{
+    await until(()=>s.events.some(e=>e.kind==='preview'));
+    const preview=s.events.find(e=>e.kind==='preview').data.plan;
+    assert.equal(preview.partial,true);
+    assert.equal(preview._pp_preview_origin,'best');
+    assert.equal(preview.operations.length,10);
+    assert.equal(preview._pp_preview_kpis.duration_minutes,99);
+    assert.deepEqual(preview._pp_preview_native_context,{version:'integrated-native-setup-v1-20261125',context});
+    assert.equal(preview._pp_native_schedule_v1,undefined,'a clipped preview is never a complete canonical plan');
+  }finally{await s.close();}
+});

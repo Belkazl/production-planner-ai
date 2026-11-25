@@ -15,7 +15,14 @@ const AFTER=String.raw`            // pp_integrated_setup_best_preview_v1: the m
             const source="best";
             const stored=data.best_preview;
             const candidate=stored?.valid===true&&stored.partial!==true?
-              boundedPreview(stored,model):null;`;
+              boundedPreview(stored,model):null;
+            // Presentation context belongs to the complete best, although
+            // its visible rows are clipped. It never authorizes a schedule.
+            const nativeStamp=stored?._pp_native_schedule_v1;
+            if(candidate&&nativeStamp?.version==="integrated-native-setup-v1-20261125")
+              candidate._pp_preview_native_context={version:nativeStamp.version,
+                context:{model_key:nativeStamp.context.model_key,pin_key:nativeStamp.context.pin_key,
+                  objective:nativeStamp.context.objective}};`;
 const MARKER='pp_integrated_setup_best_preview_v1';
 
 export function patchPreview(source){

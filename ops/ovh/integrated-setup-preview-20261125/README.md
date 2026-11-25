@@ -7,6 +7,11 @@ four-second sampling, job identity checks and ten-operation-per-lane bound.
 The visible rows, setup rows and full-plan KPI values always come from the same
 plan. A valid best with no required changeovers remains valid.
 
+The clipped preview carries only the canonical best's presentation context and
+full KPI values. The UI can replace a comparison against an obsolete legacy plan
+once, before displaying the first new best, while retaining subsequent genuine
+improvement deltas. This context never makes a partial preview a final plan.
+
 Apply after the canonical integrated-setup result patch:
 
 ```sh

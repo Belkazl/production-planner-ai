@@ -33,6 +33,7 @@ export const INTEGRATED_SETUP_SOURCE_LABELS = Object.freeze([
   'aps_reverse_native_progress', 'aps_reverse_native_post', 'aps_reverse_client_incumbent', 'aps_reverse_client_persistence',
   'ui_presentation', 'ui_legacy_floor', 'ui_installed_presentation', 'ui_installed_legacy_floor',
   'ui_reverse_presentation', 'ui_reverse_legacy_floor',
+  'ui_preview_migration', 'ui_installed_preview_migration', 'ui_reverse_preview_migration',
   'upstream_required_guard', 'aps_required_guard', 'ui_required_guard'
 ]);
 const sourceLabels = new Set(INTEGRATED_SETUP_SOURCE_LABELS);
@@ -206,7 +207,8 @@ export function patchAps(source, inspect = false) {
 
 export function patchUi(source, inspect = false) {
   for (const guard of ['function ppGaQualityFloorV1(){', '__PP_GA_OBJECTIVE_FLOOR_V1__',
-    'function ppFixedFirstBestKpiDelta(){', 'function ppSelectedPlanKpiReferenceV2(){'])
+    'function ppFixedFirstBestKpiDelta(){', 'function ppSelectedPlanKpiReferenceV2(){',
+    'function updatePreviewKpis(preview){'])
     if (!source.includes(guard)) throw Error('INTEGRATED_SETUP_REQUIRED_UI_GUARD');
   const before = '  const incumbent=floor();\n  if(!incumbent)return response;\n  const selectedKey=keyFor(goal());';
   const after = '  const nativePresentation=window.__PP_INTEGRATED_NATIVE_RESULT_V1__;\n' +
@@ -216,7 +218,10 @@ export function patchUi(source, inspect = false) {
     '  if(!incumbent)return response;';
   return change(source, [
     [';(function ppGaQualityFloorV1(){', uiHelpers + ';(function ppGaQualityFloorV1(){', 'presentation'],
-    [before, after, 'legacy_floor']
+    [before, after, 'legacy_floor'],
+    [' const render=window.renderKpisWithDelta;\n if(typeof render!=="function")return;',
+      ' window.__PP_INTEGRATED_NATIVE_RESULT_V1__?.acceptPreview?.(preview);\n' +
+      ' const render=window.renderKpisWithDelta;\n if(typeof render!=="function")return;', 'preview_migration']
   ], 'ui', inspect);
 }
 

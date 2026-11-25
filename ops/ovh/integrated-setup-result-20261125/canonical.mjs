@@ -167,6 +167,13 @@ export function ppNativePresentationSupersedes(plan, previous) {
 
 export function ppInstallNativePresentation() {
   if (window.__PP_INTEGRATED_NATIVE_RESULT_V1__) return;
+  const migrated = new Map();
+  const contextOf = value => {
+    if (!value || typeof value.model_key !== 'string' || !value.model_key || value.model_key.length > 65536 ||
+        !(value.pin_key === null || typeof value.pin_key === 'string' && value.pin_key.length <= 256) ||
+        !['duration', 'wait', 'idle', 'cycles', 'balanced'].includes(value.objective)) return null;
+    return {model_key: value.model_key, pin_key: value.pin_key, objective: value.objective};
+  };
   const current = () => {
     try {
       const id = localStorage.getItem('prodplan.project.active.v2');
@@ -176,36 +183,64 @@ export function ppInstallNativePresentation() {
   const choices = () => {
     const project = current();
     if (!project) return [];
-    return [project.lastPlan, window.__ppOptimizerCommittedPlan,
-      window.__ppFreshRestartProject === project.id ? window.__ppFreshDisplayBaseline : null]
+    const fresh = window.__ppFreshRestartMode === true && String(window.__ppFreshRestartProject) === String(project.id);
+    // Preserve the existing fresh-search rule: only its first accepted new
+    // result can be a comparator; an older saved canonical plan stays stored.
+    return (fresh ? [window.__ppFreshReferencePlan] : [project.lastPlan, window.__ppOptimizerCommittedPlan,
+      window.__ppFreshRestartProject === project.id ? window.__ppFreshDisplayBaseline : null])
       .filter(plan => plan && (plan._revision == null || Number(plan._revision) === Number(project.revision)));
   };
-  const matching = plan => choices().filter(prior => ppNativePresentationPlan(prior) &&
-    JSON.stringify(prior._pp_native_schedule_v1.context) === JSON.stringify(plan._pp_native_schedule_v1.context));
-  const resetComparison = plan => {
+  const matchingContext = context => choices().filter(prior => ppNativePresentationPlan(prior) &&
+    JSON.stringify(contextOf(prior._pp_native_schedule_v1.context)) === JSON.stringify(context));
+  const matching = plan => matchingContext(contextOf(plan._pp_native_schedule_v1.context));
+  const resetComparison = (plan, rawContext) => {
     try {
-      const project = current();
-      if (!project) return;
+      const project = current(), context = contextOf(rawContext);
+      if (!project || !context) return false;
       const key = 'pp.kpi.first-best.v1.' + String(project.id).slice(0, 170);
       const previous = JSON.parse(localStorage.getItem(key) || 'null');
+      const scope = JSON.stringify([String(project.id), Number(project.revision || 0), context]);
+      if (previous && String(previous.projectId) === String(project.id) &&
+          Number(previous.revision) === Number(project.revision || 0) &&
+          JSON.stringify(contextOf(previous.native_context)) === JSON.stringify(context)) {
+        if (!migrated.has(scope)) migrated.set(scope, {...previous, compare: false});
+        return false;
+      }
       const metrics = {duration: plan.duration_minutes, cycles: plan.batch_count,
         wait: plan.operator_wait_minutes, idle: plan.machine_idle_minutes};
-      const record = {projectId: String(project.id), revision: Number(project.revision || 0), metrics,
-        compare: false, selectedSource: 'native_constraints_revalidated',
+      // Stop -> previous can deliberately restore the legacy comparison
+      // record. Restore the SAME first native reference on the next preview;
+      // do not rebase it to whatever improvement happens to arrive now.
+      const record = migrated.get(scope) || {projectId: String(project.id), revision: Number(project.revision || 0), metrics,
+        compare: false, selectedSource: 'native_constraints_revalidated', native_context: context,
         ...(previous?.metrics ? {obsolete_metrics: previous.metrics, obsolete_comparison: true} : {})};
       localStorage.setItem(key, JSON.stringify(record));
+      migrated.set(scope, record);
       window.__ppKpiBaselinePlan = null;
       try { if (typeof previousKpiMetrics !== 'undefined') previousKpiMetrics = null; } catch {}
       window.__PP_KPI_FIRST_BEST_V1__?.sync?.();
-    } catch {}
+      return true;
+    } catch { return false; }
   };
   window.__PP_INTEGRATED_NATIVE_RESULT_V1__ = {
     isPlan: ppNativePresentationPlan,
     supersedes: ppNativePresentationSupersedes,
     acceptResponse(plan) {
       if (!ppNativePresentationPlan(plan) || matching(plan).length) return false;
-      resetComparison(plan);
+      resetComparison(plan, plan._pp_native_schedule_v1.context);
       return true;
+    },
+    acceptPreview(preview) {
+      // This metadata controls comparison display only. A clipped preview
+      // never becomes an accepted plan, native state, or authorization proof.
+      const stamp = preview?._pp_preview_native_context, metrics = preview?._pp_preview_kpis;
+      if (preview?.partial !== true || preview._pp_preview_origin !== 'best' ||
+          stamp?.version !== 'integrated-native-setup-v1-20261125' || !metrics ||
+          !['duration_minutes', 'batch_count', 'operator_wait_minutes', 'machine_idle_minutes']
+            .every(key => typeof metrics[key] === 'number' && Number.isFinite(metrics[key]) && metrics[key] >= 0)) return false;
+      const context = contextOf(stamp.context);
+      if (!context || matchingContext(context).length) return false;
+      return resetComparison(metrics, context);
     },
     matchingFloor(plan, key, prefersNew) {
       if (!ppNativePresentationPlan(plan)) return null;

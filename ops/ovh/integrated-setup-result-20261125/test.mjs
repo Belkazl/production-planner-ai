@@ -50,7 +50,11 @@ const aps = originalAps.replace('async function progress(req){', reconcile + '\n
 const patchedAps = patchAps(aps);
 const floorSource = read('ops/ovh/ga-objective-floor-active-ui-20261118/patch.mjs');
 const floor = JSON.parse(floorSource.match(/^const appended=(".*");$/m)[1]);
-const ui = 'function ppFixedFirstBestKpiDelta(){}\nfunction ppSelectedPlanKpiReferenceV2(){}\n' + floor;
+const sseSource = read('ops/ovh/sse-stream-v1-20261120/frontend.js.txt');
+const consumer = sseSource.slice(sseSource.indexOf('function updatePreviewKpis(preview){'), sseSource.indexOf('\nfunction paintPreview(){'));
+assert(consumer.startsWith('function updatePreviewKpis(preview){') && consumer.endsWith('}'));
+const ui = 'function ppFixedFirstBestKpiDelta(){}\nfunction ppSelectedPlanKpiReferenceV2(){}\n' + floor +
+  '\n' + consumer + '\nfunction paintPreview(){}';
 const patchedUi = patchUi(ui);
 
 test('source diagnostics report all fixed anchor counts without source excerpts', () => {
@@ -60,7 +64,7 @@ test('source diagnostics report all fixed anchor counts without source excerpts'
     'baselines/2026-10-10/aps-setup-bridge/index.ts': patchedAps, 'restart-optimizer-ui.js': patchedUi};
   for (const sources of [files, installed]) {
     const facts = classifyAppAnchors(sources);
-    assert.equal(facts.length, 23);
+    assert.equal(facts.length, 24);
     assert(facts.every(row => row.count === row.expected && INTEGRATED_SETUP_SOURCE_LABELS.includes(row.label)));
   }
   const secret = 'PRIVATE_SOURCE_SENTINEL_NOT_METADATA';
@@ -123,6 +127,38 @@ function floorHarness(incoming, previous, source = patchedUi) {
   assert(start >= 0 && floorAt > start && end > floorAt);
   runInNewContext(source.slice(start, end), context, {timeout: 1000});
   return {window, values, context};
+}
+
+function previewKpiHarness(incoming, previous) {
+  const h = floorHarness(incoming, previous), classes = new Set();
+  h.context.document = {createElement: () => ({}), head: {appendChild() {}},
+    documentElement: {classList: {contains: name => classes.has(name),
+      toggle(name, active) { if (active) classes.add(name); else classes.delete(name); }}},
+    getElementById: () => null};
+  h.context.setInterval = () => 0;
+  h.context.window.addEventListener = () => {};
+  h.context.localStorage.removeItem = key => h.values.delete(key);
+  h.context.rendered = [];
+  runInNewContext('window.renderKpisWithDelta=function(plan){rendered.push({duration:plan.duration_minutes,' +
+    'baseline:previousKpiMetrics?{...previousKpiMetrics}:null,' +
+    'delta:previousKpiMetrics?plan.duration_minutes-previousKpiMetrics.duration:null});};', h.context);
+  const pluginSource = read('ops/ovh/kpi-delta-first-best-20261118/patch.mjs');
+  const plugin = JSON.parse(pluginSource.match(/const addon=("(?:\\.|[^"\\])*");/)[1]);
+  runInNewContext(plugin, h.context, {timeout: 1000});
+  const actualConsumer = patchedUi.slice(patchedUi.indexOf('function updatePreviewKpis(preview){'),
+    patchedUi.indexOf('\nfunction paintPreview(){'));
+  runInNewContext('let kpiUpdates=0,lastKpiMetrics=null;\n' + actualConsumer +
+    '\nwindow.__testUpdatePreviewKpis=updatePreviewKpis;', h.context, {timeout: 1000});
+  return {...h, update: value => h.window.__testUpdatePreviewKpis(value)};
+}
+
+function nativePreview(plan, duration = plan.duration_minutes) {
+  return {partial: true, _pp_preview_limited: true, _pp_preview_origin: 'best',
+    operations: clone(plan.operations.slice(0, 1)),
+    _pp_preview_kpis: {duration_minutes: duration, batch_count: plan.batch_count,
+      operator_wait_minutes: plan.operator_wait_minutes, machine_idle_minutes: plan.machine_idle_minutes},
+    _pp_preview_native_context: {version: plan._pp_native_schedule_v1.version,
+      context: clone(plan._pp_native_schedule_v1.context)}};
 }
 
 test('delayed native production and setup are joined without any retiming or KPI/resume rewrite', () => {
@@ -295,6 +331,92 @@ test('old4368 floor cannot replace a currently authoritative10260 result or reta
   assert.equal(reference.obsolete_metrics.duration, 4368);
   assert.equal(reference.obsolete_comparison, true);
   assert.equal(h.window.__ppKpiBaselinePlan, null);
+});
+
+test('actual SSE KPI consumer and first-best plugin remove the legacy comparison once through previews and final', async () => {
+  const previous = native({duration_minutes: 4368, history_best: undefined, resume_state: undefined});
+  const final = canonical(native({duration_minutes: 9600, history_best: [9600],
+    resume_state: {...native().resume_state, best_duration_minutes: 9600}}));
+  const h = previewKpiHarness(final, previous), key = 'pp.kpi.first-best.v1.project';
+  h.update(nativePreview(final, 10260));
+  const first = h.values.get(key), record = JSON.parse(first);
+  assert.equal(record.metrics.duration, 10260);
+  assert.equal(record.obsolete_metrics.duration, 4368);
+  assert.equal(record.compare, false);
+  assert.deepEqual(record.native_context, final._pp_native_schedule_v1.context);
+  assert.equal(h.context.rendered.at(-1).baseline, null);
+  assert.equal(h.context.rendered.at(-1).delta, null);
+  h.update(nativePreview(final, 9900));
+  assert.equal(h.values.get(key), first, 'improving previews must not move the first native reference');
+  assert.equal(h.context.rendered.at(-1).duration, 9900);
+  assert.equal(h.context.rendered.at(-1).delta, null);
+  const accepted = await (await h.window.fetch('/api/plan', {method: 'POST'})).json();
+  assert.equal(accepted.duration_minutes, 9600);
+  assert.equal(h.values.get(key), first, 'the final must retain the same migration baseline');
+  delete h.window.__PP_INTEGRATED_NATIVE_RESULT_V1__;
+  const start = patchedUi.indexOf('// pp_integrated_native_setup_20261125');
+  const end = patchedUi.indexOf(';(function ppGaQualityFloorV1(){', start);
+  runInNewContext(patchedUi.slice(start, end), h.context, {timeout: 1000});
+  h.update(nativePreview(final, 9500));
+  assert.equal(h.values.get(key), first, 'persisted native context prevents migration rebasing after reinstall');
+});
+
+test('native-to-native preview comparisons keep their accepted baseline and unmarked candidates cannot reset it', () => {
+  const previous = canonical(native({duration_minutes: 9000, history_best: [9000],
+    resume_state: {...native().resume_state, best_duration_minutes: 9000}}));
+  const next = canonical(native({duration_minutes: 8500, history_best: [8500],
+    resume_state: {...native().resume_state, best_duration_minutes: 8500}}));
+  const h = previewKpiHarness(next, previous), key = 'pp.kpi.first-best.v1.project', before = h.values.get(key);
+  h.update(nativePreview(next));
+  assert.equal(h.values.get(key), before);
+  assert.equal(h.context.rendered.at(-1).baseline.duration, 9000);
+  assert.equal(h.context.rendered.at(-1).delta, -500);
+  const legacy = floorHarness(next, native({duration_minutes: 4368, history_best: undefined, resume_state: undefined}));
+  const original = legacy.values.get(key);
+  for (const change of [p => delete p._pp_preview_native_context, p => p._pp_preview_origin = 'candidate',
+    p => p.partial = false, p => p._pp_preview_kpis.duration_minutes = NaN,
+    p => p._pp_preview_native_context.context.model_key = '']) {
+    const preview = nativePreview(next); change(preview);
+    assert.equal(legacy.window.__PP_INTEGRATED_NATIVE_RESULT_V1__.acceptPreview(preview), false);
+    assert.equal(legacy.values.get(key), original);
+  }
+});
+
+test('Stop previous followed by Continue restores the same first native reference without using an improved preview as baseline', () => {
+  const previous = native({duration_minutes: 4368, history_best: undefined, resume_state: undefined});
+  const final = canonical(native({duration_minutes: 9600, history_best: [9600],
+    resume_state: {...native().resume_state, best_duration_minutes: 9600}}));
+  const h = previewKpiHarness(final, previous), key = 'pp.kpi.first-best.v1.project';
+  const legacyReference = JSON.parse(h.values.get(key));
+  h.update(nativePreview(final, 10260));
+  const firstNativeReference = h.values.get(key);
+  // Existing selected-reference plugin records explicit Stop previous and
+  // the next Continue enables comparison with that selected legacy record.
+  h.values.set(key, JSON.stringify({...legacyReference, selectedSource: 'stop_previous', compare: true}));
+  h.update(nativePreview(final, 9900));
+  assert.equal(h.values.get(key), firstNativeReference);
+  assert.equal(JSON.parse(h.values.get(key)).metrics.duration, 10260);
+  assert.equal(h.context.rendered.at(-1).duration, 9900);
+  assert.equal(h.context.rendered.at(-1).delta, null);
+  h.update(nativePreview(final, 9800));
+  assert.equal(h.values.get(key), firstNativeReference);
+});
+
+test('fresh mode compares only its accepted new reference and never revives an older canonical saved plan', async () => {
+  const planAt = duration => canonical(native({duration_minutes: duration, history_best: [duration],
+    resume_state: {...native().resume_state, best_duration_minutes: duration}}));
+  const h = floorHarness(planAt(10000), planAt(9000));
+  h.window.__ppFreshRestartMode = true;
+  h.window.__ppFreshRestartProject = 'project';
+  h.window.__ppFreshReferencePlan = null;
+  const first = await (await h.window.fetch('/api/plan', {method: 'POST'})).json();
+  assert.equal(first.duration_minutes, 10000);
+  assert.equal(first.optimization_previous_best_preserved, undefined);
+  h.window.__ppFreshReferencePlan = planAt(9500);
+  const second = await (await h.window.fetch('/api/plan', {method: 'POST'})).json();
+  assert.equal(second.duration_minutes, 9500);
+  assert.equal(JSON.parse(h.values.get('prodplan.projects.v2'))[0].lastPlan.duration_minutes, 9000,
+    'saved history is preserved while excluded from the fresh comparison');
 });
 
 test('matching canonical context still preserves the better accepted objective value', async () => {
