@@ -1,0 +1,106 @@
+name: Verify native resource presentation and secondary Gantt zoom
+
+# Source changes only verify. Production requires a separately accepted marker.
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-presentation-verify-20261125.yml
+      - .github/workflows/liftorbit-presentation-release-20261125.yml
+      - ops/ovh/presentation-release-20261125/*.py
+      - ops/ovh/presentation-release-20261125/*.sh
+      - ops/ovh/presentation-release-20261125/*.mjs
+      - ops/ovh/presentation-release-20261125/Dockerfile.verify
+      - ops/ovh/presentation-release-20261125/baseline.json
+      - ops/ovh/resource-presentation-20261125/**
+      - ops/ovh/secondary-zoom-20261125/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-presentation-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check public capture release and presentation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/presentation-release-20261125/release.sh
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/presentation-release-20261125 -p 'test_*.py'
+          node --test ops/ovh/presentation-release-20261125/test.mjs ops/ovh/presentation-release-20261125/test-runtime.mjs ops/ovh/resource-presentation-20261125/test.mjs
+          node ops/ovh/secondary-zoom-20261125/test.mjs
+      - name: Prepare public Python Node and Bun runtimes before private capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          docker build -f ops/ovh/presentation-release-20261125/Dockerfile.verify \
+            -t presentation-verifier:local ops/ovh/presentation-release-20261125
+          docker image inspect --format '{{.Id}}' presentation-verifier:local > "$RUNNER_TEMP/presentation-image"
+      - name: Read approved app code and native hashes privately
+        shell: bash
+        env:
+          PRESENTATION_SSH_HOST: ${{ vars.OVH_HOST }}
+          PRESENTATION_SSH_USER: ${{ vars.OVH_USER }}
+          PRESENTATION_SSH_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          PRESENTATION_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$PRESENTATION_SSH_HOST" = 51.255.163.121
+          test "$PRESENTATION_SSH_USER" = liftorbit-ci
+          printf '%s\n' "$PRESENTATION_SSH_KEY" > "$RUNNER_TEMP/presentation-key"
+          printf '%s\n' "$PRESENTATION_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/presentation-known-hosts"
+          chmod 600 "$RUNNER_TEMP/presentation-key" "$RUNNER_TEMP/presentation-known-hosts"
+          trap 'rm -f -- "$RUNNER_TEMP/presentation-key" "$RUNNER_TEMP/presentation-known-hosts"' EXIT
+          opts=(-i "$RUNNER_TEMP/presentation-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/presentation-known-hosts" -o ConnectTimeout=20)
+          if ! ssh "${opts[@]}" "$PRESENTATION_SSH_USER@$PRESENTATION_SSH_HOST" 'python3 -B -I - --emit-private-bundle' \
+            < ops/ovh/presentation-release-20261125/capture.py \
+            > "$RUNNER_TEMP/presentation-app.bundle" 2> "$RUNNER_TEMP/presentation-transport-private.log"; then
+            echo PRESENTATION_RELEASE_TRANSFER_FAILED app_sources
+            exit 6
+          fi
+          python3 -B -I ops/ovh/presentation-release-20261125/native_hashes.py --emit-program \
+            > "$RUNNER_TEMP/presentation-native-program.py"
+          if ! ssh "${opts[@]}" "$PRESENTATION_SSH_USER@$PRESENTATION_SSH_HOST" 'python3 -B -I -' \
+            < "$RUNNER_TEMP/presentation-native-program.py" \
+            > "$RUNNER_TEMP/presentation-native-hashes.json" 2>> "$RUNNER_TEMP/presentation-transport-private.log"; then
+            echo PRESENTATION_RELEASE_TRANSFER_FAILED native_hashes
+            exit 6
+          fi
+      - name: Verify exact UI append actual Bun build chain and unchanged inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -I ops/ovh/presentation-release-20261125/verify.py \
+            --app-bundle "$RUNNER_TEMP/presentation-app.bundle" \
+            --native-hashes "$RUNNER_TEMP/presentation-native-hashes.json" \
+            --image-id "$(cat "$RUNNER_TEMP/presentation-image")"
+      - name: Remove every captured source and private log
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/presentation-key" "$RUNNER_TEMP/presentation-known-hosts" \
+            "$RUNNER_TEMP/presentation-app.bundle" "$RUNNER_TEMP/presentation-native-hashes.json" \
+            "$RUNNER_TEMP/presentation-native-program.py" "$RUNNER_TEMP/presentation-transport-private.log" \
+            "$RUNNER_TEMP/presentation-image"
+          for private_stage in "$RUNNER_TEMP"/presentation-private-*; do
+            if test -d "$private_stage" && test ! -L "$private_stage"; then rm -rf -- "$private_stage"; fi
+          done
