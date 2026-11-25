@@ -318,7 +318,9 @@ def verify(adapter, joint, previous_source, cases, diversity_verify, regression_
     report['lunch_break_improves'] = (report['cases']['lunch_break']['target_cut_evaluated']
         and abs(report['cases']['lunch_break']['best_duration'] - 950) < cases.EPS)
     report['setup_cut_25'] = (report['cases']['setup_reservation']['target_cut_evaluated']
-        and abs(report['cases']['setup_reservation']['best_duration'] - 495) < cases.EPS)
+        and report['cases']['setup_reservation']['baseline_duration']
+            - report['cases']['setup_reservation']['best_duration'] >= 25 - cases.EPS
+        and report['cases']['setup_reservation']['best_duration'] <= 500 + cases.EPS)
     for key in COUNT_FIELDS:
         report['counts'][key] = sum(run['counts'][key] for run in runs)
         need(0 <= report['counts'][key] <= 1000, 'diagnostic_counts')

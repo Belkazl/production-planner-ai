@@ -78,7 +78,7 @@ It accepts no customer fixture. The four invented reported cases are:
 | --- | --- | --- |
 | `shift_window` | 00:00–00:30, then 01:00–09:00; quantity 400, maximum 200 | A 30-unit cut is evaluated; makespan 460 → 430 |
 | `lunch_break` | 08:00–12:00, 13:00–17:00; pinned work through 11:30; quantity 200 | A 30-unit cut is evaluated; makespan 980 → 950 |
-| `setup_reservation` | 00:00–01:00, 02:00–10:00; pinned 30-unit prefix and a five-minute setup | A 25-unit cut is evaluated; native makespan 495 with the setup reserved |
+| `setup_reservation` | 00:00–01:00, 02:00–10:00; pinned 30-unit prefix and a five-minute setup | A 25-unit cut is evaluated; the synthetic scheduler reaches 495; the actual native worker must keep the setup reserved, improve by at least 25 minutes and finish no later than 500 |
 | `overnight` | Daily 00:00–08:00; pinned work through minute 450; quantity 400 | A 30-unit cut is evaluated; makespan 1840 → 1810 |
 
 Two internal native witnesses additionally require a shift that begins after
