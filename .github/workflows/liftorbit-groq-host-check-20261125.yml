@@ -1,0 +1,63 @@
+name: Test Groq connectivity from the actual LiftOrbit host
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths: [.github/workflows/liftorbit-groq-host-check-20261125.yml]
+permissions:
+  contents: read
+jobs:
+  connectivity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Test official API from the intended deployment host without persisting the key
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          test -n "$GROQ_API_KEY"
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          opts=(-i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20)
+          cat > "$d/probe.py" <<'PY'
+          import sys,json,urllib.request,urllib.error
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kw):return None
+          key=sys.stdin.read().strip()
+          if not key:raise SystemExit(2)
+          request=urllib.request.Request("https://api.groq.com/openai/v1/chat/completions",data=json.dumps({"model":"openai/gpt-oss-120b","messages":[{"role":"user","content":"Reply with exactly OK."}],"max_completion_tokens":128,"reasoning_effort":"low"}).encode(),headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},method="POST")
+          try:
+              with urllib.request.build_opener(NoRedirect()).open(request,timeout=20) as r:
+                  value=json.load(r)["choices"][0]["message"]["content"]
+                  if not isinstance(value,str) or not value.strip():raise ValueError()
+                  print("GROQ_HOST_COMPLETION_PASS",r.status)
+          except urllib.error.HTTPError as e:
+              print("GROQ_HOST_HTTP_STATUS",e.code)
+              raw=e.read(8192)
+              try:
+                  err=json.loads(raw).get("error",{})
+                  if not isinstance(err,dict):err={}
+              except Exception:err={}
+              msg=str(err.get("message","")).lower()
+              code=err.get("code")
+              known={"model_permission_blocked_org","model_permission_blocked_project","invalid_api_key","organization_restricted","access_denied","unsupported_country_region_territory","permission_denied"}
+              print("GROQ_HOST_ERROR_CLASS",json.dumps({"code":code if code in known else "other","region":any(x in msg for x in ("region","country","territory")),"permissions":any(x in msg for x in ("permission","blocked","forbidden","access")),"verification":any(x in msg for x in ("verify","verification","email")),"billing":any(x in msg for x in ("billing","spend","payment"))}))
+              raise SystemExit(3)
+          except Exception:
+              print("GROQ_HOST_COMPLETION_FAILED")
+              raise SystemExit(4)
+          PY
+          # Program text only in the remote command; the key travels only as stdin.
+          program=$(python3 -c 'import shlex,sys; print(shlex.quote(open(sys.argv[1]).read()))' "$d/probe.py")
+          printf '%s' "$GROQ_API_KEY" | ssh "${opts[@]}" "$USER@$HOST" "python3 -B -I -c $program"
