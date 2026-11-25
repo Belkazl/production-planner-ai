@@ -1,0 +1,43 @@
+name: Restart button backend preflight
+on:
+  push:
+    branches: [fix/restart-button-lifecycle-20261125]
+    paths:
+      - .github/workflows/liftorbit-restart-button-preflight-20261125.yml
+      - ops/ovh/restart-button-20261125/patch.mjs
+      - ops/ovh/restart-button-20261125/test.mjs
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture exact two deployed source files privately and validate candidate
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d "$RUNNER_TEMP/restart.XXXXXX")
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          mkdir "$d/old"
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          for name in restart-optimizer-server.js python-ga-upstream.mjs;do
+            scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST:$root/$name" "$d/old/$name" 2>"$d/private.log"
+          done
+          node ops/ovh/restart-button-20261125/patch.mjs "$d"
+          node --check "$d/new/restart-optimizer-server.js" >"$d/syntax.log" 2>&1
+          node --check "$d/new/python-ga-upstream.mjs" >>"$d/syntax.log" 2>&1
+          node ops/ovh/restart-button-20261125/test.mjs "$d"
