@@ -1,0 +1,54 @@
+name: Inspect existing assistant route and UI contract read-only
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths: [.github/workflows/liftorbit-groq-chat-contract-20261125.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect application-owned chat routing, not secrets or customer records
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          for name in ('index.ts','tenant-model-runtime.js','tenant-model-build.ts','auth-runtime.js','Dockerfile','build-bridge.ts','baselines/2026-10-10/aps-setup-bridge/index.ts'):
+              p=Path(name)
+              if not p.is_file() or p.is_symlink():continue
+              source=p.read_text()
+              lines=source.splitlines()
+              print('CHAT_FILE',name,len(lines),hashlib.sha256(source.encode()).hexdigest())
+              if name=='tenant-model-runtime.js' or name=='tenant-model-build.ts' or name=='Dockerfile':
+                  selected=set(range(len(lines)))
+              else:
+                  selected=set()
+                  for i,line in enumerate(lines):
+                      if re.search(r'api/chat|ppTenantModel|tenant-model|fetch\(req|ppReadAccountModel|ppAccountModel|AI Assistant|assistant_reply|ppAuth|auth-runtime|createPythonGAUpstream',line,re.I):
+                          selected.update(range(max(0,i-4),min(len(lines),i+8)))
+              for i in sorted(selected)[:220]:
+                  line=lines[i]
+                  if re.search(r'(?i)(?:gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN|postgres(?:ql)?://|(?:password|secret|token|api.key)\s*[:=]\s*["\x27][^"\x27]{12,})',line):line='[redacted literal]'
+                  print('CHAT_LINE',name,i+1,line[:950])
+          PY
+          REMOTE
