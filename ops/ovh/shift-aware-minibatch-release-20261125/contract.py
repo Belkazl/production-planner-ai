@@ -225,7 +225,9 @@ def safe_shift_case_results(cases):
 def safe_shift_probe_results(probes):
     if not isinstance(probes, dict):
         return {}
-    return {name: probes[name] for name in ('later_ready', 'nonzero_origin') if type(probes.get(name)) is bool}
+    return {name: probes[name] for name in ('later_ready', 'nonzero_origin',
+        'native_accepts_start_120', 'native_accepts_start_180', 'native_accepts_start_660')
+        if type(probes.get(name)) is bool}
 
 
 def validate_shift_cases(cases):

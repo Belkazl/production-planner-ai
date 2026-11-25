@@ -220,7 +220,7 @@ def candidate_before(source):
     return module
 
 
-def window_origin_probe(adapter, joint, cases, nonzero_origin=False, context=None):
+def window_origin_probe(adapter, joint, cases, nonzero_origin=False, context=None, diagnostics=None):
     model, _ = cases.fixture('shift_window')
     if nonzero_origin:
         model['start'] = '2026-11-25T08:00:00'
@@ -231,6 +231,14 @@ def window_origin_probe(adapter, joint, cases, nonzero_origin=False, context=Non
         opening, target = 480, 910
     run = observe(adapter, joint, model,
         {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'})
+    if nonzero_origin and isinstance(diagnostics, dict) and run['scored']:
+        first_sim = run['scored'][0][1]
+        windows = first_sim.get('ctx', {}).get('emp_windows')
+        probe = run['namespace'].get('_pp_in_window')
+        if windows is not None and callable(probe):
+            diagnostics['native_accepts_start_120'] = bool(probe(windows, cases.EMPLOYEE, 120, 30))
+            diagnostics['native_accepts_start_180'] = bool(probe(windows, cases.EMPLOYEE, 180, 200))
+            diagnostics['native_accepts_start_660'] = bool(probe(windows, cases.EMPLOYEE, 660, 200))
     # Check every native scored schedule before the formatter output to locate
     # calendar violations at the correct stage without relaxing any invariant.
     for index, (_, sim) in enumerate(run['scored']):
@@ -272,7 +280,7 @@ def verify(adapter, joint, previous_source, cases, diversity_verify, regression_
     later_ready_valid, later_ready_run = window_origin_probe(adapter, joint, cases, context=context)
     report['internal_windows']['later_ready'] = later_ready_valid
     phase[0] = 'nonzero_origin'
-    offset_valid, offset_run = window_origin_probe(adapter, joint, cases, nonzero_origin=True, context=context)
+    offset_valid, offset_run = window_origin_probe(adapter, joint, cases, nonzero_origin=True, context=context, diagnostics=report['internal_windows'])
     report['internal_windows']['nonzero_origin'] = offset_valid
     runs.extend([later_ready_run, offset_run])
     phase[0] = 'continuation'
