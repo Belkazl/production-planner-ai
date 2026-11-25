@@ -41,6 +41,66 @@ const serverHelpers = '// ' + marker + '\n' + ppNativeScheduleFingerprint.toStri
 const uiHelpers = '// ' + marker + '\n' + [ppNativeScheduleFingerprint, ppNativePresentationPlan,
   ppNativePresentationSupersedes, ppInstallNativePresentation].map(fn => fn.toString()).join('\n') + '\nppInstallNativePresentation();\n';
 
+function responseFactoryEdit(source) {
+  const installedMarker = '  // pp_integrated_native_response_factory_20261125:';
+  const wrapper = '\n  const response = (...args) => {\n' +
+    '    const native=ppNativeBaseResponse(...args);\n' +
+    "    if(!(native instanceof Response))throw Error('native_response_contract_invalid');\n" +
+    '    native.headers.set("' + NATIVE_HEADER + '","' + NATIVE_HEADER_VALUE + '");\n' +
+    '    return native;\n  };';
+  const fail = () => { throw Error('INTEGRATED_SETUP_RESPONSE_FACTORY_GUARD'); };
+  const fallback = [...source.matchAll(/\n  const fallback[ \t]*=/g)];
+  if (fallback.length !== 1) fail();
+  let original, storedHash;
+  if (source.includes(installedMarker)) {
+    if (source.split(installedMarker).length !== 2) fail();
+    const block = source.slice(source.indexOf(installedMarker), fallback[0].index);
+    const header = block.match(/^  \/\/ pp_integrated_native_response_factory_20261125:([0-9a-f]{64})\n/);
+    if (!header || !block.endsWith(wrapper)) fail();
+    original = block.slice(header[0].length, -wrapper.length);
+    if (!original.startsWith('  const ppNativeBaseResponse')) fail();
+    original = original.replace('  const ppNativeBaseResponse', '  const response');
+    storedHash = header[1];
+  } else {
+    const declarations = [...source.matchAll(/\n  const response[ \t]*=/g)];
+    if (declarations.length !== 1 || declarations[0].index >= fallback[0].index) fail();
+    original = source.slice(declarations[0].index + 1, fallback[0].index);
+  }
+  if (original.length > 8192 || !/^  const response[ \t]*=/.test(original)) fail();
+  const expression = original.replace(/^  const response[ \t]*=[ \t]*/, '').trim();
+  if (!/^\(\s*body\s*,\s*status\s*=\s*200\s*\)\s*=>/.test(expression) ||
+      !/\b(?:Response\s*\.\s*json\s*\(|new\s+Response\s*\()/.test(expression) || !expression.endsWith(';')) fail();
+  // One bounded declaration only. Quotes/comments do not change delimiter
+  // depth; a second top-level statement before fallback is never accepted.
+  const stack = [];
+  let quote = null, escaped = false, lineComment = false, blockComment = false;
+  for (let i = 0; i < expression.length; i++) {
+    const char = expression[i], next = expression[i + 1];
+    if (lineComment) { if (char === '\n') lineComment = false; continue; }
+    if (blockComment) { if (char === '*' && next === '/') { blockComment = false; i++; } continue; }
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') { quote = char; continue; }
+    if (char === '/' && next === '/') { lineComment = true; i++; continue; }
+    if (char === '/' && next === '*') { blockComment = true; i++; continue; }
+    if (char === '/') fail();
+    if ('([{'.includes(char)) stack.push(char);
+    else if (')]}'.includes(char) && stack.pop() !== ({')': '(', ']': '[', '}': '{'})[char]) fail();
+    else if (char === ';' && !stack.length && i !== expression.length - 1) fail();
+  }
+  if (quote || escaped || blockComment || stack.length) fail();
+  try { new Function('return (' + expression.slice(0, -1) + ');'); } catch { fail(); }
+  const sha = createHash('sha256').update(original).digest('hex');
+  if (storedHash && storedHash !== sha) fail();
+  const updated = installedMarker + sha + '\n' +
+    original.replace('  const response', '  const ppNativeBaseResponse') + wrapper;
+  return [original, updated, 'source_header'];
+}
+
 function exact(source, before, after, name, count = 1) {
   if (source.split(before).length !== count + 1) throw Error('INTEGRATED_SETUP_SOURCE_DRIFT_' + name);
   return source.split(before).join(after);
@@ -80,7 +140,7 @@ export function patchUpstream(source, inspect = false) {
     'currentJob(principal)', 'state.modelKey!==hashModel(model)', "'x-authenticated-account':principal",
     'const verifiedWorkerCheckpoint = (raw,model) =>', 'pp_scoped_stop_verified_choices_v2'])
     if (!source.includes(guard)) throw Error('INTEGRATED_SETUP_REQUIRED_UPSTREAM_GUARD');
-  const response = "  const response = (body, status=200) => Response.json(body,{status,headers:{'cache-control':'no-store'}});";
+  const response = responseFactoryEdit(source);
   const declaration = '  const publicPlan = plan => {\n    if(!plan||typeof plan!==\'object\')return plan;';
   const canonical = '  const publicPlan = (plan,model) => {\n    if(!plan||typeof plan!==\'object\')return plan;\n' +
     '    if(plan.partial!==true){\n' +
@@ -94,7 +154,7 @@ export function patchUpstream(source, inspect = false) {
     '      else if(!ownOrders.has(String(row.order)))return null;';
   const edits = [
     ['export function createPythonGAUpstream({', serverHelpers + 'export function createPythonGAUpstream({', 'helpers'],
-    [response, "  const response = (body, status=200) => Response.json(body,{status,headers:{'cache-control':'no-store','" + NATIVE_HEADER + "':'" + NATIVE_HEADER_VALUE + "'}});", 'source_header'],
+    response,
     [declaration, canonical, 'canonical_plan'],
     ['    plan=publicPlan(plan);', '    plan=publicPlan(plan,model);', 'owned_context'],
     ['return !!plan&&Array.isArray(plan.operations)&&plan.operations.length>0&&checkPlan(plan,model);',

@@ -211,6 +211,30 @@ test('actual worker bridge + actual APS progress preserve the native schedule an
   assert.deepEqual(data.best_preview, data.result);
 });
 
+test('native provenance wraps the existing response factory without replacing its headers, status or body', async () => {
+  const original = "  const response = (body, status=200) => Response.json(body,{status,headers:{'cache-control':'no-store'}});";
+  const variant = "  const response = (body, status=200) => Response.json(body,{status,statusText:'Native result',headers:{'cache-control':'private, no-store','content-type':'application/vnd.native+json','x-existing-server-header':'preserved'}});";
+  assert.equal(upstream.split(original).length, 2);
+  const changed = upstream.replace(original, variant);
+  const patched = patchUpstream(changed);
+  assert.equal(patchUpstream(patched), patched);
+  const h = bridgeHarness({source: patched});
+  const started = await h.start();
+  assert.equal(started.status, 202);
+  assert.equal(started.statusText, 'Native result');
+  assert.equal(started.headers.get('x-existing-server-header'), 'preserved');
+  const result = await h.progress();
+  assert.equal(result.status, 200);
+  assert.equal(result.statusText, 'Native result');
+  assert.equal(result.headers.get('cache-control'), 'private, no-store');
+  assert.equal(result.headers.get('content-type'), 'application/vnd.native+json');
+  assert.equal(result.headers.get('x-existing-server-header'), 'preserved');
+  assert.equal(result.headers.get(NATIVE_HEADER), NATIVE_HEADER_VALUE);
+  assert.equal((await result.json()).result.duration_minutes, 660);
+  assert.throws(() => patchUpstream(patched.replace("'preserved'", "'changed'")), /RESPONSE_FACTORY_GUARD/);
+  assert.throws(() => patchUpstream(upstream.replace(original, original + '\n  const unrelated = 1;')), /RESPONSE_FACTORY_GUARD/);
+});
+
 test('synchronous plan, native errors and async202 cross the same provenance boundary without synthesis', async () => {
   for (const [status, body] of [[200, canonical(native())], [422, {ok: false, error: 'native_schedule_contract_invalid'}],
     [202, {ok: true, started: true, job_id: 'a'.repeat(32)}]]) {
