@@ -1,0 +1,97 @@
+name: Verify native minibatch search diversity privately
+
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-joint-search-diversity-verify-20261125.yml
+      - .github/workflows/liftorbit-joint-search-diversity-release-20261125.yml
+      - ops/ovh/joint-search-diversity-release-20261125/*.py
+      - ops/ovh/joint-search-diversity-release-20261125/*.sh
+      - ops/ovh/joint-search-diversity-release-20261125/baseline.json
+      - ops/ovh/joint-search-diversity-release-20261125/Dockerfile.verify
+      - ops/ovh/joint-search-diversity-20261125/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-joint-search-diversity-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require the explicit deployed presentation baseline and public guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/joint-search-diversity-release-20261125/release.sh
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/joint-search-diversity-release-20261125 -p 'test_*.py'
+          PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/joint-search-diversity-release-20261125/baseline.py --check
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/joint-search-diversity-20261125 -p 'test_*.py'
+      - name: Build public runtime before receiving private native code
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          docker build -f ops/ovh/joint-search-diversity-release-20261125/Dockerfile.verify \
+            -t joint-search-diversity-verifier:local ops/ovh/joint-search-diversity-release-20261125
+          docker image inspect --format '{{.Id}}' joint-search-diversity-verifier:local > "$RUNNER_TEMP/joint-diversity-image"
+      - name: Receive approved native code and app hashes privately
+        shell: bash
+        env:
+          DIVERSITY_SSH_HOST: ${{ vars.OVH_HOST }}
+          DIVERSITY_SSH_USER: ${{ vars.OVH_USER }}
+          DIVERSITY_SSH_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DIVERSITY_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$DIVERSITY_SSH_HOST" = 51.255.163.121
+          test "$DIVERSITY_SSH_USER" = liftorbit-ci
+          printf '%s\n' "$DIVERSITY_SSH_KEY" > "$RUNNER_TEMP/joint-diversity-key"
+          printf '%s\n' "$DIVERSITY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/joint-diversity-known-hosts"
+          chmod 600 "$RUNNER_TEMP/joint-diversity-key" "$RUNNER_TEMP/joint-diversity-known-hosts"
+          trap 'rm -f -- "$RUNNER_TEMP/joint-diversity-key" "$RUNNER_TEMP/joint-diversity-known-hosts"' EXIT
+          opts=(-i "$RUNNER_TEMP/joint-diversity-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/joint-diversity-known-hosts" -o ConnectTimeout=20)
+          if ! ssh "${opts[@]}" "$DIVERSITY_SSH_USER@$DIVERSITY_SSH_HOST" 'python3 -B -I - --app-hashes' \
+            < ops/ovh/joint-search-diversity-release-20261125/capture.py \
+            > "$RUNNER_TEMP/joint-diversity-app-hashes.json" 2> "$RUNNER_TEMP/joint-diversity-transport-private.log"; then
+            echo JOINT_DIVERSITY_TRANSFER_FAILED app_hashes
+            exit 6
+          fi
+          if ! ssh "${opts[@]}" "$DIVERSITY_SSH_USER@$DIVERSITY_SSH_HOST" 'python3 -B -I - --emit-private-bundle' \
+            < ops/ovh/native-batching-verify-20261124/native_input_contract.py \
+            > "$RUNNER_TEMP/joint-diversity-native.bundle" 2>> "$RUNNER_TEMP/joint-diversity-transport-private.log"; then
+            echo JOINT_DIVERSITY_TRANSFER_FAILED native_code
+            exit 6
+          fi
+      - name: Verify the isolated candidate with all native and diversity gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/joint-search-diversity-release-20261125/verify.py \
+            --native-bundle "$RUNNER_TEMP/joint-diversity-native.bundle" \
+            --app-hashes "$RUNNER_TEMP/joint-diversity-app-hashes.json" \
+            --image-id "$(cat "$RUNNER_TEMP/joint-diversity-image")"
+      - name: Remove all private sources and buffers
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/joint-diversity-key" "$RUNNER_TEMP/joint-diversity-known-hosts" \
+            "$RUNNER_TEMP/joint-diversity-app-hashes.json" "$RUNNER_TEMP/joint-diversity-native.bundle" \
+            "$RUNNER_TEMP/joint-diversity-transport-private.log" "$RUNNER_TEMP/joint-diversity-image"
+          for private_stage in "$RUNNER_TEMP"/joint-diversity-private-*; do
+            if test -d "$private_stage" && test ! -L "$private_stage"; then rm -rf -- "$private_stage"; fi
+          done
