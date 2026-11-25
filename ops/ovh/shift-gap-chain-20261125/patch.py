@@ -7,7 +7,7 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 OPS = HERE.parent
-BASE_SHA = '9ddfde67f8ebf723c401d3849b0bf88004ebb6c8a6b537dbd157e7dc6920a6f5'
+BASE_SHA = 'ed6782ad3837fdf5d190106c0afd2c005b1225e05e53d232ee828d623344feae'
 HELPERS = (HERE / 'gap_helpers.py').read_text()
 OLD = "                            proposed = _shift_seed_candidates(ga, normalized, specs, genome, sim, frozen)\n"
 NEW = OLD + """                            chain_proposed = _gap_chain_candidates(ga, normalized, specs, genome, sim, frozen, evaluated_keys)
@@ -38,6 +38,8 @@ def baseline():
     diversity = runpy.run_path(str(OPS / 'joint-search-diversity-20261125/patch.py'))['patch']
     shift = runpy.run_path(str(OPS / 'shift-aware-minibatches-20261125/patch.py'))['patch']
     base = shift(diversity(base))
+    weekly = runpy.run_path(str(OPS / 'weekly-shift-calendars-20261125/patch.py'))['patch_joint']
+    base = weekly(base)
     if digest(base) != BASE_SHA:
         raise ValueError('gap_accepted_base_mismatch')
     return base
