@@ -39,7 +39,7 @@ class DriverDiagnosticsTests(unittest.TestCase):
                 valid, invalid = plan(later=True), plan(later=True)
                 invalid['duration_minutes'] = 909
                 run = {'result': invalid if role == 'final_result' else valid,
-                       'scored': [(None, invalid)]}
+                       'scored': [(None, valid if role == 'final_result' else invalid)]}
                 context = {}
                 with patch.object(driver, 'observe', return_value=run), self.assertRaises(cases.ShiftCheckError) as raised:
                     driver.window_origin_probe(None, None, cases, context=context)
