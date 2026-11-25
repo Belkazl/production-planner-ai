@@ -1,0 +1,82 @@
+name: Verify integrated native setup results privately
+
+# Read-only capture first. A capture-only receipt is never deployment evidence.
+# Later acceptance uses synthetic models and the actual app/native sources in
+# an isolated runner; no customer data, credentials, raw logs or source artifacts.
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-integrated-setup-verify-20261125.yml
+      - ops/ovh/integrated-setup-release-20261125/*.py
+      - ops/ovh/integrated-setup-release-20261125/*.sh
+      - ops/ovh/integrated-setup-release-20261125/Dockerfile.verify
+      - ops/ovh/integrated-setup-result-20261125/**
+      - ops/ovh/integrated-setup-preview-20261125/**
+      - ops/ovh/integrated-setup-verify-20261125/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-integrated-setup-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check the public capture contract
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/integrated-setup-release-20261125 -p test_capture.py
+      - name: Receive approved code-only inputs privately
+        shell: bash
+        env:
+          SETUP_SSH_HOST: ${{ vars.OVH_HOST }}
+          SETUP_SSH_USER: ${{ vars.OVH_USER }}
+          SETUP_SSH_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          SETUP_SSH_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$SETUP_SSH_HOST" = 51.255.163.121
+          test "$SETUP_SSH_USER" = liftorbit-ci
+          printf '%s\n' "$SETUP_SSH_KEY" > "$RUNNER_TEMP/integrated-setup-key"
+          printf '%s\n' "$SETUP_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/integrated-setup-known-hosts"
+          chmod 600 "$RUNNER_TEMP/integrated-setup-key" "$RUNNER_TEMP/integrated-setup-known-hosts"
+          trap 'rm -f -- "$RUNNER_TEMP/integrated-setup-key" "$RUNNER_TEMP/integrated-setup-known-hosts"' EXIT
+          opts=(-i "$RUNNER_TEMP/integrated-setup-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/integrated-setup-known-hosts" -o ConnectTimeout=20)
+          if ! ssh "${opts[@]}" "$SETUP_SSH_USER@$SETUP_SSH_HOST" 'PYTHONDONTWRITEBYTECODE=1 python3 -I - --emit-private-bundle' \
+            < ops/ovh/integrated-setup-release-20261125/capture.py \
+            > "$RUNNER_TEMP/integrated-setup-app.bundle" 2> "$RUNNER_TEMP/integrated-setup-transport-private.log"; then
+            echo INTEGRATED_SETUP_TRANSFER_FAILED app_sources
+            exit 6
+          fi
+          if ! ssh "${opts[@]}" "$SETUP_SSH_USER@$SETUP_SSH_HOST" 'PYTHONDONTWRITEBYTECODE=1 python3 -I - --emit-private-bundle' \
+            < ops/ovh/native-batching-verify-20261124/native_input_contract.py \
+            > "$RUNNER_TEMP/integrated-setup-native.bundle" 2>> "$RUNNER_TEMP/integrated-setup-transport-private.log"; then
+            echo INTEGRATED_SETUP_TRANSFER_FAILED native_code
+            exit 6
+          fi
+      - name: Validate exact inputs and emit bounded source metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/integrated-setup-release-20261125/capture.py \
+            --app-bundle "$RUNNER_TEMP/integrated-setup-app.bundle" \
+            --native-bundle "$RUNNER_TEMP/integrated-setup-native.bundle"
+      - name: Remove every private input and transport buffer
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/integrated-setup-key" "$RUNNER_TEMP/integrated-setup-known-hosts" \
+            "$RUNNER_TEMP/integrated-setup-app.bundle" "$RUNNER_TEMP/integrated-setup-native.bundle" \
+            "$RUNNER_TEMP/integrated-setup-transport-private.log"
