@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {patchUi,sha} from './patch.mjs';
+const root=new URL('../',import.meta.url);
+const sse=fs.readFileSync(new URL('sse-stream-v1-20261120/frontend.js.txt',root),'utf8');
+const stop=fs.readFileSync(new URL('../../../stop-ui.js',import.meta.url),'utf8');
+const tab='function ppTestTab(){const accepted=window.__ppFreshReferencePlan||window.__ppOptimizerCommittedPlan;return accepted;}';
+const source=stop+'\n'+sse+'\n'+tab;
+const updated=patchUi(source,sha(source));
+assert(updated.includes('const accepted=window.__ppOptimizerCommittedPlan||window.__ppFreshReferencePlan;'));
+assert(updated.includes('acceptedRunFloor.allowPreview(p)'));
+assert(updated.includes('const acceptedBeforeRun=window.__PP_SSE_PROGRESS_V1__?.acceptedAtStart?.();'));
+assert.throws(()=>patchUi(source));
+assert.throws(()=>patchUi(source.replace('function showModal(){','function changedStop(){'),sha(source.replace('function showModal(){','function changedStop(){'))));
+console.log('ACCEPTED_PLAN_PUBLIC_BASELINE_TRANSFORM_PASS');

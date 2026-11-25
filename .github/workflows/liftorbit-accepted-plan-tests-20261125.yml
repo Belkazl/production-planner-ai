@@ -1,0 +1,19 @@
+name: Accepted plan regression tests (no deployment)
+on:
+  push:
+    branches: [fix/accepted-plan-preview-20261125]
+    paths:
+      - ops/ovh/accepted-plan-preview-20261125/**
+      - .github/workflows/liftorbit-accepted-plan-tests-20261125.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: node ops/ovh/accepted-plan-preview-20261125/test.mjs
+      - run: node ops/ovh/accepted-plan-preview-20261125/test-transform.mjs

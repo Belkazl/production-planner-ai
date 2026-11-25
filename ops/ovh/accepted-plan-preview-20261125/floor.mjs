@@ -1,7 +1,7 @@
 export function ppAcceptedPlanRunFloor(env){
  const keys={duration:'duration_minutes',wait:'operator_wait_minutes',idle:'machine_idle_minutes',cycles:'batch_count'};
  const w=env.window,read=env.project;
- let scope=null,original=null,goal=null,best=null,blocked=0,restored=0,closed=true;
+ let scope=null,original=null,goal=null,best=null,blocked=0,restored=0,closed=true,comparable=true;
  const rows=p=>p?.generic_operations?.length?p.generic_operations:p?.operations||[];
  const valid=p=>p&&p.valid===true&&p.ok!==false&&p.partial!==true&&p._pp_preview_limited!==true&&
   rows(p).length&&Object.values(keys).every(k=>typeof p[k]==='number'&&Number.isFinite(p[k])&&p[k]>=0);
@@ -12,7 +12,7 @@ export function ppAcceptedPlanRunFloor(env){
  const epsilon=(a,b)=>1e-7*Math.max(1,Math.abs(a),Math.abs(b));
  const worse=(a,b)=>a>b+epsilon(a,b);
  function begin(){
-  original=null;best=null;blocked=0;closed=false;
+  original=null;best=null;blocked=0;closed=false;comparable=true;
   const p=read();scope=p?{id:String(p.id),revision:Number(p.revision||0)}:null;
   goal=env.objective();const key=keys[goal];
   if(!p)return;
@@ -34,8 +34,8 @@ export function ppAcceptedPlanRunFloor(env){
   const key=keys[goal];if(!key||!scope)return true;
   const value=metric(plan?._pp_preview_kpis,key);
   if(value===null){blocked++;return false}
-  if(original&&different(context(original),context(plan))){
-   original=null;best=null;
+  if(comparable&&original&&different(context(original),context(plan))){
+   comparable=false;best=null;
   }
   if(best!==null&&worse(value,best)){blocked++;return false}
   if(best===null||value<best)best=value;
@@ -43,7 +43,7 @@ export function ppAcceptedPlanRunFloor(env){
  }
  function final(data){
   const candidate=data?.result;
-  if(closed||!sameScope()||!valid(candidate)||!original)return data;
+  if(closed||!sameScope()||!valid(candidate)||!original||!comparable)return data;
   const key=keys[goal];if(!key||different(context(candidate),context(original)))return data;
   const a=metric(candidate,key),b=metric(original,key);
   if(a===null||b===null||!worse(a,b))return data;
@@ -57,7 +57,8 @@ export function ppAcceptedPlanRunFloor(env){
   if(closed)return false;
   closed=true;
   if(!sameScope())return false;
-  if(original&&valid(original)){
+  if(comparable&&original&&valid(original)){
+   w.__ppOptimizationInFlight=false;
    w.__ppOptimizerCommittedPlan=original;w.__ppTabPlan=original;w.__ppGenericPlan=original;
    if(w.__ppFreshRestartMode===true&&String(w.__ppFreshRestartProject)===scope.id){
     w.__ppFreshReferencePlan=original;w.__ppFreshReferenceProject=scope.id;
@@ -72,6 +73,6 @@ export function ppAcceptedPlanRunFloor(env){
   return false;
  }
  return {begin,allowPreview,final,restore,close:()=>{closed=true},
-  snapshot:()=>sameScope()&&original?original:null,
-  stats:()=>({blocked,restored,goal,acceptedDuration:original?.duration_minutes??null,best,closed})};
+  snapshot:()=>sameScope()&&comparable&&original?original:null,
+  stats:()=>({blocked,restored,goal,acceptedDuration:comparable?original?.duration_minutes??null:null,best,closed,comparable})};
 }

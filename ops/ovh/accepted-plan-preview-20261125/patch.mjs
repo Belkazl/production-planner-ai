@@ -18,7 +18,7 @@ export function patchUi(source,expected=EXPECTED_UI){
  const before='const signature=p.operations.map(x=>[';
  s=once(s,before,'if(!acceptedRunFloor.allowPreview(p))return true;\n '+before,'preview_before_paint');
  s=once(s,' manuallyStopped=false;',' acceptedRunFloor.begin();\n manuallyStopped=false;','start_snapshot');
- s=once(s,'function stop(){\n manuallyStopped=true;','function stop(){\n const restoreAccepted=active&&!completed;\n manuallyStopped=true;','stop_begin');
+ s=once(s,'function stop(){\n manuallyStopped=true;','function stop(){\n const restoreAccepted=active&&!completed&&!disposed;\n manuallyStopped=true;','stop_begin');
  s=once(s,' hideFog();detachMeter();',' hideFog();detachMeter();\n if(restoreAccepted)acceptedRunFloor.restore();else acceptedRunFloor.close();','stop_restore');
  s=once(s,'fullData=data;phase="completed";','fullData=acceptedRunFloor.final(data);phase="completed";','final_floor');
  s=once(s,'verifiedTerminal=false;completed=true;active=false;','verifiedTerminal=false;completed=true;active=false;acceptedRunFloor.close();','terminal_close');
@@ -26,6 +26,9 @@ export function patchUi(source,expected=EXPECTED_UI){
  let output=source.slice(0,from)+s+source.slice(end+6);
  const old='const accepted=window.__ppFreshReferencePlan||window.__ppOptimizerCommittedPlan;';
  output=once(output,old,'const accepted=window.__ppOptimizerCommittedPlan||window.__ppFreshReferencePlan;','tab_accepted_reference');
+ const nativeStopAnchor='function showModal(){\n if(modalShown)return;\n modalShown=true;';
+ const nativeStopRestore= nativeStopAnchor+'\n const acceptedBeforeRun=window.__PP_SSE_PROGRESS_V1__?.acceptedAtStart?.();\n if(acceptedBeforeRun&&valid(acceptedBeforeRun)){\n  prevPlan=acceptedBeforeRun;\n  restore(prevPlan);selectedPlan=prevPlan;stoppedPlanAvailable=true;\n  setActionAfterStop();\n  window.__PP_KPI_SELECTED_REFERENCE_V2__?.select?.(prevPlan);\n  modal.classList.remove("pp-open");modal.style.display="none";\n  return;\n }';
+ output=once(output,nativeStopAnchor,nativeStopRestore,'native_stop_restore');
  new vm.Script(output);
  return output;
 }
