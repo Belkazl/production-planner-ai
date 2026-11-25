@@ -20,6 +20,20 @@ export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
       ['validation_errors', 'errors', 'violations', 'conflicts'].some(key => own(plan, key) &&
         (!Array.isArray(plan[key]) || plan[key].length)) ||
       (own(plan, 'setup_operations') && (!Array.isArray(plan.setup_operations) || plan.setup_operations.length))) return plan;
+  const generic = Array.isArray(plan.generic_operations) ? plan.generic_operations : [];
+  if (generic.length > 1000) return plan;
+  const originals = plan.operations.map(row => ({...row}));
+  const identity = row => JSON.stringify([row.order ?? row.order_id ?? null, row.operation_id ?? row.id ?? null,
+    row.batch_id ?? row.batch ?? null, row.sequence ?? null]);
+  const copyMatches = generic.filter(row => row && typeof row === 'object' && !Array.isArray(row) && !setup(row)).map(copy => {
+    const candidates = originals.map((original, index) => ({original, index})).filter(({original}) =>
+      identity(original) === identity(copy) && (original.order != null || original.order_id != null || original.operation_id != null || original.id != null) &&
+      Object.keys(original).every(key => !own(copy, key) || JSON.stringify(original[key]) === JSON.stringify(copy[key])));
+    return candidates.length === 1 ? {copy, index: candidates[0].index} : null;
+  }).filter(Boolean);
+  const whollyUntimed = originals.every(row => !own(row, 'start_min') && !own(row, 'end_min') && !own(row, 'duration_min'));
+  const step = whollyUntimed && number(plan.duration_minutes) && plan.duration_minutes > 0 ?
+    Math.min(1, plan.duration_minutes / originals.length) : 1;
   let cursor = 0;
   for (const row of plan.operations) {
     // Only fixture omissions are filled. Wrong/foreign IDs, explicit invalid
@@ -29,12 +43,11 @@ export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
       else if (!own(row, 'end_min')) row.start_min = cursor;
     }
     if (!own(row, 'end_min') && number(row.start_min)) {
-      if (!own(row, 'duration_min')) row.end_min = row.start_min + 1;
+      if (!own(row, 'duration_min')) row.end_min = row.start_min + step;
       else if (number(row.duration_min)) row.end_min = row.start_min + row.duration_min;
     }
     if (!own(row, 'duration_min') && number(row.start_min) && number(row.end_min))
       row.duration_min = row.end_min - row.start_min;
-    missing(row, 'batch', 1);
     if (!own(row, 'equipment_ids')) {
       if (own(row, 'equipment_id')) row.equipment_ids = [row.equipment_id];
       else if (model?.equipment?.length === 1) row.equipment_ids = [model.equipment[0].id];
@@ -43,11 +56,24 @@ export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
     if (number(row.end_min)) cursor = Math.max(cursor, row.end_min);
   }
   if (!plan.operations.every(row => number(row.start_min) && number(row.end_min) && row.end_min >= row.start_min)) return plan;
-  missing(plan, 'setup_operations', []);
-  missing(plan, 'setup_count', 0);
-  missing(plan, 'setup_minutes', 0);
+  // Propagate only newly supplied omissions to an unambiguous original copy.
+  // Existing values/conflicts and optional batch identity are never rewritten.
+  for (const {copy, index} of copyMatches) {
+    for (const key of ['start_min', 'end_min', 'duration_min', 'equipment_ids', 'employee_ids']) {
+      if ((key === 'equipment_ids' && own(copy, 'equipment_id')) || (key === 'employee_ids' && own(copy, 'employee_id'))) continue;
+      if (!own(originals[index], key) && own(plan.operations[index], key) && !own(copy, key)) {
+        const value = plan.operations[index][key];
+        copy[key] = Array.isArray(value) ? [...value] : value;
+      }
+    }
+  }
+  if (!generic.some(setup)) {
+    missing(plan, 'setup_operations', []);
+    missing(plan, 'setup_count', 0);
+    missing(plan, 'setup_minutes', 0);
+  }
   missing(plan, 'duration_minutes', cursor);
-  missing(plan, 'batch_count', new Set(plan.operations.map(row => JSON.stringify([row.order, row.batch]))).size);
+  missing(plan, 'batch_count', new Set(plan.operations.map(row => JSON.stringify([row.order, row.batch_id ?? row.batch ?? 1]))).size);
   missing(plan, 'operator_wait_minutes', 0);
   missing(plan, 'machine_idle_minutes', 0);
   missing(plan, 'order_sequence', [...new Set(plan.operations.map(row => row.order))]);
@@ -162,7 +188,6 @@ function locate(source, label) {
     const responseStart = replies[0].index, references = new Set();
     const responseEnd = statementEnd(following, responseStart, label, references);
     if (!references.has('plan')) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_PLAN_REFERENCE_GUARD');
-    insertion = end + responseStart - start;
     end += responseEnd;
     original = source.slice(start, end);
     try {
@@ -179,7 +204,6 @@ function locate(source, label) {
     const responseStart = replies[0].index, references = new Set();
     const responseEnd = statementEnd(following, responseStart, label, references);
     if (!references.has('id')) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_STATE_ID_REFERENCE_GUARD');
-    insertion = end + responseStart - start;
     end += responseEnd;
     original = source.slice(start, end);
     try {
@@ -195,8 +219,9 @@ function render(original, label, indent, insertion) {
     'ppCompleteSyntheticNativeBuildFixture(worker.get(id)?.result,model);';
   return indent + '// ' + marker + ':' + label + ':' + sha(original) + '\n' + original.slice(0, insertion) +
     '{\n' + indent + '// ' + marker + ':augment\n' + indent + ppCompleteSyntheticNativeBuildFixture.toString() +
-    '\n' + indent + call + '\n' + indent + '// ' + marker + ':resume\n' + original.slice(insertion) +
-    '\n' + indent + '} // ' + marker + ':resume-end\n' + indent + '// ' + marker + ':end';
+    '\n' + indent + call + '\n' + indent + '} // ' + marker + ':resume-end' +
+    '\n' + indent + '// ' + marker + ':resume\n' + original.slice(insertion) +
+    '\n' + indent + '// ' + marker + ':end';
 }
 
 function patchFixture(source, label) {
@@ -209,8 +234,8 @@ function patchFixture(source, label) {
     const footer = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':end', 'g'), label);
     const start = header.index, originalStart = start + header[0].length;
     const end = footer.index + footer[0].length;
-    if (!(originalStart < middle.index && middle.index < resume.index && resume.index < resumeEnd.index && resumeEnd.index < footer.index)) fail(label);
-    const original = source.slice(originalStart, middle.index) + source.slice(resume.index + resume[0].length, resumeEnd.index);
+    if (!(originalStart < middle.index && middle.index < resumeEnd.index && resumeEnd.index < resume.index && resume.index < footer.index)) fail(label);
+    const original = source.slice(originalStart, middle.index) + source.slice(resume.index + resume[0].length, footer.index);
     const restored = source.slice(0, start) + original + source.slice(end);
     if (sha(original) !== header[1] || restored.includes(marker) || patchFixture(restored, label) !== source)
       throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_INSTALL_DRIFT_' + label);

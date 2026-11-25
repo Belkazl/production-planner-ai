@@ -124,6 +124,58 @@ test('tenant-selected foreign IDs and existing equipment IDs are never repaired 
   assert.deepEqual(own.operations[0].equipment_ids, ['WRONG-EQ']);
 });
 
+test('existing shallow checkpoint copies inherit complete KPI metadata before the worker reply', async () => {
+  const reply = "return Response.json({status:j.status,progress:100,result:j.status==='completed'?plan:null,best_preview:null});";
+  const source = upstreamSource().replace(reply,
+    "const checkpoint={...plan};\n  " + reply.replace('best_preview:null', 'best_preview:checkpoint'));
+  const patched = patchUpstreamBuildFixture(source);
+  assert(patched.includes('const checkpoint={...plan};'));
+  const models = new Map([['A0', model], ['A9', model]]);
+  const make = new Function('models', 'createPythonGAUpstream', patched + '\nreturn makeEnv;')(models, value => value);
+  const data = await (await make().fetchStub()).json();
+  assert(ppCanonicalNativeResult(data.result, model, 'model'));
+  assert(ppCanonicalNativeResult(data.best_preview, model, 'model'), 'original checkpoint copy must carry complete native KPI data');
+  for (const key of ['duration_minutes','batch_count','operator_wait_minutes','machine_idle_minutes'])
+    assert.equal(data.best_preview[key], data.result[key]);
+});
+
+test('already valid inline setups and independent generic copies remain valid without optional batch injection', () => {
+  const operation = {order: 'OA1', operation_id: 'work', equipment_ids: ['E1'], start_min: 2, end_min: 3, duration_min: 1};
+  const base = {valid: true, operations: [structuredClone(operation)], duration_minutes: 3,
+    batch_count: 1, operator_wait_minutes: 0, machine_idle_minutes: 0};
+  const inline = {...structuredClone(base), generic_operations: [structuredClone(operation),
+    {is_setup: true, operation_id: 'setup', equipment_ids: ['E1'], start_min: 0, end_min: 2, duration_min: 2}]};
+  assert(ppCanonicalNativeResult(inline, model, 'model'));
+  ppCompleteSyntheticNativeBuildFixture(inline, model);
+  assert(ppCanonicalNativeResult(inline, model, 'model'));
+  for (const key of ['setup_operations', 'setup_count', 'setup_minutes']) assert.equal(Object.hasOwn(inline, key), false);
+  const mirrored = {...structuredClone(base), generic_operations: [structuredClone(operation)], setup_operations: []};
+  assert(ppCanonicalNativeResult(mirrored, model, 'model'));
+  ppCompleteSyntheticNativeBuildFixture(mirrored, model);
+  assert(ppCanonicalNativeResult(mirrored, model, 'model'));
+  assert.equal(Object.hasOwn(mirrored.operations[0], 'batch'), false);
+  assert.equal(Object.hasOwn(mirrored.generic_operations[0], 'batch'), false);
+});
+
+test('missing intervals propagate only to unique compatible copies within an explicit positive makespan', () => {
+  const rows = [{order: 'OA1'}, {order: 'OA2'}];
+  const plan = {valid: true, duration_minutes: 0.25, operations: structuredClone(rows), generic_operations: structuredClone(rows)};
+  ppCompleteSyntheticNativeBuildFixture(plan, model);
+  assert(ppCanonicalNativeResult(plan, model, 'model'));
+  assert.equal(plan.duration_minutes, 0.25);
+  assert.deepEqual(plan.operations, plan.generic_operations);
+  assert.deepEqual(plan.operations.map(row => [row.start_min, row.end_min]), [[0, 0.125], [0.125, 0.25]]);
+  const conflicting = {valid: true, operations: [{order: 'OA1'}], generic_operations: [{order: 'OA1', start_min: -1, equipment_id: 'FOREIGN-EQ'}]};
+  ppCompleteSyntheticNativeBuildFixture(conflicting, model);
+  assert.equal(conflicting.generic_operations[0].start_min, -1);
+  assert.equal(conflicting.generic_operations[0].equipment_id, 'FOREIGN-EQ');
+  assert.equal(Object.hasOwn(conflicting.generic_operations[0], 'equipment_ids'), false);
+  assert.equal(ppCanonicalNativeResult(conflicting, model, 'model'), null);
+  const ambiguous = {valid: true, operations: [{order: 'OA1'}, {order: 'OA1'}], generic_operations: [{order: 'OA1'}]};
+  ppCompleteSyntheticNativeBuildFixture(ambiguous, model);
+  assert.equal(Object.hasOwn(ambiguous.generic_operations[0], 'start_min'), false);
+});
+
 test('explicit invalid flags, intervals, metrics and failure evidence stay invalid', () => {
   const cases = [
     {valid: false, operations: [{order: 'OA1'}]},
