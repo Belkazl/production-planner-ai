@@ -6,6 +6,7 @@ on:
       - .github/workflows/liftorbit-restart-button-preflight-20261125.yml
       - ops/ovh/restart-button-20261125/patch.mjs
       - ops/ovh/restart-button-20261125/test.mjs
+      - ops/ovh/restart-button-20261125/audit.mjs
 permissions:
   contents: read
 jobs:
@@ -34,10 +35,8 @@ jobs:
           chmod 600 "$d/key" "$d/kh"
           mkdir "$d/old"
           root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
-          for name in restart-optimizer-server.js python-ga-upstream.mjs;do
+          for name in restart-optimizer-server.js python-ga-upstream.mjs restart-optimizer-ui.js restart-optimizer-html.js;do
             scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST:$root/$name" "$d/old/$name" 2>"$d/private.log"
           done
-          node ops/ovh/restart-button-20261125/patch.mjs "$d"
-          node --check "$d/new/restart-optimizer-server.js" >"$d/syntax.log" 2>&1
-          node --check "$d/new/python-ga-upstream.mjs" >>"$d/syntax.log" 2>&1
-          node ops/ovh/restart-button-20261125/test.mjs "$d"
+          node ops/ovh/restart-button-20261125/audit.mjs "$d"
+

@@ -1,0 +1,16 @@
+import fs from 'node:fs';import crypto from 'node:crypto';
+const dir=process.argv[2];
+const get=n=>fs.readFileSync(dir+'/old/'+n,'utf8');
+for(const n of ['restart-optimizer-server.js','python-ga-upstream.mjs','restart-optimizer-ui.js','restart-optimizer-html.js'])console.log('SOURCE_SHA',n,crypto.createHash('sha256').update(get(n)).digest('hex'));
+const src=get('restart-optimizer-server.js'),a=src.indexOf('async function ppResetOptimizer(req){'),b=src.indexOf('\n}',a);
+if(a<0||b<=a)throw Error('reset function missing');
+const lines=src.slice(a,b+2).split('\n');
+console.log('RESET_STRUCTURE',JSON.stringify(lines.map(l=>({indent:l.match(/^\s*/)[0].length,shape:l.trim().replace(/"[^"]*"|'[^']*'/g,'STRING')}))));
+const upstream=get('python-ga-upstream.mjs');
+const anchors=['  async function run(req,opts){','  async function progress(req){','  async function fetchUpstream(req,opts){','return {fetch:fetchUpstream,cancel,','principal=await account(req);model=await readAccountModel(req)','stateStore.load(principal)','current=await currentJob(principal)','const asyncStart=args.__pp_async_start===true','if(current&&[\'queued\',\'running\'].includes(current.state))','async function currentJob(principal){','const restored={id:saved.job_id','state={id:r.body.job_id','state.state=status.status;','state.best=finalPlan;state.result=finalPlan;'];
+console.log('UPSTREAM_ANCHORS',JSON.stringify(anchors.map(x=>[x,upstream.split(x).length-1])));
+const ui=get('restart-optimizer-ui.js');
+const from=ui.indexOf('function ppGaQualityFloorV1(){'),to=ui.indexOf('window.__PP_GA_OBJECTIVE_FLOOR_V1__={',from);
+console.log('UI_FLOOR_STRUCTURE',JSON.stringify(ui.slice(from,to).split('\n').filter(l=>/floor=|options=|choices=|__ppFresh|incumbent=|prefersNew|belong=|op\.order|selectedKey|return response|best_preview:preserved/.test(l)).map(l=>l.trim().slice(0,180))));
+const html=get('restart-optimizer-html.js');
+console.log('HTML_FLOOR_STRUCTURE',JSON.stringify(html.split('\n').filter(l=>/ppOriginal|ppIncumbentDecision|ppFreshReferencePlan|ppFreshRestartMode|const ppInc=|ppFreshFloor/.test(l)).map(l=>l.trim().slice(0,420)).slice(0,25)));
