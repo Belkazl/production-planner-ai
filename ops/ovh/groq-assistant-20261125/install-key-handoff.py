@@ -122,6 +122,7 @@ def install():
 
 if __name__=='__main__':
     try:install()
-    except Exception:
-        print('LIFTORBIT_GROQ_INSTALL_REJECTED')
+    except Exception as e:
+        safe = {'root_required','unexpected_config_permissions','existing_helper_or_rule','unexpected_existing_path','unsafe_parent'}
+        print('LIFTORBIT_GROQ_INSTALL_REJECTED', str(e) if type(e) is ValueError and str(e) in safe else type(e).__name__)
         raise SystemExit(6)
