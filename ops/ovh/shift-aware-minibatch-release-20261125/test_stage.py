@@ -19,7 +19,7 @@ import native_hashes
 import stage
 
 BEFORE = '08a3fd9d556fecb726c69ce7632851c2117f0e753c16edac183361e632afe253'
-AFTER = '0f38187e05ab7c890e83884719df51ddfcc0a02d6b97b1e6ecb3d80aed8ec268'
+AFTER = '9ddfde67f8ebf723c401d3849b0bf88004ebb6c8a6b537dbd157e7dc6920a6f5'
 
 
 def fixture():
