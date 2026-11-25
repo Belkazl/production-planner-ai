@@ -231,9 +231,11 @@ def window_origin_probe(adapter, joint, cases, nonzero_origin=False, context=Non
         opening, target = 480, 910
     run = observe(adapter, joint, model,
         {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'})
-    facts = check_plan(cases, run['result'], model, context=context)
+    # Check every native scored schedule before the formatter output to locate
+    # calendar violations at the correct stage without relaxing any invariant.
     for index, (_, sim) in enumerate(run['scored']):
         check_plan(cases, sim, model, raw=True, context=context, candidate_index=index)
+    facts = check_plan(cases, run['result'], model, context=context)
     first = run['scored'][0][1]
     ga, windows = run['namespace'], first['ctx']['emp_windows']
     native_window = ga['_pp_in_window']
