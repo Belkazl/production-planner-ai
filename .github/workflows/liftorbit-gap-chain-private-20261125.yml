@@ -1,0 +1,62 @@
+name: Verify upstream batch chain on the actual native runtime privately
+on:
+  push:
+    branches: [fix/shift-gap-chain-v2-20261125]
+    paths:
+      - .github/workflows/liftorbit-gap-chain-private-20261125.yml
+      - ops/ovh/shift-gap-chain-20261125/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-gap-chain-actual-native
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Public exact-source regression tests and isolated runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/shift-gap-chain-20261125 -p 'test_*.py'
+          docker build -f ops/ovh/shift-aware-minibatch-release-20261125/Dockerfile.verify -t gap-chain-verifier:local ops/ovh/shift-aware-minibatch-release-20261125
+          docker image inspect --format '{{.Id}}' gap-chain-verifier:local > "$RUNNER_TEMP/gap-chain-image"
+      - name: Capture only the previously approved code-only native bundle and app hashes
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/gap-chain-key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/gap-chain-known-hosts"
+          chmod 600 "$RUNNER_TEMP/gap-chain-key" "$RUNNER_TEMP/gap-chain-known-hosts"
+          trap 'rm -f -- "$RUNNER_TEMP/gap-chain-key" "$RUNNER_TEMP/gap-chain-known-hosts"' EXIT
+          opts=(-i "$RUNNER_TEMP/gap-chain-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/gap-chain-known-hosts" -o ConnectTimeout=20)
+          ssh "${opts[@]}" "$USER@$HOST" 'python3 -B -I - --app-hashes' < ops/ovh/shift-aware-minibatch-release-20261125/capture.py > "$RUNNER_TEMP/gap-chain-app.json" 2> "$RUNNER_TEMP/gap-chain-private-transport.log"
+          ssh "${opts[@]}" "$USER@$HOST" 'python3 -B -I - --emit-private-bundle' < ops/ovh/native-batching-verify-20261124/native_input_contract.py > "$RUNNER_TEMP/gap-chain-native.bundle" 2>> "$RUNNER_TEMP/gap-chain-private-transport.log"
+      - name: Native 35-minute witness, earlier shift witnesses, eleven and four regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -I ops/ovh/shift-gap-chain-20261125/private_verify.py \
+            --bundle "$RUNNER_TEMP/gap-chain-native.bundle" --app "$RUNNER_TEMP/gap-chain-app.json" \
+            --image "$(cat "$RUNNER_TEMP/gap-chain-image")"
+      - name: Remove private inputs
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/gap-chain-key" "$RUNNER_TEMP/gap-chain-known-hosts" "$RUNNER_TEMP/gap-chain-app.json" "$RUNNER_TEMP/gap-chain-native.bundle" "$RUNNER_TEMP/gap-chain-private-transport.log" "$RUNNER_TEMP/gap-chain-image"
+          for d in "$RUNNER_TEMP"/gap-chain-private-*; do if test -d "$d" && test ! -L "$d"; then rm -rf -- "$d"; fi; done
