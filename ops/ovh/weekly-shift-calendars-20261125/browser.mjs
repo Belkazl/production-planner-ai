@@ -74,9 +74,10 @@ try{
  phase='employee_assignment';
  const select=page.locator('#sectionView table tbody tr select').first();
  await select.selectOption('shift-1');
- const employeeReq=page.waitForRequest(r=>r.url().includes('/api/project/model/import')&&r.method()==='POST',{timeout:15000});
- await page.locator('#sectionView [data-save]').click();
- const employeeData=(await employeeReq).postDataJSON().model;
+ const employeeButton=page.locator('#sectionView').getByRole('button',{name:/^(Save changes|Сохранить изменения)$/i});
+ console.log('WEEKLY_EMPLOYEE_SAVE_BUTTON_COUNT '+await employeeButton.count());
+ const [employeeReq]=await Promise.all([page.waitForRequest(r=>r.url().includes('/api/project/model/import')&&r.method()==='POST',{timeout:15000}),employeeButton.click({timeout:10000})]);
+ const employeeData=employeeReq.postDataJSON().model;
  assert.equal(employeeData.employees[0].shift,'shift-1');
  assert.deepEqual(employeeData.shift_calendars.day.days,[1,2,3,4,5]);
  await page.waitForFunction(()=>model?.employees?.[0]?.shift==='shift-1',{},{timeout:15000});
