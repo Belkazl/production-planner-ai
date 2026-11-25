@@ -62,7 +62,9 @@ def _wc_restore_model(normalized, original):
     if not isinstance(normalized,dict):raise ValueError("invalid_normalized_model")
     result=copy.deepcopy(normalized)
     result["shift_calendars"]=copy.deepcopy(original["shift_calendars"])
-    result["shifts"]=copy.deepcopy(original["shifts"])
+    if not isinstance(result.get("shifts"),dict):raise ValueError("invalid_normalized_shifts")
+    for key in original["shift_calendars"]:
+        result["shifts"][key]=copy.deepcopy(original["shifts"][key])
     return _wc_prepare_model(result)
 
 def _wc_windows(cal,origin,first,last):
@@ -86,18 +88,20 @@ def _wc_native_windows(model,origin,raw,corrected):
     """Replace only explicitly configured employee calendars; keep native horizon."""
     calendars=model.get("shift_calendars") or {}
     if not calendars:return corrected
-    _wc_prepare_model(model)
     staff={str(e["id"]):e.get("shift") for e in model.get("employees",[])}
     last=max((float(pair[1]) for intervals in raw.values() for pair in intervals),default=0)
     if not math.isfinite(last) or last<=0:
         raise ValueError("invalid_native_calendar_horizon")
     offset=origin.hour*60+origin.minute+origin.second/60+origin.microsecond/60000000
     horizon=last-offset
+    by_shift={}
     for key in corrected:
         name=staff.get(str(key))
         if name not in calendars:continue
-        windows=_wc_windows(calendars[name],origin,-1,math.ceil(last/1440))
-        corrected[key]=[(a,min(b,horizon)) for a,b in windows if b>0 and a<horizon and min(b,horizon)>a]
+        if name not in by_shift:
+            windows=_wc_windows(calendars[name],origin,-1,math.ceil(last/1440))
+            by_shift[name]=[(a,min(b,horizon)) for a,b in windows if b>0 and a<horizon and min(b,horizon)>a]
+        corrected[key]=list(by_shift[name])
     if any(name in calendars and not any(str(k)==employee for k in corrected) for employee,name in staff.items()):
         raise ValueError("missing_native_employee_calendar")
     return corrected

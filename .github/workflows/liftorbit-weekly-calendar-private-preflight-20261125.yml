@@ -1,0 +1,63 @@
+name: Verify weekly shift calendar against exact native runtime
+on:
+  push:
+    branches: [feat/weekly-shift-calendars-20261125]
+    paths:
+      - .github/workflows/liftorbit-weekly-calendar-private-preflight-20261125.yml
+      - ops/ovh/weekly-shift-calendars-20261125/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-weekly-calendar-private-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/feat/weekly-shift-calendars-20261125'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test public transforms before any native source transfer
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ops/ovh/weekly-shift-calendars-20261125 -p 'test_*.py'
+          node --test ops/ovh/weekly-shift-calendars-20261125/test-editor.mjs
+      - name: Build public isolation runtime
+        run: |
+          set -euo pipefail
+          umask 077
+          docker build -f ops/ovh/shift-aware-minibatch-release-20261125/Dockerfile.verify -t weekly-calendar-verifier:local ops/ovh/shift-aware-minibatch-release-20261125
+          docker image inspect --format '{{.Id}}' weekly-calendar-verifier:local > "$RUNNER_TEMP/weekly-image"
+      - name: Receive only previously approved native code bundle privately
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/weekly-key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/weekly-kh"
+          chmod 600 "$RUNNER_TEMP/weekly-key" "$RUNNER_TEMP/weekly-kh"
+          trap 'rm -f -- "$RUNNER_TEMP/weekly-key" "$RUNNER_TEMP/weekly-kh"' EXIT
+          if ! ssh -i "$RUNNER_TEMP/weekly-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/weekly-kh" -o ConnectTimeout=20 "$USER@$HOST" 'python3 -B -I - --emit-private-bundle' < ops/ovh/native-batching-verify-20261124/native_input_contract.py > "$RUNNER_TEMP/weekly-native.bundle" 2> "$RUNNER_TEMP/weekly-transport-private.log"; then
+            echo WEEKLY_PRIVATE_TRANSFER_FAILED
+            exit 6
+          fi
+      - name: Verify staged candidate without production writes
+        run: |
+          set -euo pipefail
+          python3 -B -I ops/ovh/weekly-shift-calendars-20261125/verify_private.py --bundle "$RUNNER_TEMP/weekly-native.bundle" --image "$(cat "$RUNNER_TEMP/weekly-image")"
+      - name: Remove private sources and buffers
+        if: always()
+        run: |
+          rm -f -- "$RUNNER_TEMP/weekly-key" "$RUNNER_TEMP/weekly-kh" "$RUNNER_TEMP/weekly-native.bundle" "$RUNNER_TEMP/weekly-transport-private.log" "$RUNNER_TEMP/weekly-image"
+          for d in "$RUNNER_TEMP"/weekly-private-*; do
+            if test -d "$d" && test ! -L "$d"; then rm -rf -- "$d"; fi
+          done

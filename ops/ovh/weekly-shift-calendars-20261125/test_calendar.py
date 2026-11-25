@@ -1,7 +1,14 @@
 import unittest
 from datetime import datetime
 from weekly_calendar import _wc_blocks, _wc_prepare_model, _wc_native_windows, _wc_contains, _wc_restore_model
-from patch import patch_adapter
+from patch import patch_adapter, patch_joint
+from pathlib import Path
+import importlib.util
+import sys
+
+def load_patch(name,path):
+    spec=importlib.util.spec_from_file_location(name,path)
+    mod=importlib.util.module_from_spec(spec);sys.modules[name]=mod;spec.loader.exec_module(mod);return mod
 
 class WeeklyCalendar(unittest.TestCase):
     def setUp(self):
@@ -46,6 +53,15 @@ class WeeklyCalendar(unittest.TestCase):
         self.assertIs(_wc_prepare_model(legacy),legacy)
         prepared=_wc_prepare_model(self.model)
         self.assertEqual(_wc_restore_model({"shifts":{}},prepared)["shift_calendars"],self.model["shift_calendars"])
+    def test_real_public_joint_transform(self):
+        ops=Path(__file__).resolve().parent.parent
+        base=(ops/"joint-minibatch-search-20261124/joint_minibatch.py").read_text()
+        diversity=load_patch("wc_previous_diversity",ops/"joint-search-diversity-20261125/patch.py")
+        shift=load_patch("wc_previous_shift",ops/"shift-aware-minibatches-20261125/patch.py")
+        prior=shift.patch(diversity.patch(base))
+        after=patch_joint(prior)
+        self.assertIn("_wc_native_windows(model, origin, windows, corrected)",after)
+        compile(after,"<weekly-native>","exec")
     def test_adapter_guard(self):
         source="def f(ga,original):\n    normalized=ga['canonicalize_model'](original)\n    return normalized\n"
         staged=patch_adapter(source)
