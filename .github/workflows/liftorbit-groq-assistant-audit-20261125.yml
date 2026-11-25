@@ -1,0 +1,74 @@
+name: Verify Groq key and inspect existing assistant integration
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths: [.github/workflows/liftorbit-groq-assistant-audit-20261125.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Test configured Groq key using synthetic text only
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error
+          key=os.environ.get("GROQ_API_KEY","")
+          if not key:
+              print("GROQ_KEY_MISSING")
+              raise SystemExit(2)
+          request=urllib.request.Request("https://api.groq.com/openai/v1/chat/completions",data=json.dumps({"model":"openai/gpt-oss-120b","messages":[{"role":"user","content":"Reply with exactly OK."}],"max_completion_tokens":128,"reasoning_effort":"low"}).encode(),headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},method="POST")
+          try:
+              with urllib.request.urlopen(request,timeout=30) as r:
+                  body=json.load(r)
+                  result=body["choices"][0]["message"]["content"]
+                  if not isinstance(result,str) or not result.strip():raise ValueError()
+                  print("GROQ_COMPLETION_PASS",r.status)
+          except urllib.error.HTTPError as e:
+              print("GROQ_HTTP_STATUS",e.code)
+              raise SystemExit(3)
+          except Exception:
+              print("GROQ_COMPLETION_FAILED")
+              raise SystemExit(4)
+          PY
+      - name: Read-only audit of owned application source and config permissions
+        if: always()
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/ssh-key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/known-hosts"
+          trap 'rm -f "$RUNNER_TEMP/ssh-key" "$RUNNER_TEMP/known-hosts"' EXIT
+          ssh -i "$RUNNER_TEMP/ssh-key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/known-hosts" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,hashlib,os
+          root=Path('.')
+          for p in root.rglob('*'):
+              if p.is_symlink() or not p.is_file() or p.suffix not in ('.js','.mjs','.ts','.py','.html') or p.stat().st_size>2500000:continue
+              if any(x in p.parts for x in ('node_modules','.git','tests','ga_python_workers')):continue
+              source=p.read_text(errors='replace')
+              patterns=re.findall(r'[/]api[/][a-zA-Z0-9_/-]*(?:chat|assistant|message|import|model|parse)[a-zA-Z0-9_/-]*',source,re.I)
+              provider=sorted(set(re.findall(r'\b(?:GROQ_API_KEY|OPENAI_API_KEY|OPENAI_BASE_URL|GROQ_BASE_URL|OPENAI_MODEL|GROQ_MODEL|api\.groq\.com|api\.openai\.com)\b',source)))
+              if patterns or provider:
+                  print('AI_SOURCE',str(p),hashlib.sha256(source.encode()).hexdigest(),sorted(set(patterns))[:30],provider)
+          for p in (Path('/opt/liftorbit/secrets/app.json'),Path('/opt/liftorbit/secrets/planner.json'),Path('/opt/liftorbit/secrets/auth.json')):
+              print('CONFIG_ACCESS',p.name,'readable='+str(os.access(p,os.R_OK)),'writable='+str(os.access(p,os.W_OK)))
+          print('AUDIT_DONE')
+          PY
+          REMOTE
