@@ -1,0 +1,27 @@
+name: Verify downstream 35-minute gap and variable batches
+on:
+  push:
+    branches: [fix/shift-gap-chain-v2-20261125]
+    paths:
+      - .github/workflows/liftorbit-gap-chain-verify-20261125.yml
+      - ops/ovh/shift-gap-chain-20261125/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-gap-chain-private-verify
+  cancel-in-progress: false
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run exact-source and multi-stage gap unit tests
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/shift-gap-chain-20261125 -p 'test_*.py' -v
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/shift-aware-minibatches-20261125 -p 'test_*.py'
