@@ -1,0 +1,116 @@
+name: Preserve operation names in Gantt details
+on:
+  push:
+    branches: [main, fix/gantt-operation-name-20261125]
+    paths:
+      - .github/workflows/liftorbit-gantt-operation-name-20261125.yml
+      - ops/ovh/gantt-operation-name-20261125/**
+permissions: {contents: read}
+concurrency:
+  group: liftorbit-gantt-operation-name-production
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Gantt details and interface localization
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh_call(){ ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          scp_call(){ scp -q -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$@"; }
+          root=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app
+          scp_call "$USER@$HOST:$root/current/gantt-details.js" "$d/old-ui.js"
+          scp_call "$USER@$HOST:$root/current/language-ui.js" "$d/old-html.js"
+          node ops/ovh/gantt-operation-name-20261125/patch.mjs "$d/old-ui.js" "$d/old-html.js" "$d/new-ui.js" "$d/new-html.js"
+          node --check "$d/new-ui.js"
+          node --check "$d/new-html.js"
+          old_ui=$(sha256sum "$d/old-ui.js"|cut -d' ' -f1)
+          old_html=$(sha256sum "$d/old-html.js"|cut -d' ' -f1)
+          new_ui=$(sha256sum "$d/new-ui.js"|cut -d' ' -f1)
+          new_html=$(sha256sum "$d/new-html.js"|cut -d' ' -f1)
+          if [ "$GITHUB_REF" != refs/heads/main ];then
+            echo GANTT_NAME_PLAN_READONLY_PREFLIGHT_PASS
+            exit 0
+          fi
+          scp_call "$d/new-ui.js" "$USER@$HOST:$root/gantt-details.gantt-operation-name.next"
+          scp_call "$d/new-html.js" "$USER@$HOST:$root/language-ui.gantt-operation-name.next"
+          ssh_call "$USER@$HOST" bash -s -- "$old_ui" "$old_html" "$new_ui" "$new_html" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          root="$HOME/liftorbit-migration/sources/ovh-app"
+          ui="$root/current/gantt-details.js"
+          html="$root/current/language-ui.js"
+          ui_next="$root/gantt-details.gantt-operation-name.next"
+          html_next="$root/language-ui.gantt-operation-name.next"
+          backup="$HOME/liftorbit-migration/patch-backups/gantt-operation-name-20261125"
+          sha(){ sha256sum "$1"|cut -d' ' -f1; }
+          test "$(sha "$ui")" = "$1" || { echo GANTT_NAME_UI_DRIFT;exit 5; }
+          test "$(sha "$html")" = "$2" || { echo GANTT_NAME_HTML_DRIFT;exit 5; }
+          test "$(sha "$ui_next")" = "$3" || { echo GANTT_NAME_UI_UPLOAD_CORRUPT;exit 5; }
+          test "$(sha "$html_next")" = "$4" || { echo GANTT_NAME_HTML_UPLOAD_CORRUPT;exit 5; }
+          sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null
+          mkdir -p "$backup"
+          cp -p "$ui" "$backup/gantt-details.js"
+          cp -p "$html" "$backup/language-ui.js"
+          rollback(){
+            trap - ERR
+            cp -p "$backup/gantt-details.js" "$ui" || true
+            cp -p "$backup/language-ui.js" "$html" || true
+            sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1 || true
+            echo GANTT_NAME_PLAN_ROLLBACK_ATTEMPTED
+          }
+          trap rollback ERR
+          mv "$ui_next" "$ui"
+          mv "$html_next" "$html"
+          sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
+          healthy=no
+          for i in $(seq 1 40);do
+            if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then healthy=yes;break;fi
+            sleep 5
+          done
+          test "$healthy" = yes
+          test "$(sha "$ui")" = "$3"
+          test "$(sha "$html")" = "$4"
+          trap - ERR
+          echo GANTT_NAME_PLAN_OVH_DEPLOYED_HEALTHY
+          REMOTE
+          scp_call "$USER@$HOST:$root/current/gantt-details.js" "$d/deployed-ui.js"
+          scp_call "$USER@$HOST:$root/current/language-ui.js" "$d/deployed-html.js"
+          test "$(sha256sum "$d/deployed-ui.js"|cut -d' ' -f1)" = "$new_ui"
+          test "$(sha256sum "$d/deployed-html.js"|cut -d' ' -f1)" = "$new_html"
+          echo GANTT_NAME_PLAN_DEPLOYED_FILES_VERIFIED
+      - name: Production HTTPS and auth boundary
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=no
+          for i in $(seq 1 12);do
+            health=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/__bridge_health || true)
+            guest=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.liftorbit.app/api/auth/me || true)
+            if [ "$health" = 200 ] && [ "$guest" = 401 ];then ok=yes;break;fi
+            sleep 5
+          done
+          test "$ok" = yes
+          echo GANTT_NAME_PLAN_PUBLIC_HEALTH_PASS
+      - name: Verify operation titles in the deployed Gantt
+        if: github.ref == 'refs/heads/main'
+        run: |
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/gantt-operation-name-20261125/live.mjs
