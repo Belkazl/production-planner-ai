@@ -226,7 +226,7 @@ def safe_shift_probe_results(probes):
     if not isinstance(probes, dict):
         return {}
     return {name: probes[name] for name in ('later_ready', 'nonzero_origin',
-        'native_accepts_start_120', 'native_accepts_start_180', 'native_accepts_start_660', 'native_probe_failed')
+        'native_accepts_start_120', 'native_accepts_start_180', 'native_accepts_start_660')
         if type(probes.get(name)) is bool}
 
 

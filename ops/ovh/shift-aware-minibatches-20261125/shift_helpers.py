@@ -15,6 +15,57 @@ class _ShiftProbeLimit(Exception):
     pass
 
 
+def _shift_align_native_windows(ga, model):
+    """Align native employee minutes with the model's non-midnight origin.
+
+    Native worker windows are expanded in clock-minute coordinates, whereas
+    operation start/end minutes are measured from model['start']. The same
+    offset must be applied to the expanded windows before *any* operation is
+    scheduled. Keep all windows (including negative starts) to preserve work
+    crossing the model origin. Never change the caller model or generated rows.
+    """
+    from datetime import datetime
+    start = model.get('start')
+    if not isinstance(start, str):
+        return
+    try:
+        origin = datetime.fromisoformat(start)
+    except ValueError:
+        return
+    offset = origin.hour * 60 + origin.minute + origin.second / 60 + origin.microsecond / 60000000
+    if offset == 0 or not model.get('employees') or not model.get('shifts'):
+        return
+    original = ga.get('_pp_schedule_operation')
+    if not callable(original):
+        raise JointContractError('shift_native_schedule_missing')
+
+    def aligned(ctx, order, op, earliest):
+        if not isinstance(ctx, dict):
+            raise JointContractError('shift_native_ctx_shape')
+        if not ctx.get('_pp_joint_windows_origin_aligned'):
+            windows = ctx.get('emp_windows')
+            if not isinstance(windows, dict):
+                raise JointContractError('shift_native_window_shape')
+            corrected = {}
+            for identifier, values in windows.items():
+                if not isinstance(values, (list, tuple)):
+                    raise JointContractError('shift_native_window_shape')
+                converted = []
+                for pair in values:
+                    if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                        raise JointContractError('shift_native_window_pair')
+                    low, high = pair
+                    if not _shift_finite(low) or not _shift_finite(high) or high <= low:
+                        raise JointContractError('shift_native_window_bounds')
+                    converted.append((float(low) - offset, float(high) - offset))
+                corrected[identifier] = converted
+            ctx['emp_windows'] = corrected
+            ctx['_pp_joint_windows_origin_aligned'] = True
+        return original(ctx, order, op, earliest)
+
+    ga['_pp_schedule_operation'] = aligned
+
+
 def _shift_model_calendar_violation(model, row):
     """Additional conservative check for explicitly declared HH:MM employee shifts."""
     from datetime import datetime

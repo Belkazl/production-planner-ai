@@ -102,7 +102,7 @@ def new_report():
             **dict.fromkeys(CASE_NUMBER_FIELDS, 0)} for name in CASE_NAMES}}
 
 
-def observe(adapter, joint, model, options, diagnostics=None):
+def observe(adapter, joint, model, options):
     """Observe real decoder and post-validation scoring; return native objects."""
     factory, installer = adapter._namespace, adapter.install_joint_minibatch_search
     original_score = joint._score
@@ -123,19 +123,6 @@ def observe(adapter, joint, model, options, diagnostics=None):
         @functools.wraps(native_decode)
         def decode(*args, **kwargs):
             result = native_decode(*args, **kwargs)
-            if isinstance(diagnostics, dict) and 'native_accepts_start_120' not in diagnostics:
-                ctx = result.get('ctx') if isinstance(result, dict) else None
-                probe = ga.get('_pp_in_window')
-                windows = ctx.get('emp_windows') if isinstance(ctx, dict) else None
-                if callable(probe) and windows is not None:
-                    try:
-                        for name, start, duration in (
-                            ('native_accepts_start_120', 120, 30),
-                            ('native_accepts_start_180', 180, 200),
-                            ('native_accepts_start_660', 660, 200)):
-                            diagnostics[name] = bool(probe(windows, 'SYNTHETIC_SHIFT_EMPLOYEE', start, duration))
-                    except Exception:
-                        diagnostics['native_probe_failed'] = True
             if active():
                 try:
                     need(len(decoded) < 64, 'observer_contract')
@@ -243,7 +230,7 @@ def window_origin_probe(adapter, joint, cases, nonzero_origin=False, context=Non
         model['shifts'] = {'day': [['08:00', '08:30'], ['09:00', '17:00']]}
         opening, target = 480, 910
     run = observe(adapter, joint, model,
-        {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'}, diagnostics=diagnostics)
+        {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'})
     if nonzero_origin and isinstance(diagnostics, dict) and run['scored']:
         first_sim = run['scored'][0][1]
         windows = first_sim.get('ctx', {}).get('emp_windows')
