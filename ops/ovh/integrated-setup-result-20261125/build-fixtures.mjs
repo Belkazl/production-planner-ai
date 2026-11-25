@@ -7,6 +7,9 @@ import {createHash} from 'node:crypto';
 // their declarations, tenant IDs, explicit values and every existing assertion.
 const marker = 'pp_integrated_setup_complete_build_fixture_20261125';
 export const BUILD_FIXTURE_FILES = ['tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs'];
+// Additional worker fixture proven in public source c228648e41a4c65f2b9f1325c577a3ba03d6fb1b.
+const candidateDeclaration = '  const candidate={ok:true,valid:true,operations:[...m.orders].reverse().map(x=>({order:x.id})),candidate:true};';
+const candidateCall = '\n  // ' + marker + ':candidate\n  ppCompleteSyntheticNativeBuildFixture(candidate,m);';
 
 export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
@@ -48,10 +51,6 @@ export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
     }
     if (!own(row, 'duration_min') && number(row.start_min) && number(row.end_min))
       row.duration_min = row.end_min - row.start_min;
-    if (!own(row, 'equipment_ids')) {
-      if (own(row, 'equipment_id')) row.equipment_ids = [row.equipment_id];
-      else if (model?.equipment?.length === 1) row.equipment_ids = [model.equipment[0].id];
-    }
     if (!own(row, 'employee_ids') && !own(row, 'employee_id')) row.employee_ids = [];
     if (number(row.end_min)) cursor = Math.max(cursor, row.end_min);
   }
@@ -59,8 +58,8 @@ export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
   // Propagate only newly supplied omissions to an unambiguous original copy.
   // Existing values/conflicts and optional batch identity are never rewritten.
   for (const {copy, index} of copyMatches) {
-    for (const key of ['start_min', 'end_min', 'duration_min', 'equipment_ids', 'employee_ids']) {
-      if ((key === 'equipment_ids' && own(copy, 'equipment_id')) || (key === 'employee_ids' && own(copy, 'employee_id'))) continue;
+    for (const key of ['start_min', 'end_min', 'duration_min', 'employee_ids']) {
+      if (key === 'employee_ids' && own(copy, 'employee_id')) continue;
       if (!own(originals[index], key) && own(plan.operations[index], key) && !own(copy, key)) {
         const value = plan.operations[index][key];
         copy[key] = Array.isArray(value) ? [...value] : value;
@@ -76,7 +75,6 @@ export function ppCompleteSyntheticNativeBuildFixture(plan, model) {
   missing(plan, 'batch_count', new Set(plan.operations.map(row => JSON.stringify([row.order, row.batch_id ?? row.batch ?? 1]))).size);
   missing(plan, 'operator_wait_minutes', 0);
   missing(plan, 'machine_idle_minutes', 0);
-  missing(plan, 'order_sequence', [...new Set(plan.operations.map(row => row.order))]);
   return plan;
 }
 
@@ -190,6 +188,9 @@ function locate(source, label) {
     if (!references.has('plan')) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_PLAN_REFERENCE_GUARD');
     end += responseEnd;
     original = source.slice(start, end);
+    const candidates = [...original.matchAll(/\bconst\s+candidate\s*=/g)];
+    if (candidates.length > 1 || (candidates.length === 1 && original.split(candidateDeclaration).length !== 2))
+      throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_CANDIDATE_SOURCE_GUARD');
     try {
       const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
       new AsyncFunction('m', 'j', 'opts', 'url', original);
@@ -217,10 +218,12 @@ function locate(source, label) {
 function render(original, label, indent, insertion) {
   const call = label === 'upstream' ? 'ppCompleteSyntheticNativeBuildFixture(plan,m);' :
     'ppCompleteSyntheticNativeBuildFixture(worker.get(id)?.result,model);';
+  let suffix = original.slice(insertion);
+  if (label === 'upstream' && suffix.includes(candidateDeclaration))
+    suffix = suffix.replace(candidateDeclaration, candidateDeclaration + candidateCall);
   return indent + '// ' + marker + ':' + label + ':' + sha(original) + '\n' + original.slice(0, insertion) +
-    '{\n' + indent + '// ' + marker + ':augment\n' + indent + ppCompleteSyntheticNativeBuildFixture.toString() +
-    '\n' + indent + call + '\n' + indent + '} // ' + marker + ':resume-end' +
-    '\n' + indent + '// ' + marker + ':resume\n' + original.slice(insertion) +
+    '\n' + indent + '// ' + marker + ':augment\n' + indent + ppCompleteSyntheticNativeBuildFixture.toString() +
+    '\n' + indent + call + '\n' + indent + '// ' + marker + ':resume\n' + suffix +
     '\n' + indent + '// ' + marker + ':end';
 }
 
@@ -228,14 +231,18 @@ function patchFixture(source, label) {
   if (typeof source !== 'string' || source.length > 4 * 1024 * 1024) fail(label);
   if (source.includes(marker)) {
     const header = one(source, new RegExp('^[ \\t]*// ' + marker + ':' + label + ':([0-9a-f]{64})\\n', 'gm'), label);
-    const middle = one(source, new RegExp('\\{\\n[ \\t]*// ' + marker + ':augment\\n', 'g'), label);
+    const middle = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':augment\\n', 'g'), label);
     const resume = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':resume\\n', 'g'), label);
-    const resumeEnd = one(source, new RegExp('\\n[ \\t]*\\} // ' + marker + ':resume-end', 'g'), label);
     const footer = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':end', 'g'), label);
     const start = header.index, originalStart = start + header[0].length;
     const end = footer.index + footer[0].length;
-    if (!(originalStart < middle.index && middle.index < resumeEnd.index && resumeEnd.index < resume.index && resume.index < footer.index)) fail(label);
-    const original = source.slice(originalStart, middle.index) + source.slice(resume.index + resume[0].length, footer.index);
+    if (!(originalStart < middle.index && middle.index < resume.index && resume.index < footer.index)) fail(label);
+    let suffix = source.slice(resume.index + resume[0].length, footer.index);
+    if (label === 'upstream' && suffix.includes(candidateCall)) {
+      if (suffix.split(candidateCall).length !== 2) fail(label);
+      suffix = suffix.replace(candidateCall, '');
+    }
+    const original = source.slice(originalStart, middle.index) + suffix;
     const restored = source.slice(0, start) + original + source.slice(end);
     if (sha(original) !== header[1] || restored.includes(marker) || patchFixture(restored, label) !== source)
       throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_INSTALL_DRIFT_' + label);

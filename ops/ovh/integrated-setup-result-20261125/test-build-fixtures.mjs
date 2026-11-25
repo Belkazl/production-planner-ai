@@ -65,7 +65,8 @@ test('original declaration and all surrounding assertions survive byte-identical
   const full = ppCanonicalNativeResult(plan, model, 'model');
   assert(full);
   assert.deepEqual(full.operations.map(row => [row.order, row.equipment_ids, row.start_min, row.end_min]),
-    [['OA1', ['E1'], 0, 1], ['OA2', ['E1'], 1, 2]]);
+    [['OA1', [], 0, 1], ['OA2', [], 1, 2]]);
+  assert.equal(Object.hasOwn(plan, 'order_sequence'), false);
   assert.equal(full.duration_minutes, 2);
   assert.deepEqual(full.setup_operations, []);
 });
@@ -116,12 +117,34 @@ test('unchanged mock reply supports field reordering and alternate plan construc
 test('tenant-selected foreign IDs and existing equipment IDs are never repaired or rewritten', async () => {
   const plan = await upstreamPlan(patchUpstreamBuildFixture(upstreamSource()), true);
   assert.equal(plan.operations[0].order, 'FOREIGN');
-  assert.deepEqual(plan.operations[0].equipment_ids, ['FOREIGN-EQ']);
+  assert.equal(Object.hasOwn(plan.operations[0], 'equipment_ids'), false);
   assert(!plan.operations.every(row => model.orders.some(order => order.id === row.order)));
   const own = {valid: true, operations: [{order: 'WRONG-ORDER', equipment_id: 'WRONG-EQ'}]};
   ppCompleteSyntheticNativeBuildFixture(own, model);
   assert.equal(own.operations[0].order, 'WRONG-ORDER');
-  assert.deepEqual(own.operations[0].equipment_ids, ['WRONG-EQ']);
+  assert.equal(own.operations[0].equipment_id, 'WRONG-EQ');
+  assert.equal(Object.hasOwn(own.operations[0], 'equipment_ids'), false);
+});
+
+test('exact public async candidate fixture gains required metrics while optional arrays retain their legacy defaults', async () => {
+  const declaration = '  const candidate={ok:true,valid:true,operations:[...m.orders].reverse().map(x=>({order:x.id})),candidate:true};';
+  const reply = "return Response.json({status:j.status,progress:100,result:j.status==='completed'?plan:null,best_preview:null});";
+  const source = upstreamSource().replace('  ' + reply, declaration + '\n  ' + reply.replace('best_preview:null', 'best_preview:null,candidate_preview:candidate'));
+  const patched = patchUpstreamBuildFixture(source);
+  assert(patched.includes(declaration));
+  assert.equal(patchUpstreamBuildFixture(patched), patched);
+  const models = new Map([['A0', model], ['A9', model]]);
+  const make = new Function('models', 'createPythonGAUpstream', patched + '\nreturn makeEnv;')(models, value => value);
+  const data = await (await make().fetchStub()).json();
+  assert.equal(data.candidate_preview.candidate, true);
+  assert.deepEqual(data.candidate_preview.operations.map(row => row.order), ['OA2', 'OA1']);
+  assert(ppCanonicalNativeResult(data.result, model, 'model'));
+  assert(ppCanonicalNativeResult(data.candidate_preview, model, 'model'));
+  for (const plan of [data.result, data.candidate_preview]) {
+    assert.equal(Object.hasOwn(plan, 'order_sequence'), false);
+    assert.equal(Object.hasOwn(plan.operations[0], 'equipment_ids'), false);
+  }
+  assert.throws(() => patchUpstreamBuildFixture(source.replace('candidate:true', 'candidate:false')), /CANDIDATE_SOURCE_GUARD/);
 });
 
 test('existing shallow checkpoint copies inherit complete KPI metadata before the worker reply', async () => {

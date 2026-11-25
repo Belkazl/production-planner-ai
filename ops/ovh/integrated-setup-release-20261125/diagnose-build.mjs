@@ -29,6 +29,13 @@ export const CANONICAL_SITE_COUNT = 20;
 export const CANONICAL_ERRORS = Object.freeze([
   'interval', 'setup_kind', 'setup_interval', 'duration', 'conflicting_row', 'duplicate_row', 'unknown'
 ]);
+export const REQUIRED_METRICS = Object.freeze([
+  'duration_minutes', 'batch_count', 'operator_wait_minutes', 'machine_idle_minutes'
+]);
+export const METRIC_TYPES = Object.freeze(['absent', 'null', 'string', 'boolean', 'number', 'array', 'object']);
+export const INPUT_PHASES = Object.freeze([
+  'absent', 'starting', 'optimizing', 'running', 'complete', 'completed', 'cancelled', 'failed', 'timed_out', 'unknown'
+]);
 export const RESPONSE_ERRORS = Object.freeze([
   'native_schedule_contract_invalid', 'authentication_or_model_unavailable', 'account_model_not_ready',
   'ga_state_unavailable', 'invalid_ga_options', 'ga_options_too_large', 'optimization_running_stop_first',
@@ -67,15 +74,19 @@ export function instrumentUpstream(source) {
       JSON.stringify(CANONICAL_ERRORS.slice(0, -1)), 'canonical_instrumentation_contract');
   need(typeof source === 'string' && source.split(original).length === 2 &&
     !source.includes(MARKER), 'canonical_source_mismatch');
+  const metricCheck = 'if (!numeric(plan[key])) return null;';
+  need(original.split(metricCheck).length === 2, 'canonical_instrumentation_contract');
   const declaration = 'export function createPythonGAUpstream(';
   need(source.split(declaration).length === 2, 'upstream_export_contract');
   let site = 0;
   let instrumented = original.replace(tail,
     '  } catch (__ppDiagnosticCaught) { __ppDiagnosticError(__ppDiagnosticCaught); return null; }\n}');
+  instrumented = instrumented.replace(metricCheck,
+    'if (!numeric(plan[key])) { __ppDiagnosticMetrics(plan); return null; }');
   instrumented = instrumented.replaceAll('return null;', () => 'return __ppDiagnosticReject(' + (++site) + ');');
   need(site === CANONICAL_SITE_COUNT, 'canonical_instrumentation_contract');
   const imports = '// ' + MARKER + '\nimport {reject as __ppDiagnosticReject, recordError as __ppDiagnosticError, ' +
-    'wrapBridge as __ppDiagnosticWrap} from "./' + HELPER_FILE + '";\n';
+    'recordMetrics as __ppDiagnosticMetrics, wrapBridge as __ppDiagnosticWrap} from "./' + HELPER_FILE + '";\n';
   return imports + source.replace(original, instrumented)
     .replace(declaration, 'function __ppDiagnosticOriginalFactory(') +
     '\nexport function createPythonGAUpstream(...args) {\n' +
@@ -84,7 +95,8 @@ export function instrumentUpstream(source) {
 
 // This function becomes a private helper module. It emits only values from the
 // closed enums above, booleans and bounded counts; no response/source is logged.
-function diagnosticRuntime(append, telemetryPath, canonicalErrors, responseErrors, maxEvents) {
+function diagnosticRuntime(append, telemetryPath, canonicalErrors, responseErrors, maxEvents,
+  metricFields, metricTypes, inputPhases) {
   let written = 0;
   function emit(row) {
     try {
@@ -102,6 +114,24 @@ function diagnosticRuntime(append, telemetryPath, canonicalErrors, responseError
     let code = 'unknown';
     try { if (canonicalErrors.includes(error?.message)) code = error.message; } catch {}
     emit(['error', code]);
+  }
+  function recordMetrics(plan) {
+    // The canonical loop stops at its first invalid KPI. Observe every invalid
+    // required field at that rejection, so a missing count cannot hide the
+    // missing wait/idle fields. Only enum types and bounded shape facts leave.
+    try {
+      const rawPhase = plan.phase;
+      const phase = rawPhase == null ? 'absent' : inputPhases.includes(rawPhase) ? rawPhase : 'unknown';
+      const operations = Array.isArray(plan.operations) ? Math.min(100000, plan.operations.length) : 0;
+      for (const field of metricFields) {
+        const value = plan[field];
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) continue;
+        const type = value === undefined ? 'absent' : value === null ? 'null' :
+          Array.isArray(value) ? 'array' : typeof value;
+        if (metricTypes.includes(type))
+          emit(['metric', field, type, plan.valid === true, operations, phase]);
+      }
+    } catch {}
   }
   async function bodyOf(response) {
     const reader = response.clone().body?.getReader();
@@ -159,19 +189,20 @@ function diagnosticRuntime(append, telemetryPath, canonicalErrors, responseError
     return bridge;
   }
   emit(['installed']);
-  return {reject, recordError, wrapBridge};
+  return {reject, recordError, recordMetrics, wrapBridge};
 }
 
 function helperSource(telemetryPath) {
   return 'import {appendFileSync} from "node:fs";\nconst __ppRuntime=(' + diagnosticRuntime.toString() +
     ')(appendFileSync,' + JSON.stringify(telemetryPath) + ',' + JSON.stringify(CANONICAL_ERRORS) + ',' +
-    JSON.stringify(RESPONSE_ERRORS) + ',' + MAX_EVENTS + ');\n' +
-    'export const {reject,recordError,wrapBridge}=__ppRuntime;\n';
+    JSON.stringify(RESPONSE_ERRORS) + ',' + MAX_EVENTS + ',' + JSON.stringify(REQUIRED_METRICS) + ',' +
+    JSON.stringify(METRIC_TYPES) + ',' + JSON.stringify(INPUT_PHASES) + ');\n' +
+    'export const {reject,recordError,recordMetrics,wrapBridge}=__ppRuntime;\n';
 }
 
 export function parseTelemetry(text) {
   need(typeof text === 'string' && Buffer.byteLength(text) <= MAX_LOG, 'telemetry_size');
-  const rejections = new Map(), errors = new Map(), routes = new Map();
+  const rejections = new Map(), errors = new Map(), metrics = new Map(), routes = new Map();
   let installed = false, truncated = false;
   const add = (map, key) => map.set(key, Math.min(1000000, (map.get(key) || 0) + 1));
   const lines = text.split('\n').filter(Boolean);
@@ -186,6 +217,13 @@ export function parseTelemetry(text) {
     else if (row.length === 2 && row[0] === 'reject' && Number.isInteger(row[1]) &&
       row[1] >= 1 && row[1] <= CANONICAL_SITE_COUNT) add(rejections, row[1]);
     else if (row.length === 2 && row[0] === 'error' && CANONICAL_ERRORS.includes(row[1])) add(errors, row[1]);
+    else if (row.length === 6 && row[0] === 'metric' && REQUIRED_METRICS.includes(row[1]) &&
+      METRIC_TYPES.includes(row[2]) && typeof row[3] === 'boolean' && count(row[4]) && row[4] <= 100000 &&
+      INPUT_PHASES.includes(row[5])) {
+      const key = JSON.stringify(row.slice(1));
+      if (metrics.has(key) || metrics.size < 32) add(metrics, key);
+      else truncated = true;
+    }
     else if (row.length === 11 && row[0] === 'route' && ['fetch', 'cancel'].includes(row[1]) &&
       ['plan', 'progress', 'model', 'other'].includes(row[2]) && status(row[3]) &&
       (row[4] === null || RESPONSE_ERRORS.includes(row[4])) &&
@@ -200,6 +238,10 @@ export function parseTelemetry(text) {
   return {
     canonical_rejections: [...rejections].sort((a, b) => a[0] - b[0]).map(([site, count]) => ({site, count})),
     canonical_errors: CANONICAL_ERRORS.filter(code => errors.has(code)).map(code => ({code, count: errors.get(code)})),
+    canonical_metric_rejections: [...metrics].map(([key, count]) => {
+      const [field, type, valid_true, operation_count, phase] = JSON.parse(key);
+      return {field, type, valid_true, operation_count, phase, count};
+    }),
     route_summaries: [...routes].map(([key, count]) => {
       const [kind, route, status, error, has_result, result_valid, result_operations,
         has_best, best_valid, best_operations] = JSON.parse(key);
@@ -258,7 +300,8 @@ export function diagnoseBuild(appRoot, outputPath, {runner = spawnSync} = {}) {
   const realOutput = join(realpathSync(dirname(output)), basename(output));
   need(realOutput !== root && !realOutput.startsWith(root + sep), 'source_path');
   const report = {format: FORMAT, diagnostic_completed: false, original_app_unchanged: false,
-    canonical_rejections: [], canonical_errors: [], failed_tests: [], unknown_failed_test_count: 0,
+    canonical_rejections: [], canonical_errors: [], canonical_metric_rejections: [],
+    failed_tests: [], unknown_failed_test_count: 0,
     test_exit_code: null, route_summaries: [], failure_code: null, log_truncated: false, events_truncated: false};
   let directory = null, inputs = null;
   try {

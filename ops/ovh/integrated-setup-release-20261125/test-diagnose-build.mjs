@@ -99,10 +99,48 @@ test('instrumentation refuses source drift and numbers every return without alte
   assert.throws(() => instrumentUpstream(source() + '\n' + original), /canonical_source_mismatch/);
 });
 
+test('KPI rejection reports every missing or invalid required field as enums without values or arbitrary phase', () => {
+  const fixture = appFixture();
+  try {
+    const report = diagnoseBuild(fixture.app, fixture.report, {runner(command, args, options) {
+      const script = [
+        'import {ppCanonicalNativeResult} from "./python-ga-upstream.mjs";',
+        'const model=' + JSON.stringify(model) + ',good=' + JSON.stringify(valid()) + ';',
+        'const first=structuredClone(good);delete first.duration_minutes;first.batch_count=null;',
+        'first.operator_wait_minutes=' + JSON.stringify(secret) + ';first.machine_idle_minutes=false;',
+        'first.phase=' + JSON.stringify(secret) + ';first.operations.length=100001;',
+        'ppCanonicalNativeResult(first,model,"synthetic");',
+        'const second=structuredClone(good);second.duration_minutes=-1;second.batch_count=[];',
+        'second.operator_wait_minutes={};second.machine_idle_minutes=undefined;second.phase="running";',
+        'ppCanonicalNativeResult(second,model,"synthetic");',
+        'ppCanonicalNativeResult(good,model,"synthetic");'
+      ].join('\n');
+      return spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        cwd: options.cwd, env: options.env, timeout: 10000, maxBuffer: 262144
+      });
+    }});
+    assert.equal(report.diagnostic_completed, true);
+    assert.equal(report.original_app_unchanged, true);
+    assert.deepEqual(report.canonical_rejections, [{site: 3, count: 2}]);
+    assert.deepEqual(report.canonical_errors, []);
+    assert.deepEqual(report.canonical_metric_rejections, [
+      ...[['duration_minutes', 'absent'], ['batch_count', 'null'],
+        ['operator_wait_minutes', 'string'], ['machine_idle_minutes', 'boolean']]
+        .map(([field, type]) => ({field, type, valid_true: true, operation_count: 100000, phase: 'unknown', count: 1})),
+      ...[['duration_minutes', 'number'], ['batch_count', 'array'],
+        ['operator_wait_minutes', 'object'], ['machine_idle_minutes', 'absent']]
+        .map(([field, type]) => ({field, type, valid_true: true, operation_count: 1, phase: 'running', count: 1}))
+    ]);
+    assert.equal(readFileSync(fixture.report, 'utf8').includes(secret), false);
+  } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
+});
+
 test('telemetry and test-log projection admit fixed public values only', () => {
   for (const text of [
     '["installed"]\n["error",' + JSON.stringify(secret) + ']\n',
     '["installed"]\n["reject",21]\n',
+    '["installed"]\n["metric",' + JSON.stringify(secret) + ',"absent",true,1,"running"]\n',
+    '["installed"]\n["metric","batch_count","absent",true,1,' + JSON.stringify(secret) + ']\n',
     '["installed"]\n["route","fetch","plan",409,' + JSON.stringify(secret) + ',false,false,0,false,false,0]\n'
   ]) assert.throws(() => parseTelemetry(text), /telemetry_contract/);
   const facts = summarizeTestLog('(fail) ' + secret + ' [1.00ms]\n(fail) ' + PUBLIC_TEST_NAMES[0] + ' [2ms]\n');
