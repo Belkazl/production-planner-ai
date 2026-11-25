@@ -110,3 +110,8 @@ jobs:
           done
           test "$ok" = yes
           echo FRESH_NO_STALE_PLAN_PUBLIC_HEALTH_PASS
+      - name: Verify repeated continuation in the deployed project manager
+        if: github.ref == 'refs/heads/main'
+        run: |
+          npm install --no-save --no-package-lock playwright-core@1.57.0
+          node ops/ovh/continue-incumbent-20261125/live.mjs
