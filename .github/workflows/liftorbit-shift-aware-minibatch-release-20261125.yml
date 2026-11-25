@@ -1,0 +1,50 @@
+name: Release verified shift-aware native minibatches
+
+# No solver/helper edit deploys automatically: only an accepted marker does.
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - ops/ovh/shift-aware-minibatch-release-20261125/release.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check public release guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/shift-aware-minibatch-release-20261125/release.sh
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/shift-aware-minibatch-release-20261125 -p 'test_*.py'
+      - name: Require exact acceptance and deploy its one native module
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/shift-aware-minibatch-release-20261125/release.sh
+      - name: Remove private release inputs
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP"/shift-aware-release.*
