@@ -1,0 +1,55 @@
+name: Release verified weekly employee calendars
+on:
+  push:
+    branches: [feat/weekly-shift-calendars-20261125]
+    paths:
+      - ops/ovh/weekly-shift-calendars-20261125/release-approved.json
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: liftorbit-weekly-calendar-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard reviewed candidate and successful real-browser verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p=ops/ovh/weekly-shift-calendars-20261125/release-approved.json
+          test "$(git diff --name-only HEAD^ HEAD)" = "$p"
+          candidate=$(jq -er .candidate "$p")
+          test "$(git rev-parse HEAD^)" = "$candidate"
+          [[ "$candidate" =~ ^[0-9a-f]{40}$ ]]
+          for key in browser_run native_run unit_run;do
+            id=$(jq -er ".$key" "$p")
+            [[ "$id" =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq 'select(.conclusion=="success" and .head_branch=="feat/weekly-shift-calendars-20261125") | .head_sha' > "$RUNNER_TEMP/$key.sha"
+            tested=$(cat "$RUNNER_TEMP/$key.sha")
+            [[ "$tested" =~ ^[0-9a-f]{40}$ ]]
+            git merge-base --is-ancestor "$tested" "$candidate"
+            if test "$key" = browser_run;then
+              git diff --quiet "$tested" "$candidate" -- ops/ovh/weekly-shift-calendars-20261125/browser.mjs ops/ovh/weekly-shift-calendars-20261125/calendar-editor.js ops/ovh/weekly-shift-calendars-20261125/patch-ui.mjs
+            else
+              git diff --quiet "$tested" "$candidate" -- ops/ovh/weekly-shift-calendars-20261125/weekly_calendar.py ops/ovh/weekly-shift-calendars-20261125/patch.py ops/ovh/weekly-shift-calendars-20261125/native_probe.py
+            fi
+          done
+          python3 -m unittest discover -s ops/ovh/weekly-shift-calendars-20261125 -p 'test_*.py'
+          node --test ops/ovh/weekly-shift-calendars-20261125/test-editor.mjs
+      - run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Deploy only exact source changes and roll back on failed live checks
+        shell: bash
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/weekly-shift-calendars-20261125/release.sh
