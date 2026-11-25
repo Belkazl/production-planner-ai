@@ -7,10 +7,12 @@ const browser=await chromium.launch({headless:true,channel:'chrome',args:['--no-
 let phase='bootstrap';
 try{
  const page=await browser.newPage({viewport:{width:1500,height:1000}});
+ const errors=[];page.on('pageerror',e=>errors.push(e?.name||'Error'));
  await page.goto('https://app.liftorbit.app/',{waitUntil:'domcontentloaded',timeout:45000});
  phase='isolated_account';
  const email='weekly-calendar-qa-'+randomUUID().replaceAll('-','')+'@liftorbit.invalid',password=randomBytes(25).toString('base64url');
  assert.equal(await page.evaluate(async ({email,password})=>(await fetch('/api/auth/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password,company:'Weekly calendar QA'})})).status,{email,password}),200);
+ await page.reload({waitUntil:'domcontentloaded',timeout:45000});
  const id='prj_wc_'+randomUUID().replaceAll('-','').slice(0,13);
  const model={scheduler_mode:'resource',start:'2026-11-27T11:30:00',quantity_unit:'шт.',orders:[{id:'O1',quantity:400,area:400,unit:'шт.',technical_process_id:'TP1'}],equipment:[{id:'M1',name:'Invented workstation',kind:'pressing',capacity:200,capacity_unit:'шт.',timing_profile:{timing_mode:'throughput',throughput_per_hour:60}}],employees:[{id:'E1',name:'Invented operator',role:'Operator',shift:'day'}],shifts:{day:[['08:00','12:00'],['13:00','17:00']]},materials:[],setup_rules:[],technical_processes:[{id:'TP1',name:'Invented process',operations:[{id:'OP1',name:'Invented work',sequence:1,duration_min:1,resource_requirements:[{resource_type:'equipment',resource_ref:'M1',resource_refs:['M1'],match_mode:'specific',quantity:1,unit:'шт.',consumption_rule:'during_operation'},{resource_type:'employee',resource_ref:'E1',resource_refs:['E1'],match_mode:'specific',quantity:1,unit:'чел.',consumption_rule:'during_operation'}]}]}]};
  const projects=JSON.stringify([{id,name:'Weekly calendar QA',model,revision:1}]);
@@ -18,14 +20,22 @@ try{
  if(!live)await page.route('**/',async route=>{
    if(!route.request().isNavigationRequest()||new URL(route.request().url()).pathname!=='/')return route.continue();
    const response=await route.fetch();let body=await response.text();
-   if(body.includes('function renderEmployees(){'))body=transformEditor(body);
+   const anchors={employees:body.includes('function renderEmployees(){'),save:body.includes('async function save(next,section){')};
+   console.log('WEEKLY_PAGE_ANCHORS '+JSON.stringify(anchors));
+   if(anchors.employees)body=transformEditor(body);
    return route.fulfill({response,body,headers:{...response.headers(),'content-type':'text/html; charset=utf-8'}});
  });
  phase='native_editor';
  await page.reload({waitUntil:'domcontentloaded',timeout:45000});
- await page.waitForFunction(()=>typeof model==='object'&&typeof renderSection==='function'&&typeof ppWCMount==='function',{},{timeout:20000});
+ await page.waitForTimeout(1200);
+ const context=await page.evaluate(()=>({model:typeof model,renderSection:typeof renderSection,editor:typeof ppWCMount,save:typeof save,hasEmployeeAnchor:[...document.scripts].some(x=>x.textContent.includes('function renderEmployees(){')),hasPanel:!!document.querySelector('[data-pp-weekly-calendar]'),hasSection:!!document.getElementById('sectionView'),shifts:typeof model==='object'&&model?Array.isArray(model.shifts)?'array':typeof model.shifts:'none'}));
+ console.log('WEEKLY_BROWSER_CONTEXT '+JSON.stringify({context,errors:errors.slice(0,4)}));
+ phase='editor_scope';
+ await page.waitForFunction(()=>typeof model==='object'&&typeof renderSection==='function'&&typeof ppWCMount==='function',{},{timeout:10000});
  await page.evaluate(()=>renderSection('Сотрудники'));
  const panel=page.locator('[data-pp-weekly-calendar]');
+ phase='employee_table';
+ console.log('WEEKLY_EMPLOYEE_DOM '+JSON.stringify(await page.evaluate(()=>({table:!!document.querySelector('#sectionView table'),panel:!!document.querySelector('[data-pp-weekly-calendar]'),headers:[...document.querySelectorAll('#sectionView table th')].map(x=>['Employee','Role','Shift','Schedule','Сотрудник','Роль','Смена','График','Расписание'].includes(x.textContent.trim())?x.textContent.trim():'other'),shifts:typeof model==='object'&&model?Array.isArray(model.shifts)?'array':typeof model.shifts:'none'}))));
  await panel.waitFor({state:'visible',timeout:15000});
  const day=panel.locator('[data-pp-shift="day"]');
  assert.equal(await day.locator('[data-pp-calendar-field="start"]').inputValue(),'08:00');
