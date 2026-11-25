@@ -23,7 +23,18 @@ jobs:
           sudo install -d -m 700 -o root -g root /opt/liftorbit/secrets
           printf '%s\n' '{"EXISTING_SETTING":"unchanged","OTHER_KEY":"synthetic"}' | sudo tee /opt/liftorbit/secrets/app.json >/dev/null
           sudo chmod 600 /opt/liftorbit/secrets/app.json
-          sudo python3 -I ops/ovh/groq-assistant-20261125/install-key-handoff.py
+          sudo /usr/sbin/visudo -c
+          # On the disposable runner inspect the two checks separately; no real secret is present.
+          sudo python3 -I - <<'PY'
+          import runpy,subprocess
+          ns=runpy.run_path('ops/ovh/groq-assistant-20261125/install-key-handoff.py')
+          original=ns['subprocess'].run
+          def check(*args,**kw):
+              kw.pop('stdout',None);kw.pop('stderr',None)
+              return original(*args,**kw)
+          ns['subprocess'].run=check
+          ns['install']()
+          PY
           test -z "$(sudo -u liftorbit-ci sudo -n /usr/local/sbin/liftorbit-set-groq-key unexpected 2>/dev/null || true)"
           if printf 'invalid' | sudo -u liftorbit-ci sudo -n /usr/local/sbin/liftorbit-set-groq-key; then exit 6; fi
           sudo test -f /etc/sudoers.d/liftorbit-groq-key
