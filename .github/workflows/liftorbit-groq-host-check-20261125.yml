@@ -31,31 +31,22 @@ jobs:
           chmod 600 "$d/key" "$d/kh"
           opts=(-i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20)
           cat > "$d/probe.py" <<'PY'
-          import sys,json,urllib.request,urllib.error
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self,*args,**kw):return None
+          import sys,json,subprocess
           key=sys.stdin.read().strip()
-          if not key:raise SystemExit(2)
-          request=urllib.request.Request("https://api.groq.com/openai/v1/chat/completions",data=json.dumps({"model":"openai/gpt-oss-120b","messages":[{"role":"user","content":"Reply with exactly OK."}],"max_completion_tokens":128,"reasoning_effort":"low"}).encode(),headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},method="POST")
-          try:
-              with urllib.request.build_opener(NoRedirect()).open(request,timeout=20) as r:
-                  value=json.load(r)["choices"][0]["message"]["content"]
-                  if not isinstance(value,str) or not value.strip():raise ValueError()
-                  print("GROQ_HOST_COMPLETION_PASS",r.status)
-          except urllib.error.HTTPError as e:
-              print("GROQ_HOST_HTTP_STATUS",e.code)
-              raw=e.read(8192)
-              try:
-                  err=json.loads(raw).get("error",{})
-                  if not isinstance(err,dict):err={}
-              except Exception:err={}
-              msg=str(err.get("message","")).lower()
-              code=err.get("code")
-              known={"model_permission_blocked_org","model_permission_blocked_project","invalid_api_key","organization_restricted","access_denied","unsupported_country_region_territory","permission_denied"}
-              print("GROQ_HOST_ERROR_CLASS",json.dumps({"code":code if code in known else "other","region":any(x in msg for x in ("region","country","territory")),"permissions":any(x in msg for x in ("permission","blocked","forbidden","access")),"verification":any(x in msg for x in ("verify","verification","email")),"billing":any(x in msg for x in ("billing","spend","payment"))}))
+          if not key or "\r" in key or "\n" in key:raise SystemExit(2)
+          data=json.dumps({"model":"openai/gpt-oss-120b","messages":[{"role":"user","content":"Reply with exactly OK."}],"max_completion_tokens":128,"reasoning_effort":"low"})
+          result=subprocess.run(["curl","--silent","--show-error","--proto","=https","--max-time","25","--header","@-","--header","Content-Type: application/json","--data-binary",data,"--write-out","\n%{http_code}","https://api.groq.com/openai/v1/chat/completions"],input=("Authorization: Bearer "+key+"\n").encode(),capture_output=True,timeout=30)
+          if result.returncode:
+              print("GROQ_CURL_TRANSPORT_FAILED",result.returncode)
               raise SystemExit(3)
-          except Exception:
-              print("GROQ_HOST_COMPLETION_FAILED")
+          raw,status=result.stdout.rsplit(b"\n",1)
+          if status==b"200":
+              value=json.loads(raw)["choices"][0]["message"]["content"]
+              if not isinstance(value,str) or not value.strip():raise ValueError("empty_completion")
+              print("GROQ_HOST_CURL_COMPLETION_PASS",200)
+          else:
+              print("GROQ_HOST_CURL_HTTP_STATUS",int(status))
+              print("GROQ_EDGE_1010",b"error code: 1010" in raw.lower())
               raise SystemExit(4)
           PY
           # Program text only in the remote command; the key travels only as stdin.
