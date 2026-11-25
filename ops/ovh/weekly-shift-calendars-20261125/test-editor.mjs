@@ -32,5 +32,6 @@ test('guarded host and native editor injection',()=>{
  assert.equal(c.ppResourceUnitsHtml('guest'),'guest');
  assert.match(c.ppResourceUnitsHtml(html),/function ppWCMount/);
  assert.doesNotThrow(()=>new vm.Script(transformEditor(html)));
- assert.throws(()=>transformEditor('function renderEmployees(){}'));
+ assert.equal(transformEditor('function renderEmployees(){}'),'function renderEmployees(){}');
+ assert.throws(()=>transformEditor(html+html));
 });

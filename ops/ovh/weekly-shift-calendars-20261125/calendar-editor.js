@@ -34,8 +34,9 @@ function ppWCLegacy(name,blocks){
   }catch{return null}
 }
 function ppWCMount(){
-  if(typeof model!=='object'||!model||typeof save!=='function'||!model.shifts||Array.isArray(model.shifts)||typeof model.shifts!=='object')return;
-  const table=Array.from(document.querySelectorAll('table')).find(t=>{
+  if(typeof model!=='object'||!model||typeof save!=='function'||Array.isArray(model.shifts))return;
+  const section=document.getElementById('sectionView');if(!section)return;
+  const table=Array.from(section.querySelectorAll('table')).find(t=>{
     const labels=Array.from(t.querySelectorAll('th')).map(x=>x.textContent.trim().toLowerCase());
     return labels.some(x=>/^(employee|сотрудник)$/.test(x))&&labels.some(x=>/^(shift|смена)$/.test(x))&&labels.some(x=>/^(schedule|график|расписание)$/.test(x));
   });
@@ -46,7 +47,8 @@ function ppWCMount(){
   const ru=String(document.documentElement.lang||'').startsWith('ru')||Array.from(table.querySelectorAll('th')).some(x=>x.textContent.trim()==='Сотрудник');
   const t=(en,rs)=>ru?rs:en;
   const draft=JSON.parse(JSON.stringify(model.shift_calendars||{}));
-  const sourceShifts=JSON.parse(JSON.stringify(model.shifts));
+  const sourceShifts=JSON.parse(JSON.stringify(model.shifts||{}));
+  for(const employee of model.employees||[]){if(employee.shift&&!Object.hasOwn(sourceShifts,employee.shift))sourceShifts[employee.shift]=null}
   const labels=ru?['Пн','Вт','Ср','Чт','Пт','Сб','Вс']:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const el=(tag,txt)=>{const x=document.createElement(tag);if(txt!==undefined)x.textContent=txt;return x};
   const button=(txt,click)=>{const b=el('button',txt);b.type='button';b.className='pp-edit-input';b.addEventListener('click',click);return b};
@@ -88,7 +90,7 @@ function ppWCMount(){
   const commit=button(t('Save schedules','Сохранить графики'),async()=>{
     if(saving||!dirty.size)return;
     let next;try{
-      next=JSON.parse(JSON.stringify(model));next.shift_calendars=next.shift_calendars||{};
+      next=JSON.parse(JSON.stringify(model));next.shift_calendars=next.shift_calendars||{};next.shifts=next.shifts||{};
       for(const id of dirty){const cal=state[id];if(!cal)throw Error('Invalid shift');next.shifts[id]=ppWCBlocks(cal);next.shift_calendars[id]=JSON.parse(JSON.stringify(cal))}
     }catch(e){message.textContent=String(e.message||e);return}
     saving=true;commit.disabled=true;message.textContent='';
@@ -107,4 +109,24 @@ function ppWCMount(){
       if(cal)cell.textContent+=' · '+cal.days.slice().sort((a,b)=>a-b).map(d=>labels[d-1]).join(', ');
     };update();select.addEventListener('change',update);
   }
+}
+
+function ppWCInstall(){
+  if(window.__PP_WEEKLY_CALENDAR_V1__)return;
+  const start=()=>{
+    const section=document.getElementById('sectionView');if(!section)return;
+    let queued=false;
+    const update=()=>{
+      if(queued)return;queued=true;
+      queueMicrotask(()=>{queued=false;ppWCMount()});
+    };
+    const observer=new MutationObserver(records=>{
+      if(records.some(r=>r.type==='childList'&&!r.target.closest?.('[data-pp-weekly-calendar]')))update();
+    });
+    observer.observe(section,{childList:true,subtree:true});
+    window.__PP_WEEKLY_CALENDAR_V1__=true;
+    update();
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
+  else queueMicrotask(start);
 }
