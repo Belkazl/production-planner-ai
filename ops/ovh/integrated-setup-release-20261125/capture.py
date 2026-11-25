@@ -17,8 +17,11 @@ APP_FILES = (
     'baselines/2026-10-10/aps-setup-bridge/index.ts',
     'restart-optimizer-ui.js', 'Dockerfile', 'build-bridge.ts',
     'tenant-model-build.ts', 'ga-worker-build.ts', 'python-ga-upstream-build.ts',
+    'tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs', 'ga-python-state-store.mjs',
 )
 WRITE_FILES = APP_FILES[:3]
+BUILD_TEST_FILES = ('tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs')
+ALLOWED_WRITES = (*WRITE_FILES, *BUILD_TEST_FILES)
 PROTECTED_FILES = ('auth-runtime.js',)
 MAX_FILE = 4 * 1024 * 1024
 MAX_BUNDLE = 40 * 1024 * 1024
@@ -42,7 +45,7 @@ ANCHORS = {
     },
     'restart-optimizer-ui.js': {
         'selected_batch_seed': 'batch_genome',
-        'quality_floor': 'ppQualityFloor',
+        'quality_floor': 'ppGaQualityFloorV1',
     },
 }
 
@@ -152,6 +155,11 @@ def inspect_inputs(app_bundle, native_bundle):
         raise CaptureError('native_manifest')
     anchors = {name: {label: files[name].decode('utf-8').count(anchor) for label, anchor in wanted.items()}
                for name, wanted in ANCHORS.items()}
+    docker = files['Dockerfile'].decode('utf-8')
+    known_tests = ('account-model-boundary.cjs', 'password-reset-security.mjs', 'early-stop-contract.cjs',
+                   'continuation-compat-contract.cjs', 'async-plan-transport-contract.cjs',
+                   'ga-process-workers.cjs', 'python-ga-upstream.test.mjs', 'python-ga-state.test.mjs')
+    build_tests = sorted(name for name in known_tests if ('tests/' + name) in docker)
     return {
         'format': 'integrated-setup-acceptance-v1', 'status': 'capture_only',
         'release_gate_complete': False, 'production_writes': False,
@@ -159,6 +167,7 @@ def inspect_inputs(app_bundle, native_bundle):
         'protected_hashes': manifest['protected_hashes'],
         'worker_hashes': worker_hashes, 'code_inputs_sha256': code_hash,
         'source_anchors': anchors,
+        'known_build_tests': build_tests,
     }
 
 

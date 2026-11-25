@@ -36,8 +36,9 @@ function plan(duration=100,withSetup=true){
     batches:[],start:model.start,duration_minutes:duration-1,batch_count:16,
     operator_wait_minutes:25,machine_idle_minutes:15,order_sequence:['O']};
 }
-function makeHarness({best=plan(),candidate=plan(200)}={}){
+function makeHarness({best=plan(),candidate=plan(200),objective='duration'}={}){
   const value={best,candidate};
+  const currentModel={...model,objective};
   let timer,controller,sequence=0,reads=0;
   const timers={setInterval(fn,ms){assert.equal(ms,4000);timer=fn;return 1;},clearInterval(){timer=null;}};
   const factory=new Function('timers','const {setInterval,clearInterval}=timers;\n'+
@@ -46,9 +47,9 @@ function makeHarness({best=plan(),candidate=plan(200)}={}){
   const bridge=factory({enabled:true,origin:'http://ga-worker.railway.internal:8080',
     token:'synthetic-token-'.repeat(3),upstreamUrl:req=>req.url,
     sessionKey:async()=> 'synthetic-account',verifyLogin:async()=>true,
-    readAccountModel:async()=>model,hashModel:m=>JSON.stringify(m),
+    readAccountModel:async()=>currentModel,hashModel:m=>JSON.stringify(m),
     checkPlan:p=>p.operations.every(op=>op.order==='O'),
-    stateStore:{load:async()=>({job_id:jobId,model_hash:JSON.stringify(model),status:'running',progress:2}),save:async()=>{}},
+    stateStore:{load:async()=>({job_id:jobId,model_hash:JSON.stringify(currentModel),status:'running',progress:2}),save:async()=>{}},
     fetchImpl:async(url)=>{
       if(url.endsWith('/events'))return new Response(new ReadableStream({start(c){controller=c;}}));
       reads++;
@@ -110,6 +111,17 @@ test('a legitimate best with zero setups is retained while candidate has changeo
     assert.equal(preview._pp_preview_kpis.duration_minutes,89);
     assert.equal(preview._pp_preview_setup_count,0);
     assert(preview.operations.every(op=>!op.is_setup));
+  }finally{await s.close();}
+});
+test('the native chosen objective is respected instead of selecting by duration in the display',async()=>{
+  const best={...plan(200),operator_wait_minutes:0},candidate={...plan(100),operator_wait_minutes:20};
+  const h=makeHarness({best,candidate,objective:'wait'}),s=await h.subscribe();
+  try{
+    await until(()=>s.events.some(e=>e.kind==='preview'));
+    const preview=s.events.find(e=>e.kind==='preview').data.plan;
+    assert.equal(preview._pp_preview_kpis.duration_minutes,199);
+    assert.equal(preview._pp_preview_kpis.operator_wait_minutes,0);
+    assert.equal(preview.operations[0].start_min,166);
   }finally{await s.close();}
 });
 test('candidate alone is withheld until the native solver publishes a complete best',async()=>{

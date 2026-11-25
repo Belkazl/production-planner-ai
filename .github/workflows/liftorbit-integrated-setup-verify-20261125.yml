@@ -11,6 +11,8 @@ on:
       - ops/ovh/integrated-setup-release-20261125/*.py
       - ops/ovh/integrated-setup-release-20261125/*.sh
       - ops/ovh/integrated-setup-release-20261125/Dockerfile.verify
+      - ops/ovh/integrated-setup-release-20261125/baseline.json
+      - .github/workflows/liftorbit-integrated-setup-release-20261125.yml
       - ops/ovh/integrated-setup-result-20261125/**
       - ops/ovh/integrated-setup-preview-20261125/**
       - ops/ovh/integrated-setup-verify-20261125/**
@@ -27,7 +29,7 @@ jobs:
   verify:
     if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,7 +38,16 @@ jobs:
         with:
           python-version: '3.12'
       - name: Check the public capture contract
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/integrated-setup-release-20261125 -p test_capture.py
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s ops/ovh/integrated-setup-release-20261125 -p 'test_*.py'
+      - name: Prepare public Python Node and Bun runtimes before private capture
+        if: hashFiles('ops/ovh/integrated-setup-result-20261125/patch.mjs') != '' && hashFiles('ops/ovh/integrated-setup-verify-20261125/verify_app.mjs') != '' && hashFiles('ops/ovh/integrated-setup-verify-20261125/verify_worker.py') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          docker build -f ops/ovh/integrated-setup-release-20261125/Dockerfile.verify \
+            -t integrated-setup-verifier:local ops/ovh/integrated-setup-release-20261125
+          docker image inspect --format '{{.Id}}' integrated-setup-verifier:local > "$RUNNER_TEMP/integrated-setup-image"
       - name: Receive approved code-only inputs privately
         shell: bash
         env:
@@ -66,17 +77,27 @@ jobs:
             echo INTEGRATED_SETUP_TRANSFER_FAILED native_code
             exit 6
           fi
-      - name: Validate exact inputs and emit bounded source metadata
+      - name: Verify the full isolated pipeline or emit capture-only metadata
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/integrated-setup-release-20261125/capture.py \
-            --app-bundle "$RUNNER_TEMP/integrated-setup-app.bundle" \
-            --native-bundle "$RUNNER_TEMP/integrated-setup-native.bundle"
+          if test -s "$RUNNER_TEMP/integrated-setup-image"; then
+            PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/integrated-setup-release-20261125/verify.py \
+              --app-bundle "$RUNNER_TEMP/integrated-setup-app.bundle" \
+              --native-bundle "$RUNNER_TEMP/integrated-setup-native.bundle" \
+              --image-id "$(cat "$RUNNER_TEMP/integrated-setup-image")"
+          else
+            PYTHONDONTWRITEBYTECODE=1 python3 -I ops/ovh/integrated-setup-release-20261125/capture.py \
+              --app-bundle "$RUNNER_TEMP/integrated-setup-app.bundle" \
+              --native-bundle "$RUNNER_TEMP/integrated-setup-native.bundle"
+          fi
       - name: Remove every private input and transport buffer
         if: always()
         shell: bash
         run: |
           rm -f -- "$RUNNER_TEMP/integrated-setup-key" "$RUNNER_TEMP/integrated-setup-known-hosts" \
             "$RUNNER_TEMP/integrated-setup-app.bundle" "$RUNNER_TEMP/integrated-setup-native.bundle" \
-            "$RUNNER_TEMP/integrated-setup-transport-private.log"
+            "$RUNNER_TEMP/integrated-setup-transport-private.log" "$RUNNER_TEMP/integrated-setup-image"
+          for private_stage in "$RUNNER_TEMP"/integrated-setup-private-*; do
+            if test -d "$private_stage" && test ! -L "$private_stage"; then rm -rf -- "$private_stage"; fi
+          done
