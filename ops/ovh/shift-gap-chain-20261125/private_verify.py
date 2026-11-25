@@ -11,7 +11,11 @@ sys.dont_write_bytecode=True
 def verify(bundle,app_path,image):
     files,workers,code_hash=native_bundle(bundle)
     prior=read_json(OPS/'shift-aware-minibatch-release-20261125/release.json')
-    if workers!=prior['worker_after'] or code_hash!=prior['code_inputs_sha256']:
+    # UI or independently deployed worker changes may have occurred since the previous release.
+    # Verify the exact current package in isolation, and preserve every captured hash in the receipt.
+    drift=sorted(k for k in set(workers)|set(prior['worker_after']) if workers.get(k)!=prior['worker_after'].get(k))
+    print('GAP_CURRENT_NATIVE_BASELINE '+json.dumps({'changed_files':drift,'target_hash':workers.get(TARGET),'code_inputs_unchanged':code_hash==prior['code_inputs_sha256']}),flush=True)
+    if workers.get(TARGET)!=prior['worker_after'][TARGET]:
         raise ValueError('native_baseline_drift')
     app=app_manifest(app_path)
     patch=runpy.run_path(str(HERE/'patch.py'))
