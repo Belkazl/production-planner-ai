@@ -1,0 +1,41 @@
+name: Release restart and no-regression fixes
+on:
+  push:
+    branches: [fix/restart-button-lifecycle-20261125]
+    paths:
+      - ops/ovh/restart-button-20261125/release-approved.json
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: liftorbit-restart-lifecycle-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require exact reviewed preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          p=ops/ovh/restart-button-20261125/release-approved.json
+          candidate=$(jq -er .preflight_commit "$p")
+          id=$(jq -er .preflight_run "$p")
+          [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] && [[ "$id" =~ ^[0-9]+$ ]]
+          tested=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq 'select(.conclusion=="success" and .head_branch=="fix/restart-button-lifecycle-20261125")|.head_sha')
+          test "$tested" = "$candidate"
+          git diff --quiet "$tested" HEAD -- ops/ovh/restart-button-20261125/patch.mjs ops/ovh/restart-button-20261125/quality.mjs ops/ovh/restart-button-20261125/test.mjs
+      - run: npm install --no-save --no-package-lock playwright-core@1.57.0
+      - name: Install tested changes, real restarts and continuations, calendar regression
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/restart-button-20261125/release.sh
