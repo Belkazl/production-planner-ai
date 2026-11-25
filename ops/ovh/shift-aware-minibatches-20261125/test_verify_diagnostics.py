@@ -62,7 +62,7 @@ class DriverDiagnosticsTests(unittest.TestCase):
         for failing_phase in ('later_ready', 'nonzero_origin'):
             report, phase, context = driver.new_report(), ['bootstrap'], {}
 
-            def probe(adapter, joint, check, nonzero_origin=False, context=None):
+            def probe(adapter, joint, check, nonzero_origin=False, context=None, diagnostics=None):
                 name = 'nonzero_origin' if nonzero_origin else 'later_ready'
                 if name == failing_phase:
                     context.update(plan_role='scored_candidate', candidate_index=7)
