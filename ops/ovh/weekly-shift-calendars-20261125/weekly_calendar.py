@@ -97,7 +97,7 @@ def _wc_native_windows(model,origin,raw,corrected):
         name=staff.get(str(key))
         if name not in calendars:continue
         windows=_wc_windows(calendars[name],origin,-1,math.ceil(last/1440))
-        corrected[key]=[(a,min(b,horizon)) for a,b in windows if a<horizon and min(b,horizon)>a]
+        corrected[key]=[(a,min(b,horizon)) for a,b in windows if b>0 and a<horizon and min(b,horizon)>a]
     if any(name in calendars and not any(str(k)==employee for k in corrected) for employee,name in staff.items()):
         raise ValueError("missing_native_employee_calendar")
     return corrected

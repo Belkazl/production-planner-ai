@@ -56,7 +56,7 @@ function ppWCMount(){
   const controls=el('div');controls.style.cssText='display:flex;gap:8px;flex-wrap:wrap';head.append(controls);
   const content=el('div');content.style.cssText='display:grid;gap:12px';const message=el('div');message.setAttribute('role','status');message.style.color='#a33';
   const nativeNames=Object.keys(sourceShifts);
-  const state={};for(const id of nativeNames)state[id]=draft[id]||ppWCLegacy(id,sourceShifts[id])||null;
+  const state=Object.create(null);for(const id of nativeNames)state[id]=draft[id]||ppWCLegacy(id,sourceShifts[id])||null;
   const dirty=new Set();
   const render=()=>{
     content.replaceChildren();
