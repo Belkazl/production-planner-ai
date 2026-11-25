@@ -33,6 +33,8 @@ EVALUATED_AFTER = """                        key = _diversity_key(genome)
                             state['shift_seed_evaluations'] += 1
                         if key not in evaluated_keys:
 """
+CALENDAR_BEFORE = "                            sim = ga['_pp_schedule_sequence'](copy.deepcopy(candidate_model), list(genome.sequence))\n"
+CALENDAR_AFTER = CALENDAR_BEFORE + "                            sim = _shift_repair_or_reject(ga, sim, repair_candidate)\n"
 RANKED_BEFORE = "                        ranked.append((score, genome))\n"
 RANKED_AFTER = RANKED_BEFORE + """                        if not shift_seed_attempted and attempts < generations * population:
                             shift_seed_attempted = True
@@ -58,6 +60,7 @@ REPLACEMENTS = (
     (INITIAL_BEFORE, INITIAL_AFTER),
     (LOOP_BEFORE, LOOP_AFTER),
     (EVALUATED_BEFORE, EVALUATED_AFTER),
+    (CALENDAR_BEFORE, CALENDAR_AFTER),
     (RANKED_BEFORE, RANKED_AFTER),
     (REPORT_BEFORE, REPORT_AFTER),
 )

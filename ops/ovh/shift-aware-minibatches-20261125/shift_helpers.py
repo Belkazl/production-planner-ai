@@ -15,6 +15,50 @@ class _ShiftProbeLimit(Exception):
     pass
 
 
+def _shift_native_calendar_violation(ga, plan):
+    """Fail closed on an employee's actual native interval before scoring.
+
+    Existing native window predicate and its very same per-simulation windows
+    decide feasibility. No model calendar is reconstructed here.
+    """
+    if not isinstance(plan, dict):
+        return False
+    ctx = plan.get('ctx')
+    window_test = ga.get('_pp_in_window')
+    if not isinstance(ctx, dict) or not callable(window_test):
+        return False
+    windows = ctx.get('emp_windows')
+    if windows is None:
+        return False
+    for row in (plan.get('operations') or []) + (plan.get('setup_operations') or []):
+        if not isinstance(row, dict):
+            continue
+        start, end = row.get('start_min'), row.get('end_min')
+        employees = _shift_ids(row, 'employee_ids')
+        if not employees:
+            continue
+        if not _shift_finite(start) or not _shift_finite(end) or end <= start:
+            return True
+        for employee in employees:
+            if not window_test(windows, employee, start, end - start):
+                return True
+    return False
+
+
+def _shift_repair_or_reject(ga, plan, repair):
+    if not _shift_native_calendar_violation(ga, plan):
+        return plan
+    if not callable(repair):
+        raise InfeasibleCandidate('joint_native_calendar_invalid')
+    try:
+        repaired = repair(copy.deepcopy(plan))
+    except Exception:
+        raise InfeasibleCandidate('joint_native_calendar_unrepairable') from None
+    if not isinstance(repaired, dict) or _shift_native_calendar_violation(ga, repaired):
+        raise InfeasibleCandidate('joint_native_calendar_invalid')
+    return repaired
+
+
 def _shift_finite(value):
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
             and math.isfinite(value))
