@@ -1,0 +1,44 @@
+name: Release and verify Groq assistant on LiftOrbit
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths:
+      - .github/workflows/liftorbit-groq-assistant-release-20261125.yml
+      - ops/ovh/groq-assistant-20261125/release.sh
+      - ops/ovh/groq-assistant-20261125/assistant-runtime.js
+      - ops/ovh/groq-assistant-20261125/assistant-ui.mjs
+      - ops/ovh/groq-assistant-20261125/patch.mjs
+      - ops/ovh/groq-assistant-20261125/test.mjs
+      - ops/ovh/groq-assistant-20261125/live.mjs
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install disposable test dependencies
+        run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock jsdom@26.1.0 playwright-core@1.58.2
+      - name: Verify regression suite and browser availability before deployment
+        run: |
+          set -euo pipefail
+          node --test ops/ovh/groq-assistant-20261125/test.mjs
+          bash -n ops/ovh/groq-assistant-20261125/release.sh
+          node --check ops/ovh/groq-assistant-20261125/live.mjs
+          node -e 'const {chromium}=require("/tmp/liftorbit-groq-test/node_modules/playwright-core");(async()=>{const b=await chromium.launch({headless:true,channel:"chrome",args:["--no-sandbox"]});await b.close()})().catch(()=>process.exit(6))'
+      - name: Install the reviewed chat integration, then test real browser and provider
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/groq-assistant-20261125/release.sh
