@@ -53,10 +53,12 @@ test('original declaration and all surrounding assertions survive byte-identical
   const before = upstreamSource() + assertions;
   const after = patchUpstreamBuildFixture(before);
   assert(after.includes(upstreamDeclaration));
-  const sha = createHash('sha256').update(upstreamDeclaration).digest('hex');
+  const reply = "return Response.json({status:j.status,progress:100,result:j.status==='completed'?plan:null,best_preview:null});";
+  const segment = before.slice(before.indexOf(upstreamDeclaration), before.indexOf(reply) + reply.length);
+  const sha = createHash('sha256').update(segment).digest('hex');
   assert(after.includes(':upstream:' + sha + '\n' + upstreamDeclaration));
   assert.equal(after.slice(0, after.indexOf('  // pp_integrated')), before.slice(0, before.indexOf(upstreamDeclaration)));
-  assert(after.endsWith(before.slice(before.indexOf(upstreamDeclaration) + upstreamDeclaration.length)));
+  assert(after.endsWith(before.slice(before.indexOf(reply) + reply.length)));
   assert(after.endsWith(assertions));
   const plan = await upstreamPlan(patchUpstreamBuildFixture(upstreamSource()));
   assert.equal(plan.setup_rules_processed, false, 'an existing explicit false is not rewritten');
@@ -97,11 +99,18 @@ test('unchanged mock reply supports field reordering and alternate plan construc
   assert(after.includes(reorderedReply));
   assert.equal(patchUpstreamBuildFixture(after), after);
   assert(ppCanonicalNativeResult(await upstreamPlan(after), model, 'model'));
-  assert.throws(() => patchUpstreamBuildFixture(source.replace(reorderedReply,
-    "plan.operations=[]; " + reorderedReply)), /UPSTREAM_RESPONSE_GUARD/);
+  const enriched = "// return Response.json({plan}) is comment text only.\n  plan.fixture_note='kept';\n  /* existing enrichment */\n  " + reorderedReply;
+  const withEnrichment = patchUpstreamBuildFixture(source.replace(reorderedReply, enriched));
+  assert(withEnrichment.includes("plan.fixture_note='kept';\n  /* existing enrichment */\n  "));
+  assert.equal((await upstreamPlan(withEnrichment)).fixture_note, 'kept');
+  assert.equal(patchUpstreamBuildFixture(withEnrichment), withEnrichment);
   assert.throws(() => patchUpstreamBuildFixture(source.replace(reorderedReply,
     "return Response.json({result:'plan',status:j.status});")), /UPSTREAM_PLAN_REFERENCE_GUARD/);
   assert.throws(() => patchUpstreamBuildFixture(source.replace('function makeEnv(', 'function unrelatedFactory(')), /SOURCE_DRIFT/);
+  assert.throws(() => patchUpstreamBuildFixture(source.replace(reorderedReply,
+    'if(hold) ' + reorderedReply + '\n  ' + reorderedReply)), /UPSTREAM_REPLY_COUNT_GUARD/);
+  const conditional = patchUpstreamBuildFixture(source.replace(reorderedReply, 'if(!hold) ' + reorderedReply));
+  assert(ppCanonicalNativeResult(await upstreamPlan(conditional), model, 'model'));
 });
 
 test('tenant-selected foreign IDs and existing equipment IDs are never repaired or rewritten', async () => {
@@ -138,19 +147,26 @@ test('explicit invalid flags, intervals, metrics and failure evidence stay inval
 });
 
 test('state fixture preserves original worker.set and resume metadata while adding omitted data', async () => {
-  const after = patchStateBuildFixture(stateSource());
+  const reply = 'return Response.json({job_id:id},{status:202});';
+  const replacement = '// existing acknowledgement comment\n   worker.get(id).note="kept";\n   return Response.json({ok:true,job_id:id},{status:202});';
+  const before = stateSource().replace(reply, replacement);
+  const after = patchStateBuildFixture(before);
   assert(after.includes(stateDeclaration));
+  assert(after.includes('worker.get(id).note="kept";'));
+  assert.equal(patchStateBuildFixture(after), after);
   const make = new Function('model', 'createPythonGAUpstream', after + '\nreturn harness;')(model, value => value);
   const harness = make();
   await harness.fetchImpl();
   const stored = harness.worker.get('job');
   assert.equal(stored.status, 'completed');
+  assert.equal(stored.note, 'kept');
   assert.deepEqual(stored.result.resume_state, {completed_runs: 1});
   const full = ppCanonicalNativeResult(stored.result, model, 'state-model');
   assert(full);
   assert.equal(full.duration_minutes, 1);
   assert.equal(full.batch_count, 1);
   assert.equal(full.setup_operation_count, 0);
+  assert.throws(() => patchStateBuildFixture(before.replace('job_id:id', 'job_id:"id"')), /STATE_ID_REFERENCE_GUARD/);
 });
 
 test('factory guards, syntax, original SHA and injected helper bytes all fail closed on drift', () => {

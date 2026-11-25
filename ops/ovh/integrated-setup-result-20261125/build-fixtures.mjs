@@ -93,6 +93,40 @@ function statementEnd(source, start, label, identifiers = null) {
   fail(label);
 }
 
+function visibleReplyCode(source, label, firstOnly = false) {
+  const scanFail = () => {
+    if (label === 'state') throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_STATE_REPLY_SCAN_GUARD');
+    throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_REPLY_SCAN_GUARD');
+  };
+  if (source.length > 65536) scanFail();
+  const chars = source.split('');
+  let quote = null, escaped = false, line = false, block = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index], next = source[index + 1];
+    if (line) { if (char === '\n') line = false; else chars[index] = ' '; continue; }
+    if (block) {
+      chars[index] = char === '\n' ? '\n' : ' ';
+      if (char === '*' && next === '/') { chars[++index] = ' '; block = false; }
+      continue;
+    }
+    if (quote) {
+      chars[index] = char === '\n' ? '\n' : ' ';
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") { quote = char; chars[index] = ' '; continue; }
+    if (char === '/' && next === '/') { chars[index] = chars[++index] = ' '; line = true; continue; }
+    if (char === '/' && next === '*') { chars[index] = chars[++index] = ' '; block = true; continue; }
+    if (char === '`' || char === '/') scanFail();
+    if (firstOnly && char === '(' && /\breturn\s+Response\s*\.\s*json\s*\($/.test(chars.slice(0, index + 1).join('')))
+      return chars.slice(0, index + 1).join('');
+  }
+  if (quote || block) scanFail();
+  return chars.join('');
+}
+
 function locate(source, label) {
   if (typeof source !== 'string' || source.length > 4 * 1024 * 1024) fail(label);
   // The known fixture factory precedes the top-level test cases. Identically
@@ -114,53 +148,77 @@ function locate(source, label) {
     tail = one(scope, /\bconst\s+create\s*=\s*\(\s*\)\s*=>\s*createPythonGAUpstream\s*\(/g, label);
   }
   if (!(factory.index < worker.index && worker.index < declaration.index && declaration.index < tail.index)) fail(label);
-  const start = declaration.index, end = statementEnd(source, start, label);
+  const start = declaration.index;
+  let end = statementEnd(source, start, label);
   if (end > tail.index) fail(label);
-  const original = source.slice(start, end);
+  let original = source.slice(start, end), insertion = original.length;
   const following = source.slice(end, tail.index);
   if (label === 'upstream') {
     if (!/\}\s*;$/.test(original)) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_OBJECT_GUARD');
-    // The append-only augmentation does not depend on property order, map
-    // syntax or the exact status conditional of the unchanged worker reply.
-    if (!/^\s*return\s+Response\s*\.\s*json\s*\(/.test(following))
-      throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_RESPONSE_GUARD');
-    const references = new Set();
-    const responseEnd = statementEnd(following, 0, label, references);
+    // Keep all existing enrichment/assertions/comments between the declaration
+    // and reply. Ignore comment/string text while selecting the real return.
+    const replies = [...visibleReplyCode(following, label).matchAll(/\breturn\s+Response\s*\.\s*json\s*\(/g)];
+    if (replies.length !== 1) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_REPLY_COUNT_GUARD');
+    const responseStart = replies[0].index, references = new Set();
+    const responseEnd = statementEnd(following, responseStart, label, references);
     if (!references.has('plan')) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_PLAN_REFERENCE_GUARD');
-    try { new Function('m', 'j', 'plan', following.slice(0, responseEnd)); }
-    catch { throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_RESPONSE_SYNTAX_GUARD'); }
-  } else if (!/\bresult\s*:\s*\{/.test(original) || !/\bstatus\s*:\s*['"]completed['"]/.test(original) ||
-      !/^\s*return\s+Response\s*\.\s*json\s*\(\s*\{\s*job_id\s*:\s*id\s*\}/.test(following)) fail(label);
-  try { new Function('m', 'model', 'worker', 'id', original); } catch { fail(label); }
-  return {start, end, original, indent: original.match(/^[ \t]*/)[0]};
+    insertion = end + responseStart - start;
+    end += responseEnd;
+    original = source.slice(start, end);
+    try {
+      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+      new AsyncFunction('m', 'j', 'opts', 'url', original);
+    } catch { throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_SEGMENT_SYNTAX_GUARD'); }
+  } else {
+    if (!/\bresult\s*:\s*\{/.test(original) || !/\bstatus\s*:\s*['"]completed['"]/.test(original))
+      throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_STATE_RESULT_GUARD');
+    // This fixture's known POST branch has a job acknowledgement before its
+    // later GET/cancel response branches. Retain all statements up to it.
+    const replies = [...visibleReplyCode(following, label, true).matchAll(/\breturn\s+Response\s*\.\s*json\s*\(/g)];
+    if (replies.length !== 1) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_STATE_REPLY_COUNT_GUARD');
+    const responseStart = replies[0].index, references = new Set();
+    const responseEnd = statementEnd(following, responseStart, label, references);
+    if (!references.has('id')) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_STATE_ID_REFERENCE_GUARD');
+    insertion = end + responseStart - start;
+    end += responseEnd;
+    original = source.slice(start, end);
+    try {
+      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+      new AsyncFunction('m', 'model', 'worker', 'id', 'opts', 'url', original);
+    } catch { throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_STATE_SEGMENT_SYNTAX_GUARD'); }
+  }
+  return {start, end, original, insertion, indent: original.match(/^[ \t]*/)[0]};
 }
 
-function render(original, label, indent) {
+function render(original, label, indent, insertion) {
   const call = label === 'upstream' ? 'ppCompleteSyntheticNativeBuildFixture(plan,m);' :
     'ppCompleteSyntheticNativeBuildFixture(worker.get(id)?.result,model);';
-  return indent + '// ' + marker + ':' + label + ':' + sha(original) + '\n' + original +
-    '\n' + indent + '// ' + marker + ':augment\n' + indent + ppCompleteSyntheticNativeBuildFixture.toString() +
-    '\n' + indent + call + '\n' + indent + '// ' + marker + ':end';
+  return indent + '// ' + marker + ':' + label + ':' + sha(original) + '\n' + original.slice(0, insertion) +
+    '{\n' + indent + '// ' + marker + ':augment\n' + indent + ppCompleteSyntheticNativeBuildFixture.toString() +
+    '\n' + indent + call + '\n' + indent + '// ' + marker + ':resume\n' + original.slice(insertion) +
+    '\n' + indent + '} // ' + marker + ':resume-end\n' + indent + '// ' + marker + ':end';
 }
 
 function patchFixture(source, label) {
   if (typeof source !== 'string' || source.length > 4 * 1024 * 1024) fail(label);
   if (source.includes(marker)) {
     const header = one(source, new RegExp('^[ \\t]*// ' + marker + ':' + label + ':([0-9a-f]{64})\\n', 'gm'), label);
-    const middle = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':augment\\n', 'g'), label);
+    const middle = one(source, new RegExp('\\{\\n[ \\t]*// ' + marker + ':augment\\n', 'g'), label);
+    const resume = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':resume\\n', 'g'), label);
+    const resumeEnd = one(source, new RegExp('\\n[ \\t]*\\} // ' + marker + ':resume-end', 'g'), label);
     const footer = one(source, new RegExp('\\n[ \\t]*// ' + marker + ':end', 'g'), label);
     const start = header.index, originalStart = start + header[0].length;
     const end = footer.index + footer[0].length;
-    if (!(originalStart < middle.index && middle.index < footer.index)) fail(label);
-    const original = source.slice(originalStart, middle.index);
+    if (!(originalStart < middle.index && middle.index < resume.index && resume.index < resumeEnd.index && resumeEnd.index < footer.index)) fail(label);
+    const original = source.slice(originalStart, middle.index) + source.slice(resume.index + resume[0].length, resumeEnd.index);
     const restored = source.slice(0, start) + original + source.slice(end);
     if (sha(original) !== header[1] || restored.includes(marker) || patchFixture(restored, label) !== source)
       throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_INSTALL_DRIFT_' + label);
     return source;
   }
   if (source.includes('ppCompleteSyntheticNativeBuildFixture')) fail(label);
-  const {start, end, original, indent} = locate(source, label);
-  const replacement = render(original, label, indent);
+  const {start, end, original, insertion, indent} = locate(source, label);
+  const replacement = render(original, label, indent, insertion);
   const updated = source.slice(0, start) + replacement + source.slice(end);
   if (updated.slice(0, start) + original + updated.slice(start + replacement.length) !== source)
     throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UNRELATED_CHANGE_' + label);
