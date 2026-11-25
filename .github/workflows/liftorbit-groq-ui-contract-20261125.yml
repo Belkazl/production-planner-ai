@@ -1,0 +1,73 @@
+name: Inspect assistant DOM in an isolated synthetic account
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths: [.github/workflows/liftorbit-groq-ui-contract-20261125.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect current authenticated planner HTML structure using a disposable account
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,uuid,secrets,urllib.request,urllib.error,http.cookiejar,re
+          from html.parser import HTMLParser
+          base='https://app.liftorbit.app'
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          body=json.dumps({'email':'assistant-ui-qa-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'Disposable synthetic assistant QA'}).encode()
+          hdr={'Content-Type':'application/json','Accept':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin'}
+          with op.open(urllib.request.Request(base+'/api/auth/register',data=body,headers=hdr,method='POST'),timeout=30) as r:print('UI_REGISTER',r.status)
+          with op.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:
+              html=r.read(16000000).decode('utf-8','replace')
+              print('UI_HTML',r.status,len(html))
+          # Print markup and short source snippets only; no storage, cookies, headers or account data.
+          for term in ['AI Assistant','/api/chat','assistant_reply','chatInput','chatMessages','chatSend','chatLog','chatbox','chatBox','chatPanel','Collapse','</body>']:
+              hits=list(re.finditer(re.escape(term),html,re.I))
+              print('UI_TERM',term,len(hits))
+              for m in hits[:3]:
+                  chunk=html[max(0,m.start()-300):min(len(html),m.end()+650)]
+                  if re.search(r'(?i)(?:gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN|postgres(?:ql)?://|(?:password|secret|token|api.key)\s*[:=]\s*["\x27][^"\x27]{12,})',chunk):continue
+                  print('UI_SNIP',term,json.dumps(chunk,ensure_ascii=True))
+          class P(HTMLParser):
+              def handle_starttag(self,tag,attrs):
+                  a=dict(attrs)
+                  if tag in ('input','textarea','form','button','div','section','aside') and any(re.search('chat|assistant|message',str(a.get(k,'')),re.I) for k in ('id','class','name')):
+                      print('UI_NODE',tag,json.dumps({k:a[k] for k in ('id','class','name','type','placeholder') if k in a}))
+          P().feed(html)
+          PY
+      - name: Confirm server-side hook anchors and same-origin guard
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          chmod 600 "$d/key" "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$HOME/liftorbit-migration/sources/ovh-app/current"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('auth-runtime.js').read_text().splitlines()
+          for i,l in enumerate(s):
+              if 25<=i<58 or 400<=i<460 or ('return new Response' in l and 'Html(' in l):
+                  if re.search(r'(?i)(?:gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN|postgres(?:ql)?://|(?:password|secret|token|api.key)\s*[:=]\s*["\x27][^"\x27]{12,})',l):continue
+                  print('AUTH_HOOK',i+1,l[:1000])
+          PY
+          REMOTE
