@@ -12,9 +12,9 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import verify
-from diagnostics import summarize_report, public_error_codes, public_source_labels, safe_anchor_counts, build_test_metadata, safe_build_probe
+from diagnostics import summarize_report, public_error_codes, public_source_labels, safe_anchor_counts, build_test_metadata, safe_build_probe, safe_build_chain
 import container_gate
-from container_gate import APP_CHECKS, WORKER_CHECKS
+from container_gate import APP_CHECKS, WORKER_CHECKS, BUILD_CHAIN_CHECKS
 
 
 class GateTests(unittest.TestCase):
@@ -22,7 +22,8 @@ class GateTests(unittest.TestCase):
         return {'format': 'integrated-setup-container-v1', 'all_checks_passed': True,
                 'native_eleven_verified': True, 'native_case_count': 11,
                 'legacy_build_before_passed': False, 'legacy_build_after_passed': True, 'build_fixtures_updated': True,
-                'worker_checks': dict.fromkeys(WORKER_CHECKS, True), 'app_checks': dict.fromkeys(APP_CHECKS, True)}
+                'worker_checks': dict.fromkeys(WORKER_CHECKS, True), 'app_checks': dict.fromkeys(APP_CHECKS, True),
+                'build_chain_checks': dict.fromkeys(BUILD_CHAIN_CHECKS, True)}
 
     def test_new_cases_cannot_replace_the_eleven_existing_native_cases(self):
         verify.validate_container_report(self.receipt())
@@ -36,6 +37,37 @@ class GateTests(unittest.TestCase):
         report = self.receipt(); report['legacy_build_after_passed'] = False
         with self.assertRaises(ValueError):
             verify.validate_container_report(report)
+
+    def test_build_chain_checks_cannot_be_missing_or_replaced_with_unit_test_success(self):
+        for key in BUILD_CHAIN_CHECKS:
+            report = self.receipt(); report['build_chain_checks'][key] = False
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                verify.validate_container_report(report)
+        report = self.receipt(); del report['build_chain_checks']
+        with self.assertRaises(ValueError):
+            verify.validate_container_report(report)
+
+    def test_build_chain_failure_never_forwards_generated_source_or_error_text(self):
+        secret = 'PRIVATE_GENERATED_SOURCE_OR_PATH'
+        report = {'format': 'integrated-setup-build-chain-v1', **dict.fromkeys(BUILD_CHAIN_CHECKS, False),
+                  'original_inputs_unchanged': True, 'build_bridge_passed': True,
+                  'failure_phase': 'feature_stop', 'failure_code': 'feature_stop_failed',
+                  'source': secret, 'stderr': secret}
+        safe = safe_build_chain(report)
+        self.assertEqual(safe['failure_phase'], 'feature_stop')
+        self.assertEqual(safe['failure_code'], 'feature_stop_failed')
+        self.assertNotIn(secret, json.dumps(safe))
+        with tempfile.TemporaryDirectory() as directory, patch.object(container_gate, 'OUT', Path(directory)):
+            root = Path(directory)
+            (root / 'build-chain-report.json').write_text(json.dumps(report))
+            log = root / 'build.log'; log.write_text(secret)
+            container_gate.failure_metadata('actual_build_chain', log)
+            twice = verify.safe_failure_report(root / 'failure-report.json')
+            self.assertEqual(twice['build_chain'], safe)
+            self.assertNotIn(secret, json.dumps(twice))
+        report['failure_phase'] = secret; report['failure_code'] = secret
+        self.assertIsNone(safe_build_chain(report)['failure_code'])
+        self.assertIsNone(safe_build_chain(report)['failure_phase'])
 
     def test_safe_trace_metadata_drops_arbitrary_names_and_messages(self):
         secret = 'SENSITIVE_SOURCE_SENTINEL'

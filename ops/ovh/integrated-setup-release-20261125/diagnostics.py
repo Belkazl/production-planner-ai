@@ -47,10 +47,32 @@ PROBE_FAILURE_CODES = frozenset({'source_path', 'source_file', 'source_changed',
     'canonical_instrumentation_contract', 'upstream_export_contract', 'temporary_copy', 'runner_unavailable',
     'runner_timeout', 'runner_output_limit', 'runner_failed', 'telemetry_contract', 'telemetry_size',
     'test_source_changed', 'unexpected'})
+BUILD_CHAIN_CHECKS = (
+    'all_checks_passed', 'original_inputs_unchanged', 'build_bridge_passed',
+    'feature_stop_passed', 'bundle_passed', 'native_bypass_preserved',
+    'abort_signal_preserved', 'stop_guards_preserved',
+)
+BUILD_CHAIN_PHASES = frozenset({'input', 'build_bridge', 'feature_stop', 'generated_contract', 'bundle', 'source_integrity'})
+BUILD_CHAIN_FAILURES = frozenset({'source_path', 'source_file', 'source_changed', 'copy_integrity',
+    'runner_unavailable', 'runner_timeout', 'runner_output_limit', 'build_bridge_failed',
+    'feature_stop_failed', 'bundle_failed', 'generated_file', 'native_bypass_count',
+    'abort_signal_missing', 'stop_guards_missing', 'unexpected'})
 
 
 def bounded_int(value, minimum, maximum):
     return type(value) is int and minimum <= value <= maximum
+
+
+def safe_build_chain(value):
+    """Only fixed build-stage labels and booleans; never a generated source/log."""
+    if (not isinstance(value, dict) or value.get('format') != 'integrated-setup-build-chain-v1'
+            or any(type(value.get(key)) is not bool for key in BUILD_CHAIN_CHECKS)):
+        return None
+    phase, code = value.get('failure_phase'), value.get('failure_code')
+    result = {'format': 'integrated-setup-build-chain-v1', **{key: value[key] for key in BUILD_CHAIN_CHECKS}}
+    result['failure_phase'] = phase if isinstance(phase, str) and phase in BUILD_CHAIN_PHASES else None
+    result['failure_code'] = code if isinstance(code, str) and code in BUILD_CHAIN_FAILURES else None
+    return result
 
 
 def safe_build_tests(value):

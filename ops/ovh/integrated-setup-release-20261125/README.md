@@ -6,7 +6,7 @@ It leaves the native worker and its selected code inputs byte-identical.
 
 ## Private actual-source acceptance
 
-The verification workflow reads an exact allowlist of eleven app source files
+The verification workflow reads an exact allowlist of thirteen app source files
 using the existing ordinary CI account. It also records the hash of
 `auth-runtime.js` without transferring its contents. Native input capture uses the
 previously reviewed code-only selector; no customer models, orders, credentials
@@ -25,6 +25,13 @@ captured upstream and APS handlers. The actual captured Bun ownership and state
 tests run against the patched app. If their obsolete synthetic native-result
 fixtures fail, the reviewed exact fixture replacement is applied and the same
 assertions must pass. This is reflected explicitly in the acceptance receipt.
+
+The captured `feature-stop.ts` and `stop-ui.js` are additional read-only build
+inputs. A required private replay executes the actual `build-bridge.ts`, then
+`feature-stop.ts`, then Bun bundling in an isolated temporary copy. It checks that
+the native result bypass, abort signal and Stop guards survive that build chain.
+All eight build-chain checks must pass alongside the native and app gates, and
+neither build input belongs to the deployment write allowlist.
 
 ## Deliberate release
 

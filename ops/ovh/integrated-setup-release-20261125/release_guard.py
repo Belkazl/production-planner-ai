@@ -15,7 +15,7 @@ REPO = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 import capture
 from verify import public_hashes
-from container_gate import APP_CHECKS, WORKER_CHECKS
+from container_gate import APP_CHECKS, WORKER_CHECKS, BUILD_CHAIN_CHECKS
 
 REPOSITORY = 'Belkazl/production-planner-ai'
 BRANCH = 'fix/gantt-zoom-500-20261124'
@@ -73,7 +73,7 @@ def validate_report(marker, report):
         raise ValueError('acceptance_incomplete')
     if any(report.get(name) != marker[name] for name in FIELDS):
         raise ValueError('acceptance_provenance')
-    for key, checks in (('worker_checks', WORKER_CHECKS), ('app_checks', APP_CHECKS)):
+    for key, checks in (('worker_checks', WORKER_CHECKS), ('app_checks', APP_CHECKS), ('build_chain_checks', BUILD_CHAIN_CHECKS)):
         if (not isinstance(report.get(key), dict) or set(report[key]) != set(checks)
                 or any(value is not True for value in report[key].values())):
             raise ValueError('acceptance_checks')

@@ -17,7 +17,8 @@ GA = ROOT / 'sources/current/ga/ga_workers'
 APP_NAMES = {'python-ga-upstream.mjs', 'baselines/2026-10-10/aps-setup-bridge/index.ts',
     'restart-optimizer-ui.js', 'Dockerfile', 'build-bridge.ts', 'tenant-model-build.ts',
     'ga-worker-build.ts', 'python-ga-upstream-build.ts', 'auth-runtime.js',
-    'tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs', 'ga-python-state-store.mjs'}
+    'tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs', 'ga-python-state-store.mjs',
+    'feature-stop.ts', 'stop-ui.js'}
 WRITES = {'app/python-ga-upstream.mjs', 'app/baselines/2026-10-10/aps-setup-bridge/index.ts', 'app/restart-optimizer-ui.js'}
 FIXTURE_WRITES = {'app/tests/python-ga-upstream.test.mjs', 'app/tests/python-ga-state.test.mjs'}
 SHA = re.compile('[0-9a-f]{64}\\Z')
@@ -47,7 +48,7 @@ def manifest_rows(data):
     if not isinstance(data, bytes) or len(data) > 32768:
         raise ValueError()
     rows = [line.split('\t') for line in data.decode('ascii').splitlines()]
-    if not 19 <= len(rows) <= 76 or any(len(row) != 4 for row in rows) or len({row[1] for row in rows}) != len(rows):
+    if not 21 <= len(rows) <= 78 or any(len(row) != 4 for row in rows) or len({row[1] for row in rows}) != len(rows):
         raise ValueError()
     writes = {name for role, name, _, _ in rows if role == 'WRITE'}
     if writes not in (WRITES, WRITES | FIXTURE_WRITES):

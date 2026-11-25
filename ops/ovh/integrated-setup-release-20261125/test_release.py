@@ -15,7 +15,7 @@ sys.path.insert(0, str(HERE))
 import capture
 import deploy_contract
 import release_guard as guard
-from container_gate import APP_CHECKS, WORKER_CHECKS
+from container_gate import APP_CHECKS, WORKER_CHECKS, BUILD_CHAIN_CHECKS
 
 
 def digest(text):
@@ -35,7 +35,8 @@ class ReleaseTests(unittest.TestCase):
             'code_inputs_sha256': baseline['code_inputs_sha256'], 'runtime_image': 'sha256:' + 'c' * 64,
             'public_sources': guard.public_hashes(), 'legacy_build_before_passed': not fixtures,
             'legacy_build_after_passed': True, 'build_fixtures_updated': fixtures,
-            'worker_checks': dict.fromkeys(WORKER_CHECKS, True), 'app_checks': dict.fromkeys(APP_CHECKS, True)}
+            'worker_checks': dict.fromkeys(WORKER_CHECKS, True), 'app_checks': dict.fromkeys(APP_CHECKS, True),
+            'build_chain_checks': dict.fromkeys(BUILD_CHAIN_CHECKS, True)}
 
     def marker(self, fixtures=False):
         report = self.report(fixtures)
@@ -51,7 +52,7 @@ class ReleaseTests(unittest.TestCase):
             wrong = copy.deepcopy(report); wrong[key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 guard.validate_report(marker, wrong)
-        for group, names in [('worker_checks', WORKER_CHECKS), ('app_checks', APP_CHECKS)]:
+        for group, names in [('worker_checks', WORKER_CHECKS), ('app_checks', APP_CHECKS), ('build_chain_checks', BUILD_CHAIN_CHECKS)]:
             for name in names:
                 wrong = copy.deepcopy(report); wrong[group][name] = False
                 with self.subTest(group=group, name=name), self.assertRaises(ValueError):
@@ -61,9 +62,11 @@ class ReleaseTests(unittest.TestCase):
         for fixtures in (False, True):
             marker, report = self.marker(fixtures)
             guard.validate_marker(marker)
-            wrong = copy.deepcopy(marker)
-            wrong['app_after']['ga-python-state-store.mjs'] = digest('unexpected-runtime-change')
-            with self.assertRaises(ValueError): guard.validate_marker(wrong)
+            for protected in ('ga-python-state-store.mjs', 'feature-stop.ts', 'stop-ui.js'):
+                wrong = copy.deepcopy(marker)
+                wrong['app_after'][protected] = digest('unexpected-runtime-change')
+                with self.subTest(protected=protected), self.assertRaises(ValueError):
+                    guard.validate_marker(wrong)
         marker, _ = self.marker(True)
         marker['app_after'][capture.BUILD_TEST_FILES[0]] = marker['app_before'][capture.BUILD_TEST_FILES[0]]
         with self.assertRaises(ValueError): guard.validate_marker(marker)
@@ -102,7 +105,8 @@ class ReleaseTests(unittest.TestCase):
         rows += [('PRESERVE', 'ga/' + name.removeprefix('ga_workers/'), sha, sha) for name, sha in marker['worker_hashes'].items()]
         encode = lambda entries: ''.join('\t'.join(row) + '\n' for row in entries).encode()
         self.assertEqual(deploy_contract.manifest_rows(encode(rows)), [list(row) for row in rows])
-        for target in ('app/auth-runtime.js', 'ga/full_runtime_adapter.py', 'app/tests/python-ga-state.test.mjs'):
+        for target in ('app/auth-runtime.js', 'ga/full_runtime_adapter.py', 'app/tests/python-ga-state.test.mjs',
+                       'app/feature-stop.ts', 'app/stop-ui.js'):
             altered = [(('PRESERVE' if role == 'WRITE' else 'WRITE'), name, old, old if role == 'WRITE' else digest('wrong'))
                        if name == target else (role, name, old, new) for role, name, old, new in rows]
             with self.subTest(target=target), self.assertRaises(ValueError): deploy_contract.manifest_rows(encode(altered))

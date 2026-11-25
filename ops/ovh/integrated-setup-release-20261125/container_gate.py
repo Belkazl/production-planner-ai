@@ -7,7 +7,7 @@ import sys
 import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from diagnostics import NATIVE_ELEVEN_CASES, public_error_codes, safe_anchor_counts, build_test_metadata, safe_build_probe
+from diagnostics import NATIVE_ELEVEN_CASES, public_error_codes, safe_anchor_counts, build_test_metadata, safe_build_probe, safe_build_chain, BUILD_CHAIN_CHECKS
 
 PUBLIC = Path('/public/repo/ops/ovh')
 WORK = Path('/work')
@@ -54,6 +54,13 @@ def failure_metadata(label, log_path):
     value = {'gate': label, 'exception_classes': types, 'public_frames': frames[:16], 'public_error_codes': codes}
     if label == 'actual_build_tests':
         value['build_tests'] = build_test_metadata(text)
+    if label == 'actual_build_chain':
+        path = OUT / 'build-chain-report.json'
+        try:
+            if path.is_file() and not path.is_symlink() and path.stat().st_size <= 16384:
+                value['build_chain'] = safe_build_chain(json.loads(path.read_bytes()))
+        except (OSError, ValueError, TypeError):
+            pass
     anchor_rows = re.findall(r'^INTEGRATED_SETUP_SOURCE_ANCHORS ([^\r\n]{1,16000})$', text, re.MULTILINE)
     if len(anchor_rows) == 1:
         try:
@@ -140,6 +147,9 @@ def main():
          {'LIFTORBIT_INTEGRATED_SETUP_APP_FIXTURE_ROOT': '/input/app'})
     gate('preview_actual_source', ['node', '--test', str(PUBLIC / 'integrated-setup-preview-20261125/test.mjs')],
          {'LIFTORBIT_INTEGRATED_PREVIEW_FIXTURE': str(APP / 'python-ga-upstream.mjs')})
+    gate('actual_build_chain', ['node', str(PUBLIC / 'integrated-setup-release-20261125/verify-build-chain.mjs'),
+         str(APP), str(OUT / 'build-chain-report.json')])
+    build_chain = checked_report(OUT / 'build-chain-report.json', 'integrated-setup-build-chain-v1', BUILD_CHAIN_CHECKS)
     gate('native_eleven', ['python3', '-I', str(PUBLIC / 'native-batching-verify-20261124/verify_native.py'),
          '--child', '/input/native', '--report', str(OUT / 'native-eleven.json'), '--overlay-gates'])
     native = json.loads((OUT / 'native-eleven.json').read_bytes())
@@ -158,7 +168,7 @@ def main():
     worker = checked_report(OUT / 'worker-report.json', 'integrated-setup-worker-v1', WORKER_CHECKS)
     app = checked_report(OUT / 'app-report.json', 'integrated-setup-app-v1', APP_CHECKS)
     # Reconstruct the safe receipt from fixed fields; never forward raw reports.
-    report = {'format': 'integrated-setup-container-v1', 'worker_checks': worker,
+    report = {'format': 'integrated-setup-container-v1', 'worker_checks': worker, 'build_chain_checks': build_chain,
               'app_checks': app, 'native_eleven_verified': True, 'native_case_count': len(native['cases']),
               'all_checks_passed': True, **build}
     (OUT / 'safe-report.json').write_text(json.dumps(report, separators=(',', ':')))

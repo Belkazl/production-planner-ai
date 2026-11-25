@@ -192,9 +192,11 @@ export function patchAps(source, inspect = false) {
     ' // ' + marker + ': only the adapter response declares its native origin.\n' +
     ' if(r.headers.get("' + NATIVE_HEADER + '")==="' + NATIVE_HEADER_VALUE + '")return rawResponse(r);\n if(!r.ok)return rawResponse(r);';
   const planStart = 'const r=await fetch(upstreamUrl(req),{method:"POST",headers:relayHeaders(req),body:requestBody,signal:AbortSignal.timeout(350000)});if(!r.ok){state.completed=true;return rawResponse(r)}';
-  const planAfter = 'const r=await fetch(upstreamUrl(req),{method:"POST",headers:relayHeaders(req),body:requestBody,signal:AbortSignal.timeout(350000)});\n' +
-    'if(r.headers.get("' + NATIVE_HEADER + '")==="' + NATIVE_HEADER_VALUE + '"){state.completed=r.status!==202;return rawResponse(r)}\n' +
-    'if(!r.ok){state.completed=true;return rawResponse(r)}';
+  // The downstream Stop build transform consumes this entire original span.
+  // Preserve it so its abort signal and Stop guards still install; failed
+  // responses already return unchanged before the native success/202 bypass.
+  const planAfter = planStart + '\n' +
+    'if(r.headers.get("' + NATIVE_HEADER + '")==="' + NATIVE_HEADER_VALUE + '"){state.completed=r.status!==202;return rawResponse(r)}';
   const decisionBefore = " if(a.partial&&!b.partial)return{accept:false,reason:'partial'};\\n const n=x=>Number(x),epsilon=0.01;";
   const decisionAfter = " if(a.partial&&!b.partial)return{accept:false,reason:'partial'};\\n if(window.__PP_INTEGRATED_NATIVE_RESULT_V1__?.supersedes?.(a,b))return{accept:true};\\n const n=x=>Number(x),epsilon=0.01;";
   const saveBefore = " if(prev&&prev.valid!==false&&Number(prev._revision??entry.revision)===Number(entry.revision)&&d&&(!d.ok";

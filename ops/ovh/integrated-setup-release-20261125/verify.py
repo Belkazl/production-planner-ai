@@ -17,12 +17,12 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 import capture
-from container_gate import APP_CHECKS, WORKER_CHECKS
-from diagnostics import summarize_report, public_error_codes, safe_anchor_counts, safe_build_tests, safe_build_probe
+from container_gate import APP_CHECKS, WORKER_CHECKS, BUILD_CHAIN_CHECKS
+from diagnostics import summarize_report, public_error_codes, safe_anchor_counts, safe_build_tests, safe_build_probe, safe_build_chain
 
 FAILURE_GATES = {'canonical_patch', 'preview_patch', 'canonical_actual_source', 'preview_actual_source',
                  'native_synthetic_fixtures', 'native_eleven', 'actual_final_pipeline', 'acceptance_report', 'unexpected_gate',
-                 'build_fixture_contract', 'actual_build_tests'}
+                 'build_fixture_contract', 'actual_build_tests', 'actual_build_chain'}
 PUBLIC_FAILURE_FILES = {'patch.mjs', 'test.mjs', 'canonical.mjs', 'pipeline.mjs', 'build-fixtures.mjs', 'test-build-fixtures.mjs',
                         'python-ga-upstream.test.mjs', 'python-ga-state.test.mjs', 'verify_app.mjs', 'verify_worker.py', 'cases.py',
                         'verify_native.py', 'regression_cases.py', 'container_gate.py'}
@@ -54,6 +54,8 @@ def safe_failure_report(path):
             result['build_tests'] = safe_build_tests(value.get('build_tests'))
             result['probe_status'] = value.get('probe_status') if value.get('probe_status') in {'completed', 'unavailable'} else 'unavailable'
             result['build_probe'] = safe_build_probe(value.get('build_probe'))
+        if value['gate'] == 'actual_build_chain':
+            result['build_chain'] = safe_build_chain(value.get('build_chain'))
         return result
     except (OSError, ValueError, TypeError):
         return None
@@ -93,7 +95,7 @@ def write_files(root, files):
 
 
 def validate_container_report(value):
-    if (not isinstance(value, dict) or set(value) != {'format', 'worker_checks', 'app_checks', 'native_eleven_verified', 'native_case_count', 'all_checks_passed',
+    if (not isinstance(value, dict) or set(value) != {'format', 'worker_checks', 'app_checks', 'build_chain_checks', 'native_eleven_verified', 'native_case_count', 'all_checks_passed',
                                                    'legacy_build_before_passed', 'legacy_build_after_passed', 'build_fixtures_updated'}
             or value.get('format') != 'integrated-setup-container-v1' or value.get('all_checks_passed') is not True
             or value.get('native_eleven_verified') is not True or type(value.get('native_case_count')) is not int
@@ -102,7 +104,7 @@ def validate_container_report(value):
     if (type(value.get('legacy_build_before_passed')) is not bool or value.get('legacy_build_after_passed') is not True
             or value.get('build_fixtures_updated') is not (not value['legacy_build_before_passed'])):
         raise ValueError('container_build_contract')
-    for key, expected in (('worker_checks', WORKER_CHECKS), ('app_checks', APP_CHECKS)):
+    for key, expected in (('worker_checks', WORKER_CHECKS), ('app_checks', APP_CHECKS), ('build_chain_checks', BUILD_CHAIN_CHECKS)):
         if (not isinstance(value[key], dict) or set(value[key]) != set(expected)
                 or any(item is not True for item in value[key].values())):
             raise ValueError('container_checks')
@@ -185,6 +187,7 @@ def verify(app_bundle, native_bundle, image):
                 raise ValueError('input_changed')
         report.update(status='integrated_setup_pass', release_gate_complete=True, app_after=after,
                       worker_checks=accepted['worker_checks'], app_checks=accepted['app_checks'],
+                      build_chain_checks=accepted['build_chain_checks'],
                       native_eleven_verified=True, native_case_count=11,
                       legacy_build_before_passed=accepted['legacy_build_before_passed'], legacy_build_after_passed=True,
                       build_fixtures_updated=accepted['build_fixtures_updated'],
@@ -207,7 +210,7 @@ def main():
         allowed = {'runtime_image', 'container_report', 'container_checks', 'canonical_patch', 'preview_patch',
                    'canonical_actual_source', 'preview_actual_source', 'native_synthetic_fixtures',
                    'native_eleven', 'actual_final_pipeline', 'acceptance_report', 'unexpected_gate', 'container_exit', 'baseline_source_drift',
-                   'build_fixture_contract', 'actual_build_tests', 'container_build_contract',
+                   'build_fixture_contract', 'actual_build_tests', 'actual_build_chain', 'container_build_contract',
                    'unexpected_app_output', 'app_output_bound', 'exact_app_overlay', 'input_changed'}
         label = str(error) if isinstance(error, ValueError) and str(error) in allowed else 'verification_failed'
         print('INTEGRATED_SETUP_VERIFICATION_FAILED ' + label)

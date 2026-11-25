@@ -18,6 +18,7 @@ APP_FILES = (
     'restart-optimizer-ui.js', 'Dockerfile', 'build-bridge.ts',
     'tenant-model-build.ts', 'ga-worker-build.ts', 'python-ga-upstream-build.ts',
     'tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs', 'ga-python-state-store.mjs',
+    'feature-stop.ts', 'stop-ui.js',
 )
 WRITE_FILES = APP_FILES[:3]
 BUILD_TEST_FILES = ('tests/python-ga-upstream.test.mjs', 'tests/python-ga-state.test.mjs')

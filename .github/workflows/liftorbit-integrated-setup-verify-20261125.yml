@@ -10,6 +10,7 @@ on:
       - .github/workflows/liftorbit-integrated-setup-verify-20261125.yml
       - ops/ovh/integrated-setup-release-20261125/*.py
       - ops/ovh/integrated-setup-release-20261125/*.sh
+      - ops/ovh/integrated-setup-release-20261125/*.mjs
       - ops/ovh/integrated-setup-release-20261125/Dockerfile.verify
       - ops/ovh/integrated-setup-release-20261125/baseline.json
       - .github/workflows/liftorbit-integrated-setup-release-20261125.yml

@@ -15,6 +15,9 @@ spec.loader.exec_module(capture)
 
 class CaptureTests(unittest.TestCase):
     def test_only_exact_app_sources_cross_transport(self):
+        self.assertEqual(len(capture.APP_FILES), 13)
+        self.assertTrue({'feature-stop.ts', 'stop-ui.js'}.issubset(capture.APP_FILES))
+        self.assertFalse({'feature-stop.ts', 'stop-ui.js'}.intersection(capture.ALLOWED_WRITES))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'app.bundle'
             expected = {name: b'public synthetic source' for name in (*capture.APP_FILES, 'manifest.json')}
