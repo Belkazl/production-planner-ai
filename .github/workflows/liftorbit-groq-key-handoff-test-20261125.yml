@@ -1,0 +1,41 @@
+name: Test one-time Groq secret handoff safely on disposable runner
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths:
+      - .github/workflows/liftorbit-groq-key-handoff-test-20261125.yml
+      - ops/ovh/groq-assistant-20261125/install-key-handoff.py
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify scoped sudo rule with an invented config and dummy key
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin liftorbit-ci
+          sudo install -d -m 700 -o root -g root /opt/liftorbit/secrets
+          printf '%s\n' '{"EXISTING_SETTING":"unchanged","OTHER_KEY":"synthetic"}' | sudo tee /opt/liftorbit/secrets/app.json >/dev/null
+          sudo chmod 600 /opt/liftorbit/secrets/app.json
+          sudo python3 -I ops/ovh/groq-assistant-20261125/install-key-handoff.py
+          test -z "$(sudo -u liftorbit-ci sudo -n /usr/local/sbin/liftorbit-set-groq-key unexpected 2>/dev/null || true)"
+          if printf 'invalid' | sudo -u liftorbit-ci sudo -n /usr/local/sbin/liftorbit-set-groq-key; then exit 6; fi
+          sudo test -f /etc/sudoers.d/liftorbit-groq-key
+          printf 'gsk_synthetic_test_key_0000000000000000' | sudo -u liftorbit-ci sudo -n /usr/local/sbin/liftorbit-set-groq-key
+          sudo test ! -e /etc/sudoers.d/liftorbit-groq-key
+          if printf 'gsk_synthetic_test_key_1111111111111111' | sudo -u liftorbit-ci sudo -n /usr/local/sbin/liftorbit-set-groq-key; then exit 7; fi
+          sudo python3 -I - <<'PY'
+          import json,os,stat
+          p='/opt/liftorbit/secrets/app.json'
+          d=json.load(open(p))
+          assert d=={'EXISTING_SETTING':'unchanged','OTHER_KEY':'synthetic','GROQ_API_KEY':'gsk_synthetic_test_key_0000000000000000'}
+          s=os.stat(p)
+          assert s.st_uid==0 and stat.S_IMODE(s.st_mode)==0o600
+          print('ONE_TIME_GROQ_HANDOFF_TEST_PASS')
+          PY
