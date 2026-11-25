@@ -23,6 +23,114 @@ NUMBERS = frozenset({'production_count', 'setup_count', 'duration_minutes', 'set
 BOOLEANS = frozenset({'valid', 'independent_valid', 'reached_lower_bound', 'all_published_previews_feasible'})
 ARRAY_NUMBERS = frozenset({'score_durations', 'score_setup_counts'})
 ARRAY_CODES = frozenset({'score_failures', 'published_failures'})
+BUILD_TEST_NAMES = (
+    'disabled follows existing upstream including request options',
+    'ten real upstream requests route account models to distinct jobs',
+    'worker cannot replace schedule with foreign orders',
+    'stop one job without stopping other sessions',
+    'down worker fails closed without fallback to shared Python GA',
+    'unrelated model route still uses the original authenticated API',
+    'manual operation locks are passed through to original GA unchanged',
+    'progress remains account-scoped while legacy GA is running',
+    'state is written and a fresh Bun bridge restores the completed plan',
+    'persistence failure fails closed and cancels the remote worker',
+    'state store cannot point at a public database or accept weak internal secrets',
+)
+CANONICAL_ERRORS = frozenset({'interval', 'setup_kind', 'setup_interval', 'duration', 'conflicting_row', 'duplicate_row', 'unknown'})
+ROUTE_ERRORS = frozenset({'unknown', 'native_schedule_contract_invalid', 'authentication_or_model_unavailable',
+    'account_model_not_ready', 'ga_state_unavailable', 'invalid_ga_options', 'ga_options_too_large',
+    'optimization_running_stop_first', 'ga_worker_unavailable', 'account_model_changed_during_run',
+    'account_model_changed_since_run', 'account_plan_mismatch', 'optimization_stopped', 'ga_worker_timeout',
+    'ga_worker_interrupted', 'job_mismatch', 'invalid_job_id', 'optimization_not_running', 'worker_cancel_failed',
+    'continuation_seed_missing_or_invalid', 'ga_worker_failed', 'ga_worker_timed_out'})
+PROBE_FAILURE_CODES = frozenset({'source_path', 'source_file', 'source_changed', 'canonical_source_mismatch',
+    'canonical_instrumentation_contract', 'upstream_export_contract', 'temporary_copy', 'runner_unavailable',
+    'runner_timeout', 'runner_output_limit', 'runner_failed', 'telemetry_contract', 'telemetry_size',
+    'test_source_changed', 'unexpected'})
+
+
+def bounded_int(value, minimum, maximum):
+    return type(value) is int and minimum <= value <= maximum
+
+
+def safe_build_tests(value):
+    if not isinstance(value, dict):
+        return None
+    names = value.get('failed_tests', [])
+    pairs = value.get('http_assertions', [])
+    if not isinstance(names, list) or len(names) > 32 or not isinstance(pairs, list) or len(pairs) > 16:
+        return None
+    return {'failed_tests': [name for name in BUILD_TEST_NAMES if name in names],
+            'unknown_failed_test_count': value.get('unknown_failed_test_count') if bounded_int(value.get('unknown_failed_test_count'), 0, 1000) else 0,
+            'http_assertions': [{'expected': row['expected'], 'actual': row['actual']} for row in pairs
+                if isinstance(row, dict) and bounded_int(row.get('expected'), 100, 599) and bounded_int(row.get('actual'), 100, 599)]}
+
+
+def build_test_metadata(text):
+    """Whitelist public test names and explicitly labelled HTTP-status assertions."""
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text[:262144])
+    failed, unknown = set(), 0
+    for match in re.finditer(r'^\s*(?:\(fail\)|[✗✖×]|not ok [0-9]+\s*-?)\s+([^\r\n]{1,1000})$', text, re.MULTILINE):
+        tail = match.group(1).strip()
+        if tail == 'failing tests:':
+            continue
+        name = next((name for name in BUILD_TEST_NAMES if tail == name or re.fullmatch(re.escape(name) + r'\s+[\[(][0-9.]+\s*(?:ms|s)[\])]', tail)), None)
+        if name is None:
+            unknown += 1
+        else:
+            failed.add(name)
+    pairs = []
+    for match in re.finditer(r'\b(?:Expected|expected)\s*:\s*([1-5][0-9]{2})(?![0-9.])', text):
+        block = text[max(0, match.start() - 768):min(len(text), match.end() + 768)]
+        # Counts or arbitrary numeric assertions are not reported as statuses.
+        if not re.search(r'\.status\b|\bstatus(?:_code|Code)?\b', block):
+            continue
+        actuals = list(re.finditer(r'\b(?:Received|Actual|actual)\s*:\s*([1-5][0-9]{2})(?![0-9.])', block))
+        if actuals:
+            relative = match.start() - max(0, match.start() - 768)
+            actual = min(actuals, key=lambda row: abs(row.start() - relative))
+            if abs(actual.start() - relative) > 256:
+                continue
+            pair = {'expected': int(match.group(1)), 'actual': int(actual.group(1))}
+            if pair not in pairs:
+                pairs.append(pair)
+    return safe_build_tests({'failed_tests': list(failed), 'unknown_failed_test_count': min(1000, unknown), 'http_assertions': pairs[:16]})
+
+
+def safe_build_probe(value):
+    """No source, exception text, URLs, IDs, model fields or unknown labels."""
+    if (not isinstance(value, dict) or value.get('format') != 'integrated-setup-build-diagnostic-v1'
+            or type(value.get('diagnostic_completed')) is not bool or type(value.get('original_app_unchanged')) is not bool):
+        return None
+    result = {key: value[key] for key in ('format', 'diagnostic_completed', 'original_app_unchanged')}
+    failure = value.get('failure_code')
+    result['failure_code'] = failure if isinstance(failure, str) and failure in PROBE_FAILURE_CODES else None
+    result['test_exit_code'] = value.get('test_exit_code') if bounded_int(value.get('test_exit_code'), 0, 255) else None
+    result.update(safe_build_tests(value) or {'failed_tests': [], 'unknown_failed_test_count': 0, 'http_assertions': []})
+    rejects = value.get('canonical_rejections', [])
+    errors = value.get('canonical_errors', [])
+    routes = value.get('route_summaries', [])
+    result['canonical_rejections'] = [{'site': row['site'], 'count': row['count']} for row in rejects[:64]
+        if isinstance(row, dict) and bounded_int(row.get('site'), 1, 20) and bounded_int(row.get('count'), 1, 1000000)] if isinstance(rejects, list) else []
+    result['canonical_errors'] = [{'code': row['code'], 'count': row['count']} for row in errors[:16]
+        if isinstance(row, dict) and isinstance(row.get('code'), str) and row['code'] in CANONICAL_ERRORS and bounded_int(row.get('count'), 1, 1000000)] if isinstance(errors, list) else []
+    result['route_summaries'] = []
+    for row in routes[:32] if isinstance(routes, list) else []:
+        if (not isinstance(row, dict) or not {'kind','route','status','error','has_result','result_valid','result_operations','has_best','best_valid','best_operations','count'}.issubset(row)
+                or not isinstance(row['kind'], str) or row['kind'] not in {'fetch', 'cancel'}
+                or not isinstance(row['route'], str) or row['route'] not in {'plan', 'progress', 'model', 'other'}
+                or (row.get('status') is not None and not bounded_int(row['status'], 100, 599))
+                or (row.get('error') is not None and (not isinstance(row['error'], str) or row['error'] not in ROUTE_ERRORS))
+                or any(type(row.get(key)) is not bool for key in ('has_result', 'result_valid', 'has_best', 'best_valid'))
+                or any(not bounded_int(row.get(key), 0, 100000) for key in ('result_operations', 'best_operations'))
+                or not bounded_int(row.get('count'), 1, 1000000)):
+            continue
+        result['route_summaries'].append({key: row[key] for key in ('kind', 'route', 'status', 'error', 'has_result', 'result_valid',
+            'result_operations', 'has_best', 'best_valid', 'best_operations', 'count')})
+    for key in ('log_truncated', 'events_truncated'):
+        if type(value.get(key)) is bool:
+            result[key] = value[key]
+    return result
 
 
 def public_source_labels(public_root):

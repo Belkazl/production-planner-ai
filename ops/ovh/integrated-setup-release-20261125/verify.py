@@ -18,7 +18,7 @@ REPO = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 import capture
 from container_gate import APP_CHECKS, WORKER_CHECKS
-from diagnostics import summarize_report, public_error_codes, safe_anchor_counts
+from diagnostics import summarize_report, public_error_codes, safe_anchor_counts, safe_build_tests, safe_build_probe
 
 FAILURE_GATES = {'canonical_patch', 'preview_patch', 'canonical_actual_source', 'preview_actual_source',
                  'native_synthetic_fixtures', 'native_eleven', 'actual_final_pipeline', 'acceptance_report', 'unexpected_gate',
@@ -43,13 +43,18 @@ def safe_failure_report(path):
         if (not isinstance(kinds, list) or not isinstance(frames, list)
                 or not isinstance(codes, list) or len(codes) > 8 or len(kinds) > 16 or len(frames) > 16):
             return None
-        return {'gate': value['gate'],
+        result = {'gate': value['gate'],
                 'exception_classes': [name for name in kinds if isinstance(name, str) and name in FAILURE_CLASSES],
                 'public_error_codes': [name for name in codes if isinstance(name, str) and name in public_error_codes(REPO / 'ops/ovh')],
                 'source_anchors': safe_anchor_counts(value.get('source_anchors'), REPO / 'ops/ovh'),
                 'public_frames': [{'file': item['file'], 'line': item['line']} for item in frames
                                   if isinstance(item, dict) and item.get('file') in PUBLIC_FAILURE_FILES
                                   and type(item.get('line')) is int and 0 <= item['line'] <= 999999]}
+        if value['gate'] == 'actual_build_tests':
+            result['build_tests'] = safe_build_tests(value.get('build_tests'))
+            result['probe_status'] = value.get('probe_status') if value.get('probe_status') in {'completed', 'unavailable'} else 'unavailable'
+            result['build_probe'] = safe_build_probe(value.get('build_probe'))
+        return result
     except (OSError, ValueError, TypeError):
         return None
 
