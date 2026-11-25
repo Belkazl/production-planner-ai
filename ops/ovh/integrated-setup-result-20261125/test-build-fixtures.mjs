@@ -87,6 +87,23 @@ test('expanded and reformatted factory declarations retain their explicit values
   assert.equal(patchUpstreamBuildFixture(after), after);
 });
 
+test('unchanged mock reply supports field reordering and alternate plan construction', async () => {
+  const declaration = '  const plan={ok:true,valid:true,operations:Array.from(m.orders,x=>({order:x.id})),setup_rules_processed:false};';
+  const originalReply = "return Response.json({status:j.status,progress:100,result:j.status==='completed'?plan:null,best_preview:null});";
+  const reorderedReply = "return Response.json({progress:100,best_preview:null,result:plan,status:j.status});";
+  const source = upstreamSource(declaration).replace(originalReply, reorderedReply);
+  const after = patchUpstreamBuildFixture(source);
+  assert(after.includes(declaration));
+  assert(after.includes(reorderedReply));
+  assert.equal(patchUpstreamBuildFixture(after), after);
+  assert(ppCanonicalNativeResult(await upstreamPlan(after), model, 'model'));
+  assert.throws(() => patchUpstreamBuildFixture(source.replace(reorderedReply,
+    "plan.operations=[]; " + reorderedReply)), /UPSTREAM_RESPONSE_GUARD/);
+  assert.throws(() => patchUpstreamBuildFixture(source.replace(reorderedReply,
+    "return Response.json({result:'plan',status:j.status});")), /UPSTREAM_PLAN_REFERENCE_GUARD/);
+  assert.throws(() => patchUpstreamBuildFixture(source.replace('function makeEnv(', 'function unrelatedFactory(')), /SOURCE_DRIFT/);
+});
+
 test('tenant-selected foreign IDs and existing equipment IDs are never repaired or rewritten', async () => {
   const plan = await upstreamPlan(patchUpstreamBuildFixture(upstreamSource()), true);
   assert.equal(plan.operations[0].order, 'FOREIGN');

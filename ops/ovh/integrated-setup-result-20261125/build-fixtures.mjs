@@ -64,7 +64,7 @@ function one(source, expression, label) {
 
 // A bounded declaration/call scanner, not a rewriter. Unknown lexical forms
 // fail closed; the original statement is separately syntax-checked unchanged.
-function statementEnd(source, start, label) {
+function statementEnd(source, start, label, identifiers = null) {
   const stack = [];
   let quote = null, escaped = false, lineComment = false, blockComment = false;
   for (let index = start; index < Math.min(source.length, start + 16384); index++) {
@@ -81,6 +81,10 @@ function statementEnd(source, start, label) {
     if (char === '/' && next === '/') { lineComment = true; index++; continue; }
     if (char === '/' && next === '*') { blockComment = true; index++; continue; }
     if (char === '`' || char === '/') fail(label);
+    if (identifiers && /[A-Za-z_$]/.test(char)) {
+      const token = source.slice(index).match(/^[A-Za-z_$][A-Za-z0-9_$]*/)[0];
+      identifiers.add(token); index += token.length - 1; continue;
+    }
     if ('([{'.includes(char)) stack.push(char);
     else if (')]}'.includes(char) && stack.pop() !== ({')': '(', ']': '[', '}': '{'})[char]) fail(label);
     else if (char === ',' && stack.length === 0) fail(label);
@@ -115,9 +119,16 @@ function locate(source, label) {
   const original = source.slice(start, end);
   const following = source.slice(end, tail.index);
   if (label === 'upstream') {
-    if (!/\}\s*;$/.test(original) || !/\boperations\s*:\s*m\s*\.\s*orders\s*\.\s*map\s*\(/.test(original) ||
-        !/^\s*return\s+Response\s*\.\s*json\s*\(\s*\{\s*status\s*:\s*j\s*\.\s*status\b/.test(following) ||
-        !/\bresult\s*:\s*j\s*\.\s*status\s*===\s*['"]completed['"]\s*\?\s*plan\s*:\s*null\b/.test(following)) fail(label);
+    if (!/\}\s*;$/.test(original)) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_OBJECT_GUARD');
+    // The append-only augmentation does not depend on property order, map
+    // syntax or the exact status conditional of the unchanged worker reply.
+    if (!/^\s*return\s+Response\s*\.\s*json\s*\(/.test(following))
+      throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_RESPONSE_GUARD');
+    const references = new Set();
+    const responseEnd = statementEnd(following, 0, label, references);
+    if (!references.has('plan')) throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_PLAN_REFERENCE_GUARD');
+    try { new Function('m', 'j', 'plan', following.slice(0, responseEnd)); }
+    catch { throw Error('INTEGRATED_SETUP_BUILD_FIXTURE_UPSTREAM_RESPONSE_SYNTAX_GUARD'); }
   } else if (!/\bresult\s*:\s*\{/.test(original) || !/\bstatus\s*:\s*['"]completed['"]/.test(original) ||
       !/^\s*return\s+Response\s*\.\s*json\s*\(\s*\{\s*job_id\s*:\s*id\s*\}/.test(following)) fail(label);
   try { new Function('m', 'model', 'worker', 'id', original); } catch { fail(label); }
