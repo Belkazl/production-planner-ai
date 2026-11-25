@@ -17,10 +17,10 @@ All other native modules, all thirteen protected application inputs and
 from the successful, deployed combined UI release; preparation starts with an
 unready baseline and no release marker. It cannot publish or deploy itself.
 
-The runtime image is built before private source capture. The existing reviewed
-selector transfers only native code and selected code inputs to a private,
-ephemeral GitHub runner directory. App and auth sources leave the host only as
-hashes. Private execution uses the ordinary runner UID in a container with no
+The runtime image is built before the single private source capture for final
+verification. The existing reviewed selector transfers only native code and
+selected code inputs to a private, ephemeral GitHub runner directory. App and
+auth sources leave the host only as hashes. Private execution uses the ordinary runner UID in a container with no
 network, a read-only root, read-only source mounts, no capabilities, no new
 privileges, and bounded memory, CPU, processes and temporary storage. No customer
 models, private plans, private code or raw private logs are published.
@@ -41,8 +41,18 @@ Verification never deploys. After the release owner reviews the successful
 candidate's exact workflow run and receipt, the owner creates a marker-only
 commit. Release requires the exact branch, candidate, successful workflow and
 job, matching receipt, public helper hashes, immutable source hashes and a diff
-containing only the accepted marker. The artifact is reproduced without
-executing native code on the runner.
+containing only the accepted marker. Deployment captures only app, auth and
+native worker hashes plus the aggregate selected-code-input hash. The frozen
+native selector runs on the host through a public hash-only wrapper; no second
+native source or selected configuration payload is transferred to the runner.
+
+The deployment artifact is reproduced from the public original joint module,
+the unchanged public diversity patch and this release's public shift patch,
+without executing the native module. The reproduced base must match the live
+accepted old target hash, and the candidate must match the complete accepted
+worker-after manifest. App, auth, all other worker hashes and the selected-code
+input hash must match the accepted receipt. Every reconstruction helper is
+included in the receipt's public-source hashes.
 
 The remote contract rechecks source hashes, backs up the original target bound
 to its accepted old hash, installs the one accepted module and invokes only the

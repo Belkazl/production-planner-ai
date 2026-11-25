@@ -26,10 +26,11 @@ if ! ssh_call "$target" 'python3 -B -I - --app-hashes' < "$package/capture.py" \
   echo SHIFT_AWARE_RELEASE_CAPTURE_FAILED app_hashes
   exit 6
 fi
-if ! ssh_call "$target" 'python3 -B -I - --emit-private-bundle' \
-  < ops/ovh/native-batching-verify-20261124/native_input_contract.py \
-  > "$release_stage/native.bundle" 2>> "$release_stage/transport-private.log"; then
-  echo SHIFT_AWARE_RELEASE_CAPTURE_FAILED native_code
+python3 -B -I "$package/native_hashes.py" --emit-program > "$release_stage/native-hash-program.py"
+if ! ssh_call "$target" 'python3 -B -I -' \
+  < "$release_stage/native-hash-program.py" \
+  > "$release_stage/native-hashes.json" 2>> "$release_stage/transport-private.log"; then
+  echo SHIFT_AWARE_RELEASE_CAPTURE_FAILED native_hashes
   exit 6
 fi
 echo SHIFT_AWARE_RELEASE_PHASE reproduce_exact_artifact
