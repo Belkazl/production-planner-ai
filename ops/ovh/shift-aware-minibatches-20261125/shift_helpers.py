@@ -15,7 +15,66 @@ class _ShiftProbeLimit(Exception):
     pass
 
 
-def _shift_native_calendar_violation(ga, plan):
+def _shift_model_calendar_violation(model, row):
+    """Additional conservative check for explicitly declared HH:MM employee shifts."""
+    from datetime import datetime
+    try:
+        origin = datetime.fromisoformat(model.get('start', ''))
+        shifts = model.get('shifts')
+        if not isinstance(shifts, dict):
+            return False
+        employees = {str(item['id']): item for item in model.get('employees') or []}
+        minute = origin.hour * 60 + origin.minute + origin.second / 60 + origin.microsecond / 60000000
+        start, end = row['start_min'], row['end_min']
+        if not _shift_finite(start) or not _shift_finite(end) or end <= start:
+            return True
+        for identifier in _shift_ids(row, 'employee_ids'):
+            employee = employees.get(identifier)
+            name = employee.get('shift') if isinstance(employee, dict) else None
+            blocks = shifts.get(name) if isinstance(name, str) else None
+            if not isinstance(blocks, list) or not blocks or len(blocks) > 32:
+                continue
+            normalized = []
+            for block in blocks:
+                if not isinstance(block, (list, tuple)) or len(block) != 2:
+                    normalized = []
+                    break
+                pair = []
+                for value in block:
+                    if (not isinstance(value, str) or len(value) != 5 or value[2] != ':'
+                            or not value[:2].isdigit() or not value[3:].isdigit()):
+                        pair = []
+                        break
+                    hh, mm = int(value[:2]), int(value[3:])
+                    if hh > 23 or mm > 59:
+                        pair = []
+                        break
+                    pair.append(hh * 60 + mm)
+                if len(pair) != 2:
+                    normalized = []
+                    break
+                normalized.append(pair)
+            if not normalized:
+                continue
+            day = max(0, int(math.floor((start + minute) / 1440)))
+            permitted = False
+            for index in range(max(0, day - 1), day + 2):
+                for low, high in normalized:
+                    left = index * 1440 + low - minute
+                    right = index * 1440 + high + (1440 if high <= low else 0) - minute
+                    if start >= left - EPS and end <= right + EPS:
+                        permitted = True
+                        break
+                if permitted:
+                    break
+            if not permitted:
+                return True
+        return False
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def _shift_native_calendar_violation(ga, model, plan):
     """Fail closed on an employee's actual native interval before scoring.
 
     Existing native window predicate and its very same per-simulation windows
@@ -23,6 +82,10 @@ def _shift_native_calendar_violation(ga, plan):
     """
     if not isinstance(plan, dict):
         return False
+    if any(_shift_model_calendar_violation(model, row) for row in
+           (plan.get('operations') or []) + (plan.get('setup_operations') or [])
+           if isinstance(row, dict)):
+        return True
     ctx = plan.get('ctx')
     window_test = ga.get('_pp_in_window')
     if not isinstance(ctx, dict) or not callable(window_test):
@@ -45,8 +108,8 @@ def _shift_native_calendar_violation(ga, plan):
     return False
 
 
-def _shift_repair_or_reject(ga, plan, repair):
-    if not _shift_native_calendar_violation(ga, plan):
+def _shift_repair_or_reject(ga, model, plan, repair):
+    if not _shift_native_calendar_violation(ga, model, plan):
         return plan
     if not callable(repair):
         raise InfeasibleCandidate('joint_native_calendar_invalid')
@@ -54,7 +117,7 @@ def _shift_repair_or_reject(ga, plan, repair):
         repaired = repair(copy.deepcopy(plan))
     except Exception:
         raise InfeasibleCandidate('joint_native_calendar_unrepairable') from None
-    if not isinstance(repaired, dict) or _shift_native_calendar_violation(ga, repaired):
+    if not isinstance(repaired, dict) or _shift_native_calendar_violation(ga, model, repaired):
         raise InfeasibleCandidate('joint_native_calendar_invalid')
     return repaired
 
