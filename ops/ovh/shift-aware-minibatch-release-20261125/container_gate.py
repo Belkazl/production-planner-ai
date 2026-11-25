@@ -8,8 +8,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from contract import (WORKER_CHECKS, SHIFT_CHECKS, SHIFT_COUNTS, SHIFT_CASES, SHIFT_CASE_CHECKS, NATIVE_ELEVEN_CASES,
-                      INTEGRATED_CASES, SHIFT_FAILURE_PHASES, SHIFT_FAILURE_CODES,
-                      read_json, validate_container_report, validate_shift_cases)
+                      INTEGRATED_CASES, read_json, validate_container_report, validate_shift_cases,
+                      safe_shift_failure, safe_shift_case_results, safe_shift_probe_results)
 
 PUBLIC = Path('/public/repo/ops/ovh')
 OUT = Path('/work/out')
@@ -55,12 +55,16 @@ def failure(phase, error=None):
                 wanted = (WORKER_CHECKS if phase == 'native_integrated_setups' else SHIFT_CHECKS
                           if phase == 'native_shift_aware' else ('release_gate_complete', 'ordered_continuation_verified'))
                 value['failed_checks'] = [name for name in wanted if report.get(name) is not True]
-                detail = report.get('failure')
-                if (phase == 'native_shift_aware' and isinstance(detail, dict)
-                        and detail.get('phase') in SHIFT_FAILURE_PHASES
-                        and detail.get('error_code') in SHIFT_FAILURE_CODES):
-                    value['native_detail'] = {'phase': detail['phase'], 'error_code': detail['error_code'],
-                        'error_type': detail['error_type'] if detail.get('error_type') in CLASSES else 'Exception'}
+                if phase == 'native_shift_aware':
+                    detail = safe_shift_failure(report.get('failure'), CLASSES)
+                    if detail:
+                        value['native_detail'] = detail
+                    cases = safe_shift_case_results(report.get('cases'))
+                    if cases:
+                        value['case_results'] = cases
+                    probes = safe_shift_probe_results(report.get('internal_windows'))
+                    if probes:
+                        value['probe_results'] = probes
         except Exception:
             pass
     value['exception_types'] = sorted(set(value['exception_types']))[:8]

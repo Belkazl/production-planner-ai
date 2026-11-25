@@ -53,7 +53,8 @@ scp_call "$release_stage/manifest.tsv" "$release_stage/code-inputs.sha256" "$rel
 scp_call "$release_stage/new/ga/joint_minibatch.py" "$target:$remote_stage/ga/joint_minibatch.py" \
   2>> "$release_stage/transport-private.log"
 ssh_call "$target" bash -s -- "$GITHUB_RUN_ID" "$run_attempt" "$contract_sha" <<'REMOTE'
-set -euo pipefail
+# Post-install function failures must inherit the rollback ERR handler.
+set -Eeuo pipefail
 umask 077
 [[ "$1" =~ ^[0-9]{1,16}$ ]] && [[ "$2" =~ ^[0-9]{1,4}$ ]] && [[ "$3" =~ ^[0-9a-f]{64}$ ]]
 root=/home/liftorbit-ci/liftorbit-migration

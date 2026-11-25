@@ -35,9 +35,17 @@ SHIFT_CASE_CHECKS = ('native_valid', 'independent_valid', 'quick_budget_unchange
     'distinct_native_evaluations', 'baseline_first', 'baseline_retained', 'target_cut_evaluated',
     'improved', 'caller_inputs_unchanged')
 SHIFT_CASE_NUMBERS = ('baseline_duration', 'best_duration', 'target_cut', 'first_cut')
-SHIFT_FAILURE_PHASES = ('bootstrap', 'compile', 'previous_quick', *SHIFT_CASES, 'continuation')
+SHIFT_FAILURE_PHASES = ('bootstrap', 'compile', 'previous_quick', *SHIFT_CASES,
+                        'later_ready', 'nonzero_origin', 'continuation', 'diversity')
 SHIFT_FAILURE_CODES = ('module_source', 'compiler_hash', 'compiler_keys', 'native_hooks',
-    'synthetic_plan', 'diagnostic_counts', 'observer_contract', 'output_size', 'unexpected')
+    'synthetic_plan', 'diagnostic_counts', 'observer_contract', 'output_size', 'unexpected',
+    'plan_shape', 'batch_identity', 'batch_totals', 'quantities', 'operation_identity',
+    'operation_duration', 'operation_bounds', 'resources', 'materials', 'employee_calendar',
+    'overlap', 'pins', 'setup_count', 'setup_duration', 'setup_order', 'makespan')
+SHIFT_FAILURE_NUMBER_KEYS = ('start_min', 'end_min', 'origin_minute', 'window_start_min', 'window_end_min',
+    'duration_minutes', 'computed_makespan', 'first_start_min', 'active_span',
+    'quantity', 'expected_quantity', 'expected_duration', 'observed_duration',
+    'expected_setup', 'setup_count', 'expected_setup_count')
 NATIVE_ELEVEN_CASES = ('plain', 'material_delivery', 'continue_fresh_namespace', 'cutlets_regression',
     'multi_order_stages', 'pinned_quantity_identity', 'pinned_continue', 'stop_continue',
     'selected_partition_hint', 'selected_nondefault_partition_hint', 'staff_shift_setup')
@@ -178,6 +186,46 @@ def validate_worker_change(before, after):
     hashes(before, workers=True); hashes(after, before)
     if {name for name in before if before[name] != after[name]} != {TARGET}:
         raise ValueError('single_native_module_contract')
+
+
+def safe_shift_failure(detail, error_types):
+    if (not isinstance(detail, dict) or detail.get('phase') not in SHIFT_FAILURE_PHASES
+            or detail.get('error_code') not in SHIFT_FAILURE_CODES):
+        return None
+    error_type = detail.get('error_type')
+    value = {'phase': detail['phase'], 'error_code': detail['error_code'],
+        'error_type': error_type if isinstance(error_type, str) and error_type in error_types else 'Exception'}
+    role, index = detail.get('plan_role'), detail.get('candidate_index')
+    if role == 'final_result':
+        value['plan_role'] = role
+    elif role == 'scored_candidate' and type(index) is int and 0 <= index < 64:
+        value.update(plan_role=role, candidate_index=index)
+    numbers = detail.get('numbers')
+    if isinstance(numbers, dict):
+        safe = {key: item for key, item in numbers.items() if key in SHIFT_FAILURE_NUMBER_KEYS
+                and type(item) in (int, float) and 0 <= item <= 1000000 and math.isfinite(item)}
+        if safe:
+            value['numbers'] = safe
+    return value
+
+
+def safe_shift_case_results(cases):
+    if not isinstance(cases, dict):
+        return {}
+    values = {}
+    for name in SHIFT_CASES:
+        case = cases.get(name)
+        if (isinstance(case, dict) and all(type(case.get(key)) is bool for key in SHIFT_CASE_CHECKS)
+                and all(type(case.get(key)) in (int, float) and 0 <= case[key] <= 1000000
+                        and math.isfinite(case[key]) for key in SHIFT_CASE_NUMBERS)):
+            values[name] = {key: case[key] for key in (*SHIFT_CASE_CHECKS, *SHIFT_CASE_NUMBERS)}
+    return values
+
+
+def safe_shift_probe_results(probes):
+    if not isinstance(probes, dict):
+        return {}
+    return {name: probes[name] for name in ('later_ready', 'nonzero_origin') if type(probes.get(name)) is bool}
 
 
 def validate_shift_cases(cases):

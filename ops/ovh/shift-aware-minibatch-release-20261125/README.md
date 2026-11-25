@@ -20,8 +20,8 @@ unready baseline and no release marker. It cannot publish or deploy itself.
 The runtime image is built before the single private source capture for final
 verification. The existing reviewed selector transfers only native code and
 selected code inputs to a private, ephemeral GitHub runner directory. App and
-auth sources leave the host only as hashes. Private execution uses the ordinary runner UID in a container with no
-network, a read-only root, read-only source mounts, no capabilities, no new
+auth sources leave the host only as hashes. Private execution uses the ordinary
+runner UID in a container with no network, a read-only root, read-only source mounts, no capabilities, no new
 privileges, and bounded memory, CPU, processes and temporary storage. No customer
 models, private plans, private code or raw private logs are published.
 
@@ -33,7 +33,19 @@ cases remain mandatory and unchanged. Additional actual native witnesses must
 prove that smaller quantities exploit a short window, lunch break and a window
 that also requires setup, while respecting quantity conservation, caps, pinned
 operations, calendars and the unchanged Quick evaluation budget. Evidence in
-public logs consists only of allow-listed booleans, bounded counts and hashes.
+public logs consists only of allow-listed labels, booleans, bounded synthetic
+numbers and hashes.
+
+Failure metadata distinguishes the internal `later_ready` and `nonzero_origin`
+probes, a `final_result` from a `scored_candidate`, and a zero-based candidate
+index bounded to 0–63. Invariant codes are fixed names such as
+`employee_calendar`, `operation_duration` and `makespan`. Only fixed numeric
+keys with finite values from 0 to 1,000,000 can accompany them. Calendar
+failures may report start/end, model-origin minute and the nearest expected
+window. Makespan failures may report declared duration, maximum end, first start
+and active span. Completed main-case booleans and numbers survive an internal
+probe failure. Both failure-report boundaries independently filter every field;
+arbitrary names, exception messages, model values and native source are excluded.
 
 ## Deliberate deployment
 

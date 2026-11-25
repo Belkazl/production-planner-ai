@@ -15,7 +15,7 @@ sys.path.insert(0, str(HERE))
 from contract import (APP_FILES, PROTECTED_FILES, TARGET, REPO, OPS, baseline, digest, hashes,
                       native_bundle, public_hashes, read_json, validate_container_report, validate_worker_change,
                       WORKER_CHECKS, SHIFT_CHECKS, SHIFT_CASES, NATIVE_ELEVEN_CASES, INTEGRATED_CASES,
-                      SHIFT_FAILURE_PHASES, SHIFT_FAILURE_CODES)
+                      safe_shift_failure, safe_shift_case_results, safe_shift_probe_results)
 
 GATES = ('shift_tests', 'native_eleven', 'native_integrated_setups', 'native_shift_aware', 'acceptance_report')
 CLASSES = frozenset({'AssertionError', 'TypeError', 'ValueError', 'KeyError', 'RuntimeError',
@@ -79,12 +79,16 @@ def safe_failure(path):
                                  if name in (*NATIVE_ELEVEN_CASES, *INTEGRATED_CASES, *SHIFT_CASES)],
                 'failed_checks': [name for name in value.get('failed_checks', [])[:20]
                                   if name in (*WORKER_CHECKS, *SHIFT_CHECKS, 'release_gate_complete', 'ordered_continuation_verified')]}
-        detail = value.get('native_detail')
-        if (value['gate'] == 'native_shift_aware' and isinstance(detail, dict)
-                and detail.get('phase') in SHIFT_FAILURE_PHASES
-                and detail.get('error_code') in SHIFT_FAILURE_CODES):
-            result['native_detail'] = {'phase': detail['phase'], 'error_code': detail['error_code'],
-                'error_type': detail['error_type'] if detail.get('error_type') in CLASSES else 'Exception'}
+        if value['gate'] == 'native_shift_aware':
+            detail = safe_shift_failure(value.get('native_detail'), CLASSES)
+            if detail:
+                result['native_detail'] = detail
+            cases = safe_shift_case_results(value.get('case_results'))
+            if cases:
+                result['case_results'] = cases
+            probes = safe_shift_probe_results(value.get('probe_results'))
+            if probes:
+                result['probe_results'] = probes
         return result
     except Exception:
         return None

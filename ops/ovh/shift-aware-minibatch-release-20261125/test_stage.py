@@ -3,7 +3,9 @@ import copy
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -160,6 +162,46 @@ class StageTests(unittest.TestCase):
         self.assertIn('ops/ovh/joint-search-diversity-20261125/patch.py', public)
         self.assertIn('ops/ovh/shift-aware-minibatches-20261125/patch.py', public)
         self.assertEqual(contract.digest(native_hashes.CONTRACT.read_bytes()), native_hashes.CONTRACT_SHA)
+
+    def test_post_install_hash_function_failure_restores_backup_and_runs_rollback(self):
+        source = (HERE / 'release.sh').read_text()
+        remote = source.split("<<'REMOTE'\n", 1)[1]
+        shell_options = next(line for line in remote.splitlines() if line.startswith('set -'))
+        verify_function = next(line for line in remote.splitlines() if line.startswith('verify_sources(){'))
+        rollback = 'rollback(){\n' + remote.split('rollback(){\n', 1)[1].split('\ndeployment_phase=install_native_module\n', 1)[0]
+        handler = next(line for line in remote.splitlines() if line.startswith("trap 'rollback "))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); staging = root / 'stage'; backup = root / 'backup'
+            (staging / 'ga').mkdir(parents=True); (backup / 'ga').mkdir(parents=True)
+            target = root / 'joint_minibatch.py'; target.write_bytes(b'accepted old source')
+            (backup / 'ga/joint_minibatch.py').write_bytes(target.read_bytes())
+            (staging / 'ga/joint_minibatch.py').write_bytes(b'accepted new source')
+            (staging / 'deploy_contract.py').write_text(
+                'from pathlib import Path\nimport sys\n'
+                'stage = Path(sys.argv[1])\n'
+                'if sys.argv[2] == "new":\n    raise SystemExit(6)\n'
+                'assert sys.argv[2] == "old"\n'
+                'assert (stage.parent / "joint_minibatch.py").read_bytes() == b"accepted old source"\n')
+            # These shell functions intercept every operations-helper call;
+            # the regression uses only synthetic files in this temporary folder.
+            program = '\n'.join([shell_options, verify_function,
+                'sudo(){ test "$*" = "-n /usr/local/sbin/liftorbit-ops update" && : > "$stage/rollback-updated"; }',
+                'wait_for_service_smoke(){ return 0; }', rollback, handler,
+                'deployment_phase=install_native_module',
+                'cp "$stage/ga/joint_minibatch.py" "$target"',
+                'deployment_phase=verify_staged_hashes', 'verify_sources new',
+                'printf "UNSAFE_CONTINUATION\\n"'])
+            result = subprocess.run(['bash', '-c', program], text=True, capture_output=True,
+                env={'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
+                     'stage': str(staging), 'backup': str(backup), 'target': str(target)})
+            self.assertEqual(result.returncode, 6, result.stderr)
+            self.assertEqual(target.read_bytes(), b'accepted old source')
+            self.assertTrue((staging / 'rollback-updated').is_file())
+            self.assertIn('SHIFT_AWARE_RELEASE_FAILED_PHASE verify_staged_hashes', result.stdout)
+            self.assertIn('SHIFT_AWARE_RELEASE_ROLLBACK_RESTORE_EXIT 0', result.stdout)
+            self.assertIn('SHIFT_AWARE_RELEASE_ROLLBACK_UPDATE_EXIT 0', result.stdout)
+            self.assertIn('SHIFT_AWARE_RELEASE_ROLLBACK_HEALTH_PASS', result.stdout)
+            self.assertNotIn('UNSAFE_CONTINUATION', result.stdout)
 
 
 if __name__ == '__main__':

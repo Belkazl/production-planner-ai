@@ -30,7 +30,16 @@ ERROR_TYPES = frozenset({'ShiftVerificationError', 'ShiftCheckError', 'FullGAErr
     'ValueError', 'TypeError', 'KeyError', 'RuntimeError', 'AssertionError', 'OverflowError',
     'JSONDecodeError', 'FileNotFoundError', 'ImportError', 'AttributeError'})
 ERROR_CODES = frozenset({'module_source', 'compiler_hash', 'compiler_keys', 'native_hooks',
-    'synthetic_plan', 'diagnostic_counts', 'observer_contract', 'output_size', 'unexpected'})
+    'synthetic_plan', 'diagnostic_counts', 'observer_contract', 'output_size', 'unexpected',
+    'plan_shape', 'batch_identity', 'batch_totals', 'quantities', 'operation_identity',
+    'operation_duration', 'operation_bounds', 'resources', 'materials', 'employee_calendar',
+    'overlap', 'pins', 'setup_count', 'setup_duration', 'setup_order', 'makespan'})
+FAILURE_PHASES = ('bootstrap', 'compile', 'previous_quick', *CASE_NAMES,
+                  'later_ready', 'nonzero_origin', 'continuation', 'diversity')
+ERROR_NUMBER_KEYS = frozenset({'start_min', 'end_min', 'origin_minute', 'window_start_min', 'window_end_min',
+    'duration_minutes', 'computed_makespan', 'first_start_min', 'active_span',
+    'quantity', 'expected_quantity', 'expected_duration', 'observed_duration',
+    'expected_setup', 'setup_count', 'expected_setup_count'})
 
 
 class ShiftVerificationError(ValueError):
@@ -40,6 +49,41 @@ class ShiftVerificationError(ValueError):
 def need(condition, code):
     if not condition:
         raise ShiftVerificationError(code)
+
+
+def failure_detail(error, phase, context, checker_error=None):
+    code, numbers = 'unexpected', {}
+    if type(error) is ShiftVerificationError:
+        code = error.args[0] if len(error.args) == 1 else 'unexpected'
+    elif checker_error is not None and type(error) is checker_error:
+        code, numbers = error.code, error.numbers
+    value = {'phase': phase if phase in FAILURE_PHASES else 'bootstrap',
+        'error_type': type(error).__name__ if type(error).__name__ in ERROR_TYPES else 'Exception',
+        'error_code': code if isinstance(code, str) and code in ERROR_CODES else 'unexpected'}
+    role = context.get('plan_role')
+    if role == 'final_result':
+        value['plan_role'] = role
+    elif (role == 'scored_candidate' and type(context.get('candidate_index')) is int
+            and 0 <= context['candidate_index'] < 64):
+        value.update(plan_role=role, candidate_index=context['candidate_index'])
+    safe = {key: number for key, number in numbers.items() if key in ERROR_NUMBER_KEYS
+            and type(number) in (int, float) and 0 <= number <= 1000000 and math.isfinite(number)}
+    if safe:
+        value['numbers'] = safe
+    return value
+
+
+def check_plan(cases, plan, model, pins=(), raw=False, context=None, candidate_index=None):
+    if context is not None:
+        context.clear()
+        context['plan_role'] = 'scored_candidate' if raw else 'final_result'
+        if raw:
+            need(type(candidate_index) is int and 0 <= candidate_index < 64, 'observer_contract')
+            context['candidate_index'] = candidate_index
+    result = cases.check(plan, model, pins, raw=raw)
+    if context is not None:
+        context.clear()
+    return result
 
 
 def load_file(name, path):
@@ -139,16 +183,16 @@ def expected_default(joint, model):
                                        for row in model['orders']))
 
 
-def run_case(adapter, joint, cases, name):
+def run_case(adapter, joint, cases, name, context=None):
     model, pins = cases.fixture(name)
     options = {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'}
     if pins:
         options['locked_operations'] = copy.deepcopy(pins)
     run = observe(adapter, joint, model, options)
     result = run['result']
-    facts = cases.check(result, model, pins)
-    for _, sim in run['scored']:
-        cases.check(sim, model, pins, raw=True)
+    facts = check_plan(cases, result, model, pins, context=context)
+    for index, (_, sim) in enumerate(run['scored']):
+        check_plan(cases, sim, model, pins, raw=True, context=context, candidate_index=index)
     target = 25 if name == 'setup_reservation' else 30
     baseline = cases.number(run['scored'][0][1].get('duration_minutes'))
     final = cases.number(result.get('duration_minutes'))
@@ -176,7 +220,7 @@ def candidate_before(source):
     return module
 
 
-def window_origin_probe(adapter, joint, cases, nonzero_origin=False):
+def window_origin_probe(adapter, joint, cases, nonzero_origin=False, context=None):
     model, _ = cases.fixture('shift_window')
     if nonzero_origin:
         model['start'] = '2026-11-25T08:00:00'
@@ -187,9 +231,9 @@ def window_origin_probe(adapter, joint, cases, nonzero_origin=False):
         opening, target = 480, 910
     run = observe(adapter, joint, model,
         {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'})
-    facts = cases.check(run['result'], model)
-    for _, sim in run['scored']:
-        cases.check(sim, model, raw=True)
+    facts = check_plan(cases, run['result'], model, context=context)
+    for index, (_, sim) in enumerate(run['scored']):
+        check_plan(cases, sim, model, raw=True, context=context, candidate_index=index)
     first = run['scored'][0][1]
     ga, windows = run['namespace'], first['ctx']['emp_windows']
     native_window = ga['_pp_in_window']
@@ -202,37 +246,41 @@ def window_origin_probe(adapter, joint, cases, nonzero_origin=False):
     return valid, run
 
 
-def verify(adapter, joint, previous_source, cases, diversity_verify, regression_checker, report, phase):
+def verify(adapter, joint, previous_source, cases, diversity_verify, regression_checker, report, phase, context=None):
+    context = {} if context is None else context
     phase[0] = 'previous_quick'
     previous = candidate_before(previous_source)
     model, _ = cases.fixture('shift_window')
     previous_run = observe(adapter, previous, model,
         {'generations': 3, 'population': 6, 'seed': 1729, 'objective': 'duration'})
-    previous_facts = cases.check(previous_run['result'], model)
+    previous_facts = check_plan(cases, previous_run['result'], model, context=context)
     report['previous_quick'] = {'duration': previous_facts['duration_minutes'],
         'target_cut_evaluated': any(abs(genome.mapping()[cases.TARGET][0] - 30) < cases.EPS
                                   for genome, _ in previous_run['scored'])}
     runs, first_result = [], None
     for name in CASE_NAMES:
         phase[0] = name
-        value, run, model, pins = run_case(adapter, joint, cases, name)
+        value, run, model, pins = run_case(adapter, joint, cases, name, context=context)
         report['cases'][name] = value
         runs.append(run)
         if name == 'shift_window':
             first_result = run['result']
-    phase[0] = 'shift_window'
-    later_ready_valid, later_ready_run = window_origin_probe(adapter, joint, cases)
-    offset_valid, offset_run = window_origin_probe(adapter, joint, cases, nonzero_origin=True)
+    report['internal_windows'] = {}
+    phase[0] = 'later_ready'
+    later_ready_valid, later_ready_run = window_origin_probe(adapter, joint, cases, context=context)
+    report['internal_windows']['later_ready'] = later_ready_valid
+    phase[0] = 'nonzero_origin'
+    offset_valid, offset_run = window_origin_probe(adapter, joint, cases, nonzero_origin=True, context=context)
+    report['internal_windows']['nonzero_origin'] = offset_valid
     runs.extend([later_ready_run, offset_run])
-    report['internal_windows'] = {'later_ready': later_ready_valid, 'nonzero_origin': offset_valid}
     phase[0] = 'continuation'
     model, pins = cases.fixture('shift_window')
     expected = joint._batch_signature(first_result, tuple(first_result['order_sequence']))
     continuing = observe(adapter, joint, model, {'generations': 3, 'population': 6, 'seed': 1730,
         'objective': 'duration', 'continue': True, 'resume_state': copy.deepcopy(first_result['resume_state'])})
-    continued_facts = cases.check(continuing['result'], model, pins)
-    for _, sim in continuing['scored']:
-        cases.check(sim, model, pins, raw=True)
+    continued_facts = check_plan(cases, continuing['result'], model, pins, context=context)
+    for index, (_, sim) in enumerate(continuing['scored']):
+        check_plan(cases, sim, model, pins, raw=True, context=context, candidate_index=index)
     runs.append(continuing)
     report['continuation_incumbent_first'] = (continuing['decoded'][0] == expected
         and continuing['scored'][0][0] == expected
@@ -240,6 +288,7 @@ def verify(adapter, joint, previous_source, cases, diversity_verify, regression_
         and continued_facts['duration_minutes'] <= first_result['duration_minutes'] + cases.EPS)
     # Invoke the frozen behavioral verifier without changing its exact-08a3
     # CLI guard. This script has already pinned the new installed source.
+    phase[0] = 'diversity'
     diversity = diversity_verify(adapter, joint, regression_checker, exact_module_installed=True)
     diversity_pass = diversity.get('all_diversity_checks_passed') is True
     report['native_valid'] = diversity_pass and all(value['native_valid'] for value in report['cases'].values())
@@ -284,7 +333,7 @@ def main():
     for name in ('package-root', 'code-inputs', 'contract-helper', 'report'):
         parser.add_argument('--' + name, required=True, type=Path)
     args = parser.parse_args()
-    report, phase = new_report(), ['bootstrap']
+    report, phase, context, cases = new_report(), ['bootstrap'], {}, None
     try:
         with open(os.devnull, 'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
             here = Path(__file__).resolve().parent
@@ -314,13 +363,12 @@ def main():
             diversity = load_file('shift_gate_diversity_verifier', here.parent / 'joint-search-diversity-20261125/verify_diversity.py')
             regression = load_file('shift_gate_existing_checker', args.contract_helper.parent / 'regression_cases.py')
             report = verify(full_runtime_adapter, joint_minibatch, previous_source, cases,
-                            diversity.verify, regression.check_production, report, phase)
+                            diversity.verify, regression.check_production, report, phase, context)
             need(actual_path.read_text() == actual_source, 'module_source')
     except Exception as error:
         report['all_shift_checks_passed'] = False
-        report['failure'] = {'phase': phase[0],
-            'error_type': type(error).__name__ if type(error).__name__ in ERROR_TYPES else 'Exception',
-            'error_code': str(error) if type(error) is ShiftVerificationError and str(error) in ERROR_CODES else 'unexpected'}
+        report['failure'] = failure_detail(error, phase[0], context,
+            cases.ShiftCheckError if cases is not None else None)
     try:
         write_report(args.report, report)
     except Exception:
