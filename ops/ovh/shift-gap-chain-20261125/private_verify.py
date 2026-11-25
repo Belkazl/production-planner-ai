@@ -15,10 +15,10 @@ def verify(bundle,app_path,image):
     # Verify the exact current package in isolation, and preserve every captured hash in the receipt.
     drift=sorted(k for k in set(workers)|set(prior['worker_after']) if workers.get(k)!=prior['worker_after'].get(k))
     print('GAP_CURRENT_NATIVE_BASELINE '+json.dumps({'changed_files':drift,'target_hash':workers.get(TARGET),'code_inputs_unchanged':code_hash==prior['code_inputs_sha256']}),flush=True)
-    if workers.get(TARGET)!=prior['worker_after'][TARGET]:
+    patch=runpy.run_path(str(HERE/'patch.py'))
+    if workers.get(TARGET)!=patch['BASE_SHA'] or code_hash!=prior['code_inputs_sha256']:
         raise ValueError('native_baseline_drift')
     app=app_manifest(app_path)
-    patch=runpy.run_path(str(HERE/'patch.py'))
     new=patch['patch'](files[TARGET].decode('utf-8')).encode('utf-8')
     if files[TARGET].decode('utf-8')!=patch['baseline']():
         raise ValueError('public_base_mismatch')
@@ -53,6 +53,9 @@ def verify(bundle,app_path,image):
         report=read_json(work/'gap-witness.json')
         if not all(report.get(k) is True for k in ('exact_gap_evaluated','quick_budget','distinct','caller_unchanged','no_regression','target_reached','previous_shift_checks')):
             raise ValueError('gate_gap_report')
+        gate('weekly',['python3','-B','-I','/public/ops/weekly-shift-calendars-20261125/native_probe.py'])
+        if read_json(work/'weekly-report.json')!={'friday_lunch_weekend':True,'overnight_break':True,'legacy_lunch':True}:
+            raise ValueError('gate_weekly_report')
         gate('eleven',['python3','-B','-I','/public/ops/native-batching-verify-20261124/verify_native.py',
             '--child','/native','--report','/work/native-eleven.json','--overlay-gates'])
         eleven=read_json(work/'native-eleven.json',4*1024*1024)
@@ -68,13 +71,13 @@ def verify(bundle,app_path,image):
             raise ValueError('candidate_drift')
         return {'status':'gap_native_verified','production_writes':False,'worker_before':workers,
             'worker_after':after,'code_inputs_sha256':code_hash,'app_hashes':app['app_hashes'],
-            'protected_hashes':app['protected_hashes'],'witness':report,'native_eleven':True,'integrated_four':True,
+            'protected_hashes':app['protected_hashes'],'witness':report,'native_eleven':True,'integrated_four':True,'weekly_calendar':True,
             'source_commit':os.environ.get('GITHUB_SHA')}
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--bundle',required=True,type=Path);p.add_argument('--app',required=True,type=Path);p.add_argument('--image',required=True)
     a=p.parse_args()
     try:print('GAP_NATIVE_ACCEPTANCE '+json.dumps(verify(a.bundle,a.app,a.image),separators=(',',':')),flush=True)
     except Exception as e:
-        allowed={'native_baseline_drift','public_base_mismatch','gate_gap','gate_gap_report','gate_eleven','gate_eleven_report','gate_integrated','gate_integrated_report','candidate_drift'}
+        allowed={'native_baseline_drift','public_base_mismatch','gate_gap','gate_gap_report','gate_eleven','gate_eleven_report','gate_integrated','gate_integrated_report','gate_weekly','gate_weekly_report','candidate_drift'}
         print('GAP_NATIVE_VERIFICATION_FAILED '+(str(e) if type(e) is ValueError and str(e) in allowed else type(e).__name__),flush=True)
         sys.exit(6)
