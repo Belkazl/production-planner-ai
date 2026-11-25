@@ -1,0 +1,10 @@
+# Public tools only. Build this image before receiving private code inputs.
+FROM node:22-bookworm-slim AS node_runtime
+FROM oven/bun:1.2.20 AS bun_runtime
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=node_runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=bun_runtime /usr/local/bin/bun /usr/local/bin/bun
+RUN python3 --version && node --version && bun --version
+ENV PYTHONDONTWRITEBYTECODE=1
+WORKDIR /work
