@@ -7,7 +7,7 @@ import sys
 import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from diagnostics import NATIVE_ELEVEN_CASES, public_error_codes
+from diagnostics import NATIVE_ELEVEN_CASES, public_error_codes, safe_anchor_counts
 
 PUBLIC = Path('/public/repo/ops/ovh')
 WORK = Path('/work')
@@ -52,6 +52,12 @@ def failure_metadata(label, log_path):
     known_codes = public_error_codes(PUBLIC)
     codes = sorted({word for word in re.findall(r'\bINTEGRATED_[A-Za-z0-9_]{1,140}\b', text) if word in known_codes})[:8]
     value = {'gate': label, 'exception_classes': types, 'public_frames': frames[:16], 'public_error_codes': codes}
+    anchor_rows = re.findall(r'^INTEGRATED_SETUP_SOURCE_ANCHORS ([^\r\n]{1,16000})$', text, re.MULTILINE)
+    if len(anchor_rows) == 1:
+        try:
+            value['source_anchors'] = safe_anchor_counts(json.loads(anchor_rows[0]), PUBLIC)
+        except (ValueError, TypeError, RecursionError):
+            pass
     (OUT / 'failure-report.json').write_text(json.dumps(value, separators=(',', ':')))
 
 

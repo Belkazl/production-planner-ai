@@ -10,7 +10,7 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import verify
-from diagnostics import summarize_report
+from diagnostics import summarize_report, public_error_codes, public_source_labels, safe_anchor_counts
 from container_gate import APP_CHECKS, WORKER_CHECKS
 
 
@@ -67,6 +67,26 @@ class GateTests(unittest.TestCase):
         hashes = verify.public_hashes()
         self.assertIn('ops/ovh/integrated-setup-release-20261125/baseline.json', hashes)
         self.assertNotIn('ops/ovh/integrated-setup-release-20261125/release.json', hashes)
+
+    def test_source_labels_are_explicit_public_literals_and_counts_drop_private_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            module = root / 'integrated-setup-result-20261125/patch.mjs'
+            module.parent.mkdir()
+            module.write_text("export const INTEGRATED_SETUP_SOURCE_LABELS = Object.freeze(['upstream_public_checkpoint','aps_native_post']);")
+            self.assertEqual(public_source_labels(root), {'upstream_public_checkpoint', 'aps_native_post'})
+            self.assertIn('INTEGRATED_SETUP_SOURCE_DRIFT_upstream_public_checkpoint', public_error_codes(root))
+            rows = safe_anchor_counts([
+                {'label': 'upstream_public_checkpoint', 'expected': 1, 'count': 0, 'source': 'PRIVATE_SENTINEL'},
+                {'label': 'PRIVATE_SENTINEL', 'expected': 1, 'count': 0},
+                {'label': 'aps_native_post', 'expected': True, 'count': 1},
+                {'label': 'aps_native_post', 'expected': 1, 'count': 100001},
+            ], root)
+            self.assertEqual(rows, [{'label': 'upstream_public_checkpoint', 'expected': 1, 'count': 0}])
+            self.assertNotIn('PRIVATE_SENTINEL', json.dumps(rows))
+            self.assertEqual(safe_anchor_counts(rows * 27, root), [])
+            module.write_text("export const INTEGRATED_SETUP_SOURCE_LABELS = Object.freeze(['upstream_public_checkpoint', ...PRIVATE_VARIABLE]);")
+            self.assertEqual(public_source_labels(root), set())
 
 
 if __name__ == '__main__':

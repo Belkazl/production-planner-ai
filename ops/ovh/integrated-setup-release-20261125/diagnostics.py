@@ -25,6 +25,35 @@ ARRAY_NUMBERS = frozenset({'score_durations', 'score_setup_counts'})
 ARRAY_CODES = frozenset({'score_failures', 'published_failures'})
 
 
+def public_source_labels(public_root):
+    """Read only the explicit public literal registry; never execute its JS."""
+    path = Path(public_root) / 'integrated-setup-result-20261125/patch.mjs'
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > 262144:
+        return set()
+    found = re.findall(r'export const INTEGRATED_SETUP_SOURCE_LABELS\s*=\s*Object\.freeze\(\s*(\[[^\[\]]{1,20000}\])\s*\)', path.read_text())
+    if len(found) != 1:
+        return set()
+    try:
+        labels = ast.literal_eval(found[0])
+    except (SyntaxError, ValueError):
+        return set()
+    if (not isinstance(labels, list) or not 1 <= len(labels) <= 128
+            or any(not isinstance(label, str) or not re.fullmatch(r'(?:upstream|aps|ui)_[a-z0-9_]{1,90}', label) for label in labels)
+            or len(set(labels)) != len(labels)):
+        return set()
+    return set(labels)
+
+
+def safe_anchor_counts(value, public_root):
+    labels = public_source_labels(public_root)
+    if not isinstance(value, list) or len(value) > 26:
+        return []
+    return [{key: item[key] for key in ('label', 'expected', 'count')} for item in value
+            if isinstance(item, dict) and item.get('label') in labels
+            and type(item.get('expected')) is int and 0 <= item['expected'] <= 100000
+            and type(item.get('count')) is int and 0 <= item['count'] <= 100000]
+
+
 def public_error_codes(public_root):
     literals = set()
     for directory, filename in (('integrated-setup-result-20261125', 'patch.mjs'),
@@ -34,8 +63,9 @@ def public_error_codes(public_root):
         if path.is_file() and not path.is_symlink() and path.stat().st_size <= 262144:
             literals.update(re.findall(r'[\"\']([A-Za-z][A-Za-z0-9_]{0,99})[\"\']', path.read_text()))
     exact = {word for word in literals if word.startswith('INTEGRATED_')}
-    return exact | {prefix + label for prefix in exact if prefix.endswith('_') for label in literals
-                    if re.fullmatch('[a-z][a-z0-9_]{0,70}', label)}
+    derived = {prefix + label for prefix in exact if prefix.endswith('_') for label in literals
+               if re.fullmatch('[a-z][a-z0-9_]{0,70}', label)}
+    return exact | derived | {'INTEGRATED_SETUP_SOURCE_DRIFT_' + label for label in public_source_labels(public_root)}
 
 
 def public_codes(public_root):

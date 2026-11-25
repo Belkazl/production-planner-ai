@@ -7,6 +7,35 @@ import {ppNativeScheduleFingerprint, ppCanonicalNativeResult, ppNativePresentati
 
 export const NATIVE_HEADER = 'x-pp-native-schedule';
 export const NATIVE_HEADER_VALUE = 'canonical-v1-20261125';
+// Literal public labels allow the private-source runner to return exact anchor
+// counts without exposing excerpts, identifiers read from source, or messages.
+export const INTEGRATED_SETUP_SOURCE_LABELS = Object.freeze([
+  'upstream_helpers', 'upstream_source_header', 'upstream_canonical_plan',
+  'upstream_owned_context', 'upstream_full_owned', 'upstream_authoritative_zero',
+  'upstream_checkpoint_context', 'upstream_setup_ownership', 'upstream_ordinary_context',
+  'upstream_public_checkpoint', 'upstream_checkpoint_calls', 'upstream_sync_candidate',
+  'upstream_sync_final', 'upstream_cached_final', 'upstream_async_candidate',
+  'upstream_async_final', 'upstream_stop_public_signature',
+  'upstream_installed_helpers', 'upstream_installed_source_header', 'upstream_installed_canonical_plan',
+  'upstream_installed_owned_context', 'upstream_installed_full_owned', 'upstream_installed_authoritative_zero',
+  'upstream_installed_checkpoint_context', 'upstream_installed_setup_ownership', 'upstream_installed_ordinary_context',
+  'upstream_installed_public_checkpoint', 'upstream_installed_checkpoint_calls', 'upstream_installed_sync_candidate',
+  'upstream_installed_sync_final', 'upstream_installed_cached_final', 'upstream_installed_async_candidate',
+  'upstream_installed_async_final', 'upstream_installed_stop_public_signature',
+  'upstream_reverse_helpers', 'upstream_reverse_source_header', 'upstream_reverse_canonical_plan',
+  'upstream_reverse_owned_context', 'upstream_reverse_full_owned', 'upstream_reverse_authoritative_zero',
+  'upstream_reverse_checkpoint_context', 'upstream_reverse_setup_ownership', 'upstream_reverse_ordinary_context',
+  'upstream_reverse_public_checkpoint', 'upstream_reverse_checkpoint_calls', 'upstream_reverse_sync_candidate',
+  'upstream_reverse_sync_final', 'upstream_reverse_cached_final', 'upstream_reverse_async_candidate',
+  'upstream_reverse_async_final', 'upstream_reverse_stop_public_signature',
+  'aps_native_progress', 'aps_native_post', 'aps_client_incumbent', 'aps_client_persistence',
+  'aps_installed_native_progress', 'aps_installed_native_post', 'aps_installed_client_incumbent', 'aps_installed_client_persistence',
+  'aps_reverse_native_progress', 'aps_reverse_native_post', 'aps_reverse_client_incumbent', 'aps_reverse_client_persistence',
+  'ui_presentation', 'ui_legacy_floor', 'ui_installed_presentation', 'ui_installed_legacy_floor',
+  'ui_reverse_presentation', 'ui_reverse_legacy_floor',
+  'upstream_required_guard', 'aps_required_guard', 'ui_required_guard'
+]);
+const sourceLabels = new Set(INTEGRATED_SETUP_SOURCE_LABELS);
 const marker = 'pp_integrated_native_setup_20261125';
 const serverHelpers = '// ' + marker + '\n' + ppNativeScheduleFingerprint.toString() + '\n' + ppCanonicalNativeResult.toString() + '\n';
 const uiHelpers = '// ' + marker + '\n' + [ppNativeScheduleFingerprint, ppNativePresentationPlan,
@@ -16,7 +45,15 @@ function exact(source, before, after, name, count = 1) {
   if (source.split(before).length !== count + 1) throw Error('INTEGRATED_SETUP_SOURCE_DRIFT_' + name);
   return source.split(before).join(after);
 }
-function change(source, edits, identity) {
+function change(source, edits, identity, inspect = false) {
+  if (inspect) {
+    const installed = source.includes(marker);
+    return edits.map(([before, after, name, expected = 1]) => {
+      const label = identity + (installed ? '_installed_' : '_') + name;
+      if (!sourceLabels.has(label)) throw Error('INTEGRATED_SETUP_UNKNOWN_SOURCE_LABEL');
+      return {label, expected, count: Math.min(100000, source.split(installed ? after : before).length - 1)};
+    });
+  }
   if (source.includes(marker)) {
     let original = source;
     for (const [before, after, label, count = 1] of [...edits].reverse())
@@ -38,7 +75,7 @@ function change(source, edits, identity) {
   return updated;
 }
 
-export function patchUpstream(source) {
+export function patchUpstream(source, inspect = false) {
   for (const guard of ['principal=await account(req);model=await readAccountModel(req)',
     'currentJob(principal)', 'state.modelKey!==hashModel(model)', "'x-authenticated-account':principal",
     'const verifiedWorkerCheckpoint = (raw,model) =>', 'pp_scoped_stop_verified_choices_v2'])
@@ -78,12 +115,13 @@ export function patchUpstream(source) {
     ["'validation_errors','errors','warnings','messages','violations','conflicts'];",
       "'validation_errors','errors','warnings','messages','violations','conflicts',\n          'setup_duration_total_minutes','_pp_native_schedule_v1'];", 'stop_public_signature']
   ];
-  const updated = change(source, edits, 'upstream');
+  const updated = change(source, edits, 'upstream', inspect);
+  if (inspect) return updated;
   new Function(updated.replace('export function createPythonGAUpstream', 'function createPythonGAUpstream'));
   return updated;
 }
 
-export function patchAps(source) {
+export function patchAps(source, inspect = false) {
   for (const guard of ['export function scheduleWithSetup(base,model,options={}) {',
     'function ppReconcileSetupAwareTerminal(data,model){', 'function ppOptimizerNoRegressionHtml(input){',
     'function ppStrictOptimizerHtml(h){'])
@@ -103,10 +141,10 @@ export function patchAps(source) {
   return change(source, [
     [progressStart, progressAfter, 'native_progress'], [planStart, planAfter, 'native_post'],
     [decisionBefore, decisionAfter, 'client_incumbent'], [saveBefore, saveAfter, 'client_persistence']
-  ], 'aps');
+  ], 'aps', inspect);
 }
 
-export function patchUi(source) {
+export function patchUi(source, inspect = false) {
   for (const guard of ['function ppGaQualityFloorV1(){', '__PP_GA_OBJECTIVE_FLOOR_V1__',
     'function ppFixedFirstBestKpiDelta(){', 'function ppSelectedPlanKpiReferenceV2(){'])
     if (!source.includes(guard)) throw Error('INTEGRATED_SETUP_REQUIRED_UI_GUARD');
@@ -119,7 +157,23 @@ export function patchUi(source) {
   return change(source, [
     [';(function ppGaQualityFloorV1(){', uiHelpers + ';(function ppGaQualityFloorV1(){', 'presentation'],
     [before, after, 'legacy_floor']
-  ], 'ui');
+  ], 'ui', inspect);
+}
+
+export function classifyAppAnchors(files) {
+  const results = [];
+  for (const [path, identity, patch] of [
+    ['python-ga-upstream.mjs', 'upstream', patchUpstream],
+    ['baselines/2026-10-10/aps-setup-bridge/index.ts', 'aps', patchAps],
+    ['restart-optimizer-ui.js', 'ui', patchUi]
+  ]) {
+    try { results.push(...patch(files[path], true)); }
+    catch (error) {
+      if (error.message !== 'INTEGRATED_SETUP_REQUIRED_' + identity.toUpperCase() + '_GUARD') throw error;
+      results.push({label: identity + '_required_guard', expected: 1, count: 0});
+    }
+  }
+  return results;
 }
 
 export function patchAppSources(files) {
@@ -135,6 +189,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const root = resolve(process.argv[2]);
   const names = ['python-ga-upstream.mjs', 'baselines/2026-10-10/aps-setup-bridge/index.ts', 'restart-optimizer-ui.js'];
   const before = Object.fromEntries(names.map(name => [name, readFileSync(resolve(root, name), 'utf8')]));
+  const mismatches = classifyAppAnchors(before).filter(row => row.count !== row.expected);
+  if (mismatches.length) console.error('INTEGRATED_SETUP_SOURCE_ANCHORS ' + JSON.stringify(mismatches));
   // All source contracts validate before writing any staged file.
   const after = patchAppSources(before);
   for (const name of names) {

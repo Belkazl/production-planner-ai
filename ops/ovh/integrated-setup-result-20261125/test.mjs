@@ -7,7 +7,8 @@ import {runInNewContext} from 'node:vm';
 import {execFileSync} from 'node:child_process';
 import {ppCanonicalNativeResult, ppNativeScheduleFingerprint, ppNativePresentationPlan,
   ppNativePresentationSupersedes} from './canonical.mjs';
-import {patchUpstream, patchAps, patchUi, NATIVE_HEADER, NATIVE_HEADER_VALUE} from './patch.mjs';
+import {patchUpstream, patchAps, patchUi, NATIVE_HEADER, NATIVE_HEADER_VALUE,
+  classifyAppAnchors, INTEGRATED_SETUP_SOURCE_LABELS} from './patch.mjs';
 import {createApsHarness} from './pipeline.mjs';
 import {patchUpstream as patchPreview} from '../first-candidate-preview-20261124/patch.mjs';
 
@@ -51,6 +52,28 @@ const floorSource = read('ops/ovh/ga-objective-floor-active-ui-20261118/patch.mj
 const floor = JSON.parse(floorSource.match(/^const appended=(".*");$/m)[1]);
 const ui = 'function ppFixedFirstBestKpiDelta(){}\nfunction ppSelectedPlanKpiReferenceV2(){}\n' + floor;
 const patchedUi = patchUi(ui);
+
+test('source diagnostics report all fixed anchor counts without source excerpts', () => {
+  const files = {'python-ga-upstream.mjs': upstream,
+    'baselines/2026-10-10/aps-setup-bridge/index.ts': aps, 'restart-optimizer-ui.js': ui};
+  const installed = {'python-ga-upstream.mjs': patchedUpstream,
+    'baselines/2026-10-10/aps-setup-bridge/index.ts': patchedAps, 'restart-optimizer-ui.js': patchedUi};
+  for (const sources of [files, installed]) {
+    const facts = classifyAppAnchors(sources);
+    assert.equal(facts.length, 23);
+    assert(facts.every(row => row.count === row.expected && INTEGRATED_SETUP_SOURCE_LABELS.includes(row.label)));
+  }
+  const secret = 'PRIVATE_SOURCE_SENTINEL_NOT_METADATA';
+  const changed = {...files, 'python-ga-upstream.mjs': upstream.replace('publicPlan(status.candidate_preview)',
+    'publicPlan(status.other_preview)') + '\npublicCheckpoint(state.best); // ' + secret};
+  const mismatches = classifyAppAnchors(changed).filter(row => row.count !== row.expected);
+  assert.deepEqual(mismatches, [
+    {label: 'upstream_checkpoint_calls', expected: 2, count: 3},
+    {label: 'upstream_async_candidate', expected: 1, count: 0}
+  ]);
+  assert(!JSON.stringify(mismatches).includes(secret));
+  assert.throws(() => patchUpstream(changed['python-ga-upstream.mjs']), /INTEGRATED_SETUP_SOURCE_DRIFT_upstream_checkpoint_calls/);
+});
 
 function bridgeHarness({result = native(), best = result, state = 'completed', saved = null, source = patchedUpstream} = {}) {
   const requests = [], stored = new Map();

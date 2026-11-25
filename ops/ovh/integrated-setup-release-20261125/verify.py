@@ -18,7 +18,7 @@ REPO = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 import capture
 from container_gate import APP_CHECKS, WORKER_CHECKS
-from diagnostics import summarize_report, public_error_codes
+from diagnostics import summarize_report, public_error_codes, safe_anchor_counts
 
 FAILURE_GATES = {'canonical_patch', 'preview_patch', 'canonical_actual_source', 'preview_actual_source',
                  'native_synthetic_fixtures', 'native_eleven', 'actual_final_pipeline', 'acceptance_report', 'unexpected_gate',
@@ -46,6 +46,7 @@ def safe_failure_report(path):
         return {'gate': value['gate'],
                 'exception_classes': [name for name in kinds if isinstance(name, str) and name in FAILURE_CLASSES],
                 'public_error_codes': [name for name in codes if isinstance(name, str) and name in public_error_codes(REPO / 'ops/ovh')],
+                'source_anchors': safe_anchor_counts(value.get('source_anchors'), REPO / 'ops/ovh'),
                 'public_frames': [{'file': item['file'], 'line': item['line']} for item in frames
                                   if isinstance(item, dict) and item.get('file') in PUBLIC_FAILURE_FILES
                                   and type(item.get('line')) is int and 0 <= item['line'] <= 999999]}
