@@ -1,0 +1,54 @@
+name: Release verified upstream chain minibatch optimization
+on:
+  push:
+    branches: [fix/shift-gap-chain-v2-20261125]
+    paths: [ops/ovh/gap-chain-release-20261125/release.json]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reuse the established one-module deployment and rollback contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          src=Path("ops/ovh/shift-aware-minibatch-release-20261125/release.sh").read_text()
+          old='refs/heads/fix/gantt-zoom-500-20261124'
+          guard='marker="$package/release.json"\npython3 -B -I "$package/release_guard.py" --marker "$marker"\n'
+          a='echo SHIFT_AWARE_RELEASE_PHASE capture_accepted_sources'
+          b='remote_stage='
+          assert src.count(old)==1 and src.count(guard)==1 and src.count(a)==1 and src.count(b)==1
+          start=src.index(a);end=src.index(b,start)
+          src=src[:start]+'echo GAP_RELEASE_PHASE verify_exact_acceptance\npython3 -B -I ops/ovh/gap-chain-release-20261125/stage.py "$release_stage"\n'+src[end:]
+          src=src.replace(old,'refs/heads/fix/shift-gap-chain-v2-20261125').replace(guard,'')
+          path=Path(os.environ["RUNNER_TEMP"])/"gap-chain-release.sh"
+          path.write_text(src)
+          PY
+          bash -n "$RUNNER_TEMP/gap-chain-release.sh"
+      - name: Require exact completed acceptance and install one native module
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash "$RUNNER_TEMP/gap-chain-release.sh"
+      - name: Clean temporary staging
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP"/shift-aware-release.* "$RUNNER_TEMP/gap-chain-release.sh"
