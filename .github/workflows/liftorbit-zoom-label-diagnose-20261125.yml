@@ -1,0 +1,40 @@
+name: Diagnose combined UI failed update without mutation
+
+on:
+  push:
+    branches: [fix/gantt-zoom-500-20261124]
+    paths:
+      - .github/workflows/liftorbit-zoom-label-diagnose-20261125.yml
+      - ops/ovh/zoom-label-diagnose-20261125/diagnose_release.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/fix/gantt-zoom-500-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify syntax and bounded private log filtering
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/ovh/zoom-label-diagnose-20261125/diagnose_release.sh
+          bash ops/ovh/zoom-label-diagnose-20261125/diagnose_release.sh --self-test
+      - name: Read only the fixed failed update log without source output
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/zoom-label-diagnose-20261125/diagnose_release.sh
