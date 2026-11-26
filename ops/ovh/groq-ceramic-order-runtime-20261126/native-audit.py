@@ -60,3 +60,18 @@ for name,m,want in cases:
         print('ORDER_NATIVE_CASE',name,json.dumps({'error':type(e).__name__,'code':str(e)[:220]}))
     assert valid is want,(name,valid,want)
 print('ORDER_NATIVE_COMPATIBILITY_REPRODUCTION_PASS')
+browser={'scheduler_mode':'resource','start':'2026-11-25T08:00:00','quantity_unit':'m2',
+ 'orders':[{'id':2611,'quantity':900,'area':900,'unit':'m2','technical_process_id':'TP1','process_hours':1,'parameters':{'color':'A','width':600}},
+ {'id':2612,'quantity':800,'area':800,'unit':'m2','technical_process_id':'TP1','process_hours':1,'parameters':{'color':'B','width':1200}},
+ {'id':2613,'quantity':600,'area':600,'unit':'m2','technical_process_id':'TP1','process_hours':1/6,'parameters':{'color':'B','width':1200}}],
+ 'equipment':[{'id':'M1','name':'Synthetic press','kind':'pressing','capacity':200,'capacity_unit':'m2','capabilities':{'allowed_parameters':{'color':['A','B']},'max_parameters':{'width':1300}},'timing_profile':{'timing_mode':'throughput','throughput_per_hour':600}}],
+ 'employees':[],'shifts':{},'materials':[],'setup_rules':[{'id':'SET_AB','equipment_ref':'*','setup_parameter':'color','from_state':'A','to_state':'B','duration_min':5},{'id':'SET_BA','equipment_ref':'*','setup_parameter':'color','from_state':'B','to_state':'A','duration_min':5}],
+ 'technical_processes':[{'id':'TP1','name':'Synthetic ceramic process','operations':[{'id':'OP1','name':'Synthetic pressing','sequence':1,'duration_min':10,'setup_parameter':'color','resource_requirements':[{'resource_type':'equipment','resource_ref':'M1','resource_refs':['M1'],'match_mode':'specific','quantity':1,'unit':'pcs','consumption_rule':'during_operation'}]}]}]}
+for name,m in [('browser_before',dict(browser,orders=browser['orders'][:2])),('browser_after',browser),('browser_after_strings',dict(browser,orders=[dict(o,id=str(o['id'])) for o in browser['orders']]))]:
+    try:
+        with open(os.devnull,'w') as sink,contextlib.redirect_stdout(sink),contextlib.redirect_stderr(sink):
+            result=full_runtime_adapter.run({'model':copy.deepcopy(m),'options':{'generations':3,'population':6,'seed':1729,'objective':'duration'}},lambda p:None)
+        print('ORDER_NATIVE_BROWSER_CASE',name,json.dumps({'valid':result.get('valid'),'duration':result.get('duration_minutes'),'rows':len(result.get('operations',[]))}))
+    except Exception as e:
+        print('ORDER_NATIVE_BROWSER_CASE',name,json.dumps({'error':type(e).__name__,'code':str(e)[:350]}))
+
