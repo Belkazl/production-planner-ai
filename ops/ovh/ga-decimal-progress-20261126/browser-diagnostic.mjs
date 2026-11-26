@@ -3,7 +3,7 @@ import {randomUUID,randomBytes} from "node:crypto";
 import assert from "node:assert/strict";
 const require=createRequire(import.meta.url);
 const {chromium}=require("/tmp/liftorbit-decimal-test/node_modules/playwright-core");
-const base="https://app.liftorbit.app";
+const base="https://app.liftorbit.app", syntheticJob="0123456789abcdef0123456789abcdef";
 const browser=await chromium.launch({headless:true,channel:"chrome",args:["--no-sandbox","--disable-dev-shm-usage"]});
 let phase="register";
 try{
@@ -21,24 +21,20 @@ try{
   const end=s.indexOf("\n})();",i)+6;
   assert(end>i);
   const original=s.slice(i,end);
-  for(const name of ["setProgressTarget","receiveProgress","ensureMeter"]){
-   const start=original.indexOf("function "+name+"(");
-   if(start<0)continue;
-   const stop=original.indexOf("\nfunction ",start+10);
-   const fn=original.slice(start,stop<0?start+1800:Math.min(stop,start+1800));
-   console.log("DECIMAL_BROWSER_DELIVERED_FUNCTION",name,JSON.stringify(fn));
-  }
   let ui=original;
   function once(a,b){assert.equal(ui.split(a).length,2,a);ui=ui.replace(a,b)}
   const a=ui.indexOf("function animatePercent(){"),b=ui.indexOf("function hideFog(){",a);
   assert(a>=0&&b>a);
   ui=ui.slice(0,a)+"function setProgressTarget(target){if(!Number.isFinite(target))return;targetPercent=Math.max(targetPercent,Math.max(0,Math.min(verifiedTerminal?100:99.99,target)));if(verifiedTerminal){finishVisible();return}percent=targetPercent;ensureMeter();}\n"+ui.slice(b);
-  const receiveStart=ui.indexOf("function receiveProgress(raw){");
-  const receiveEnd=ui.indexOf("\nfunction ",receiveStart+10);
+  const receiver=/function receiveProgress\(raw\)\s*\{/;
+  assert.equal([...ui.matchAll(new RegExp(receiver.source,"g"))].length,1);
+  const receiveStart=ui.search(receiver),receiveEnd=ui.indexOf("\n  function connect()",receiveStart);
   assert(receiveStart>=0&&receiveEnd>receiveStart);
   const receive=ui.slice(receiveStart,receiveEnd);
-  assert.equal(receive.split("setProgressTarget(next);").length,2);
-  ui=ui.slice(0,receiveStart)+receive.replace(/const next=[^;]+;/,"const next=Math.max(0,Math.min(99.99,p.percent));window.__qaDecimalTrace.push({raw:raw,parsed:p.percent,next:next,phase:p.phase});")+ui.slice(receiveEnd);
+  assert(receive.includes("p?.job_id !== jobId")&&receive.includes("p.seq <= lastProgressSeq"));
+  assert.equal(receive.split("Math.min(99, Math.floor(p.percent))").length,2);
+  const corrected=receive.replace("Math.min(99, Math.floor(p.percent))","Math.min(99.99, p.percent)").replace("setProgressTarget(next);","window.__qaDecimalTrace.push({parsed:p.percent,next:next,phase:p.phase});setProgressTarget(next);");
+  ui=ui.slice(0,receiveStart)+corrected+ui.slice(receiveEnd);
   once('const shownText=completed?doneText:percent+"%";','const shownText=percent.toFixed(2)+"%";');
   patches++;
   return s.slice(0,i)+ui+s.slice(end);
@@ -51,7 +47,7 @@ try{
    return route.fulfill({response:resp,body:output});
   }
   if(path==="/api/plan-events"){
-   return route.fulfill({status:200,contentType:"text/event-stream",body:'event: progress\ndata: {"job_id":"synthetic-browser-only","percent":13.27,"phase":"running"}\n\n'});
+   return route.fulfill({status:200,contentType:"text/event-stream",body:[{job_id:syntheticJob,percent:13.27,phase:"running",seq:3},{job_id:syntheticJob,percent:97.92,phase:"running",seq:2},{job_id:"ffffffffffffffffffffffffffffffff",percent:98.77,phase:"running",seq:4}].map(p=>"event: progress\ndata: "+JSON.stringify(p)+"\n\n").join("")});
   }
   return route.continue();
  });
@@ -60,12 +56,13 @@ try{
  assert.equal(patches,1);
  console.log("DECIMAL_BROWSER_PARSE",JSON.stringify(await page.evaluate(()=>({parsed:JSON.parse('{"percent":13.27}').percent,eventSourceName:EventSource.name,parseName:JSON.parse.name}))));
  phase="synthetic_sse";
- await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.start());
+ await page.evaluate(id=>window.__PP_SSE_PROGRESS_V1__.start(id),syntheticJob);
  await page.waitForFunction(()=>window.__qaDecimalTrace.length>0,{},{timeout:15000});
+ await page.waitForTimeout(400);
  const result=await page.evaluate(()=>({trace:window.__qaDecimalTrace.slice(0,3),state:window.__PP_SSE_PROGRESS_V1__.state,text:document.querySelector(".pp-sse-label")?.textContent}));
  await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.stop());
  console.log("DECIMAL_BROWSER_DELIVERED_TRACE",JSON.stringify(result));
- assert.equal(result.state.percent,13.27);
+ assert.equal(result.state.percent,13.27);assert.equal(result.trace.length,1);
  assert.equal(result.text,"13.27%");
  console.log("DECIMAL_FULL_BROWSER_SYNTHETIC_PASS");
 }catch(e){
