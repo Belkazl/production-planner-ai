@@ -1,0 +1,23 @@
+name: Reproduce native ceramic order edit and calculation
+on:
+  push:
+    branches: [fix/groq-ceramic-order-runtime-20261126]
+    paths:
+      - .github/workflows/liftorbit-groq-ceramic-reproduce-20261126.yml
+      - ops/ovh/groq-ceramic-order-runtime-20261126/reproduce.mjs
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock playwright-core@1.58.2
+      - name: Reproduce the real built-in ceramic demo order addition and optimization
+        run: node ops/ovh/groq-ceramic-order-runtime-20261126/reproduce.mjs
