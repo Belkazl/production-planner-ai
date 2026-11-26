@@ -1,0 +1,61 @@
+name: Inspect native parameter model and non-mutating validation interfaces
+on:
+  push:
+    branches: [fix/groq-universal-parameters-20261126]
+    paths: [.github/workflows/liftorbit-groq-universal-audit-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect narrowly selected application source interfaces only
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 -B -I - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path.home()/'liftorbit-migration/sources'
+          app=root/'ovh-app/current'
+          worker=root/'current/ga/ga_workers'
+          sources=[(app/'tenant-model-runtime.js',r'function\s+ppAccount\w*(?:Model|Plan|Valid|Norm)|function\s+\w*(?:Validat|Preflight)|/api/(?:project/model|plan|validat)|ppPythonGA|ppNative|ppAccountModelReady'),(app/'python-ga-upstream.mjs',r'function\s+\w+|/jobs|/validate|/plan|/health'),(worker/'server.py',r'@app\.|def\s+\w+\(|validate|/jobs'),(app/'auth-runtime.js',r'ppAccount.*(?:Model|Plan)|/api/(?:assistant|project/model|validate)|ppGroqAssistant')]
+          sensitive=re.compile(r'(?i)gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|postgres(?:ql)?://|-----BEGIN|(?:password|secret|api[_ -]?key|token)\s*[:=]\s*["\x27][^"\x27]{12,}')
+          for p,pattern in sources:
+              if not p.is_file():continue
+              lines=p.read_text().splitlines();matches=[i for i,l in enumerate(lines) if re.search(pattern,l)]
+              indices=set()
+              for i in matches[:100]:indices.update(range(max(0,i-1),min(len(lines),i+8)))
+              for i in sorted(indices)[:270]:
+                  line=lines[i]
+                  if len(line)>1300 or sensitive.search(line):continue
+                  print("UNIVERSAL_INTERFACE",p.name,i+1,line)
+          PY
+      - name: Inspect parameter fields from the delivered native editor in an isolated synthetic account
+        run: |
+          python3 - <<'PY'
+          import urllib.request,http.cookiejar,json,uuid,secrets,re
+          base='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          hdr={'Content-Type':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin','Accept':'application/json'}
+          body=json.dumps({'email':'universal-parameter-qa-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'Synthetic universal parameter QA'}).encode()
+          with op.open(urllib.request.Request(base+'/api/auth/register',data=body,headers=hdr,method='POST'),timeout=30) as r:assert r.status==200
+          with op.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:s=r.read(16000000).decode()
+          pat=re.compile(r'parameter_definitions|parameter_schema|order_parameters|parameter_catalog|allowed_parameters|setup_parameter|timing_profiles|function\s+\w*(?:Validat|Paramet)\w*\(|/api/validate')
+          sensitive=re.compile(r'(?i)gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|postgres(?:ql)?://|-----BEGIN|(?:password|secret|api[_ -]?key|token)\s*[:=]\s*["\x27][^"\x27]{12,}')
+          for m in list(pat.finditer(s))[:65]:
+              chunk=s[max(0,m.start()-90):m.end()+480]
+              if not sensitive.search(chunk):print('UNIVERSAL_EDITOR',json.dumps(chunk,ensure_ascii=True))
+          PY
