@@ -40,9 +40,8 @@ export function installSolarIcons(icons){
    svg.setAttribute("aria-hidden","true");svg.setAttribute("focusable","false");
    svg.setAttribute("data-pp-solar-icon",entry.icon);
    svg.innerHTML=entry.body;
-   const metadata=document.createElementNS(NS,"metadata");
-   metadata.textContent="Solar Linear by 480 Design — CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/ — original SVG paths, color inherited from navigation";
-   svg.prepend(metadata);
+   svg.setAttribute("data-icon-credit","Solar Linear by 480 Design");
+   svg.setAttribute("data-icon-license","CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/");
   }
  }
  render();
