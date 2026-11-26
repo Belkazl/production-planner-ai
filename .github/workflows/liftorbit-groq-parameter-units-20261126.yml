@@ -1,0 +1,37 @@
+name: Correct AI proposal parameter unit display
+on:
+  push:
+    branches: [fix/groq-parameter-units-20261126]
+    paths:
+      - .github/workflows/liftorbit-groq-parameter-units-20261126.yml
+      - ops/ovh/groq-parameter-units-20261126/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock playwright-core@1.58.2
+      - name: Test formatter and real browser proposal before deployment
+        run: |
+          set -euo pipefail
+          node ops/ovh/groq-parameter-units-20261126/test.mjs
+          bash -n ops/ovh/groq-parameter-units-20261126/release.sh
+          node ops/ovh/groq-parameter-units-20261126/browser.mjs
+      - name: Deploy formatter only and verify the live UI
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/groq-parameter-units-20261126/release.sh
