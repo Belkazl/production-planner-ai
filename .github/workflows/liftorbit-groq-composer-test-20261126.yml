@@ -1,0 +1,24 @@
+name: Verify assistant composer on the real production HTML
+on:
+  push:
+    branches: [fix/groq-composer-20261126]
+    paths:
+      - .github/workflows/liftorbit-groq-composer-test-20261126.yml
+      - ops/ovh/groq-composer-20261126/patch-composer.mjs
+      - ops/ovh/groq-composer-20261126/browser.mjs
+permissions:
+  contents: read
+jobs:
+  composer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock playwright-core@1.58.2
+      - name: Test candidate with long Gantt, busy and failed response
+        run: node ops/ovh/groq-composer-20261126/browser.mjs
