@@ -78,7 +78,9 @@ try{
   return d.action;
  };
  const apply=async(want=true)=>{
-  const card=page.locator('[data-groq-action="pending"]').last();
+  const cards=page.locator("[data-groq-action]");
+  const card=cards.nth((await cards.count())-1);
+  assert.equal(await card.getAttribute("data-groq-action"),"pending");
   const response=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/assistant/validate-edit"&&r.request().method()==="POST",{timeout:115000});
   const writes=modelWrites;
   await card.locator('[data-groq-apply]').click();
