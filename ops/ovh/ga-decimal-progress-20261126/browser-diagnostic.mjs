@@ -26,15 +26,9 @@ try{
   const a=ui.indexOf("function animatePercent(){"),b=ui.indexOf("function hideFog(){",a);
   assert(a>=0&&b>a);
   ui=ui.slice(0,a)+"function setProgressTarget(target){if(!Number.isFinite(target))return;targetPercent=Math.max(targetPercent,Math.max(0,Math.min(verifiedTerminal?100:99.99,target)));if(verifiedTerminal){finishVisible();return}percent=targetPercent;ensureMeter();}\n"+ui.slice(b);
-  const receiver=/function receiveProgress\(raw\)\s*\{/;
-  assert.equal([...ui.matchAll(new RegExp(receiver.source,"g"))].length,1);
-  const receiveStart=ui.search(receiver),receiveEnd=ui.indexOf("\n  function connect()",receiveStart);
-  assert(receiveStart>=0&&receiveEnd>receiveStart);
-  const receive=ui.slice(receiveStart,receiveEnd);
-  assert(receive.includes("p?.job_id !== jobId")&&receive.includes("p.seq <= lastProgressSeq"));
-  assert.equal(receive.split("Math.min(99, Math.floor(p.percent))").length,2);
-  const corrected=receive.replace("Math.min(99, Math.floor(p.percent))","Math.min(99.99, p.percent)").replace("setProgressTarget(next);","window.__qaDecimalTrace.push({parsed:p.percent,next:next,phase:p.phase});setProgressTarget(next);");
-  ui=ui.slice(0,receiveStart)+corrected+ui.slice(receiveEnd);
+  assert(ui.includes("p?.job_id !== jobId")&&ui.includes("p.seq <= lastProgressSeq"),"delivered lifecycle guards");
+  once("Math.min(99, Math.floor(p.percent))","Math.min(99.99, p.percent)");
+  once("setProgressTarget(next);","window.__qaDecimalTrace.push({parsed:p.percent,next:next,phase:p.phase});setProgressTarget(next);");
   once('const shownText=completed?doneText:percent+"%";','const shownText=percent.toFixed(2)+"%";');
   patches++;
   return s.slice(0,i)+ui+s.slice(end);
