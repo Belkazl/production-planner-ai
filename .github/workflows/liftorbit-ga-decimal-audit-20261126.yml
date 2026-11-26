@@ -1,0 +1,45 @@
+name: Read-only audit of actual GA fractional progress pipeline
+on:
+  push:
+    branches: [fix/ga-decimal-progress-20261126]
+    paths: [.github/workflows/liftorbit-ga-decimal-audit-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect current progress owners and numeric conversions without reading config or customer data
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 -B -I - <<'PY'
+          from pathlib import Path
+          import re,hashlib
+          root=Path.home()/'liftorbit-migration/sources'
+          app=root/'ovh-app/current'
+          worker=root/'current/ga/ga_workers'
+          specs=[(worker/'manager.py',r'progress|event_seq'),(worker/'full_runtime_adapter.py',r'progress|percent|_pp_progress'),(worker/'joint_minibatch.py',r'_pp_progress_(begin|step|finish)'),(worker/'joint_continuation.py',r'progress|percent'),(worker/'server.py',r'progress|event_seq'),(app/'python-ga-upstream.mjs',r'percent|data\.progress|job\.progress'),(app/'restart-optimizer-ui.js',r'const STEP_MS|function animatePercent|function setProgressTarget|const shownText|const next=.*p\.percent|verifiedTerminal=true|ppOneSseProgressAndGantt|serverTarget:|doneText=')]
+          for p,pattern in specs:
+              s=p.read_text();lines=s.splitlines()
+              print("DECIMAL_FILE",p.name,hashlib.sha256(p.read_bytes()).hexdigest(),len(lines))
+              indices=set()
+              for i,line in enumerate(lines):
+                  if re.search(pattern,line):indices.update(range(max(0,i-3),min(len(lines),i+4)))
+              for i in sorted(indices)[:220]:
+                  line=lines[i]
+                  if len(line)>1500 or re.search(r'(?i)gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|postgres(?:ql)?://|-----BEGIN',line):continue
+                  print("DECIMAL_LINE",p.name,i+1,line)
+          PY
