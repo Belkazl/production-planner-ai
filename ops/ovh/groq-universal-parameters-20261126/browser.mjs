@@ -67,12 +67,19 @@ try{
  }
  let modelWrites=0;
  page.on("request",r=>{if(new URL(r.url()).pathname==="/api/project/model/import"&&r.method()==="POST")modelWrites++});
- const ask=async(message)=>{
+ const ask=async(message,allowRejection=false)=>{
   const response=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/assistant"&&r.request().method()==="POST",{timeout:45000});
   await page.locator("#chatInput").fill(message);await page.locator("#chatSend").click();
   const res=await response,d=await res.json();
   if(d.mode!=="edit_proposal")console.log("UNIVERSAL_PROVIDER",JSON.stringify({status:res.status(),mode:d.mode,error:d.error,reply:String(d.reply||"").slice(0,200)}));
-  assert.equal(res.status(),200);assert.equal(d.mode,"edit_proposal");
+  assert.equal(res.status(),200);
+  if(allowRejection&&d.mode==="edit_available"&&!d.action){
+   assert.equal(typeof d.reply,"string");assert(d.reply.length>0);
+   await page.waitForFunction(()=>!document.getElementById("chatSend").disabled);
+   assert.equal(await page.locator('[data-groq-action="pending"]').count(),0);
+   return null;
+  }
+  assert.equal(d.mode,"edit_proposal");
   await page.locator('[data-groq-action="pending"]').last().waitFor({state:"visible",timeout:12000});
   await page.waitForFunction(()=>!document.getElementById("chatSend").disabled);
   return d.action;
@@ -105,9 +112,21 @@ try{
  console.log("UNIVERSAL_TYPED_PARAMETER_NATIVE_PASS",live?"live":"candidate");
  phase="rejected_parameter";
  args={kind:"set_order_parameters",order_index:1,parameters:[{name:"color",type:"text",value:"INVALID"}]};
- const bad=await ask('Измени параметр color заказа 2610 на строку INVALID.');
- assert.equal(bad.args.kind,"set_order_parameters");assert.equal(bad.change.parameters.color,"INVALID");
- const beforeBad=await get();
+ const beforeBad=await get(),writesBeforeBad=modelWrites;
+ const bad=await ask('Измени параметр color заказа 2610 на строку INVALID.',true);
+ if(bad){
+  assert.equal(bad.args.kind,"set_order_parameters");assert.equal(bad.change.parameters.color,"INVALID");
+ }else{
+  // A provider may correctly reject the incompatible request without calling
+  // the edit tool. Still independently exercise the real server-side gate:
+  // submit the same incompatible candidate through the confirmation UI.
+  assert.deepEqual(await get(),beforeBad);assert.equal(modelWrites,writesBeforeBad);
+  console.log("UNIVERSAL_PROVIDER_REFUSAL_NO_WRITE_PASS",live?"live":"candidate");
+  await page.evaluate(args=>{
+   const p=ppGroqLocalEntry(),{change}=ppGroqPrepareEdit(p.model,args);
+   ppGroqShowProposal({action:{projectId:p.id,revision:p.revision,args,change}},p,"Synthetic incompatible edit validation");
+  },args);
+ }
  const rejected=await apply(false);assert.equal(rejected.error,"validation_no_feasible_plan");
  assert.deepEqual(await get(),beforeBad);
  console.log("UNIVERSAL_INVALID_EDIT_NO_WRITE_PASS",live?"live":"candidate");
