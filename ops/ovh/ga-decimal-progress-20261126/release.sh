@@ -18,8 +18,8 @@ root=/home/liftorbit-ci/liftorbit-migration
 app="$root/sources/ovh-app/current"
 worker="$root/sources/current/ga/ga_workers"
 stage="$root/sources/ovh-app/decimal-progress-20261126-$GITHUB_RUN_ID-$attempt"
-names=(full_runtime_adapter.py manager.py python-ga-upstream.mjs restart-optimizer-ui.js)
-paths=("$worker/full_runtime_adapter.py" "$worker/manager.py" "$app/python-ga-upstream.mjs" "$app/restart-optimizer-ui.js")
+names=(full_runtime_adapter.py manager.py python-ga-upstream.mjs restart-optimizer-ui.js auth-runtime.js)
+paths=("$worker/full_runtime_adapter.py" "$worker/manager.py" "$app/python-ga-upstream.mjs" "$app/restart-optimizer-ui.js" "$app/auth-runtime.js")
 sha(){ sha256sum "$1" | cut -d' ' -f1; }
 deployed=no
 accepted=no
@@ -35,17 +35,17 @@ umask 077
 root=/home/liftorbit-ci/liftorbit-migration
 backup="$root/patch-backups/decimal-progress-20261126/$1-$2"
 shift 2
-test "$#" -eq 8
+test "$#" -eq 10
 for h in "$@";do [[ "$h" =~ ^[0-9a-f]{64}$ ]];done
 hashes=("$@")
-names=(full_runtime_adapter.py manager.py python-ga-upstream.mjs restart-optimizer-ui.js)
-paths=("$root/sources/current/ga/ga_workers/full_runtime_adapter.py" "$root/sources/current/ga/ga_workers/manager.py" "$root/sources/ovh-app/current/python-ga-upstream.mjs" "$root/sources/ovh-app/current/restart-optimizer-ui.js")
+names=(full_runtime_adapter.py manager.py python-ga-upstream.mjs restart-optimizer-ui.js auth-runtime.js)
+paths=("$root/sources/current/ga/ga_workers/full_runtime_adapter.py" "$root/sources/current/ga/ga_workers/manager.py" "$root/sources/ovh-app/current/python-ga-upstream.mjs" "$root/sources/ovh-app/current/restart-optimizer-ui.js" "$root/sources/ovh-app/current/auth-runtime.js")
 sha(){ sha256sum "$1"|cut -d' ' -f1; }
-for i in 0 1 2 3;do
- test "$(sha "${paths[$i]}")" = "${hashes[$((i+4))]}"
+for i in 0 1 2 3 4;do
+ test "$(sha "${paths[$i]}")" = "${hashes[$((i+5))]}"
  test "$(sha "$backup/${names[$i]}")" = "${hashes[$i]}"
 done
-for i in 0 1 2 3;do cp -p "$backup/${names[$i]}" "${paths[$i]}";done
+for i in 0 1 2 3 4;do cp -p "$backup/${names[$i]}" "${paths[$i]}";done
 sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1
 for n in $(seq 1 36);do
  if sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1;then echo DECIMAL_ROLLBACK_HEALTH_PASS;exit 0;fi
@@ -60,13 +60,14 @@ REMOTE
 }
 trap cleanup EXIT
 mkdir -m 700 "$d/before" "$d/after"
-for i in 0 1 2 3;do scp_call "$target:${paths[$i]}" "$d/before/${names[$i]}";done
+for i in 0 1 2 3 4;do scp_call "$target:${paths[$i]}" "$d/before/${names[$i]}";done
 python3 -B ops/ovh/ga-decimal-progress-20261126/patch.py "$d/before" "$d/after"
 node --check "$d/after/python-ga-upstream.mjs"
 node --check "$d/after/restart-optimizer-ui.js"
+node --check "$d/after/auth-runtime.js"
 node ops/ovh/ga-decimal-progress-20261126/browser-unit.mjs "$d/after/restart-optimizer-ui.js"
 old=();new=()
-for i in 0 1 2 3;do old+=("$(sha "$d/before/${names[$i]}")");new+=("$(sha "$d/after/${names[$i]}")");done
+for i in 0 1 2 3 4;do old+=("$(sha "$d/before/${names[$i]}")");new+=("$(sha "$d/after/${names[$i]}")");done
 ssh_call "$target" bash -s -- "$GITHUB_RUN_ID" "$attempt" <<'REMOTE'
 set -euo pipefail
 umask 077
@@ -75,7 +76,7 @@ stage="/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/decimal-progress-2
 test ! -e "$stage" && test ! -L "$stage"
 mkdir -m 700 "$stage"
 REMOTE
-for i in 0 1 2 3;do scp_call "$d/after/${names[$i]}" "$target:$stage/${names[$i]}";done
+for i in 0 1 2 3 4;do scp_call "$d/after/${names[$i]}" "$target:$stage/${names[$i]}";done
 ssh_call "$target" bash -s -- "$GITHUB_RUN_ID" "$attempt" "${old[@]}" "${new[@]}" <<'REMOTE'
 set -Eeuo pipefail
 umask 077
@@ -84,22 +85,22 @@ root=/home/liftorbit-ci/liftorbit-migration
 stage="$root/sources/ovh-app/decimal-progress-20261126-$1-$2"
 backup="$root/patch-backups/decimal-progress-20261126/$1-$2"
 shift 2
-test "$#" -eq 8
+test "$#" -eq 10
 for h in "$@";do [[ "$h" =~ ^[0-9a-f]{64}$ ]];done
 hashes=("$@")
-names=(full_runtime_adapter.py manager.py python-ga-upstream.mjs restart-optimizer-ui.js)
-paths=("$root/sources/current/ga/ga_workers/full_runtime_adapter.py" "$root/sources/current/ga/ga_workers/manager.py" "$root/sources/ovh-app/current/python-ga-upstream.mjs" "$root/sources/ovh-app/current/restart-optimizer-ui.js")
+names=(full_runtime_adapter.py manager.py python-ga-upstream.mjs restart-optimizer-ui.js auth-runtime.js)
+paths=("$root/sources/current/ga/ga_workers/full_runtime_adapter.py" "$root/sources/current/ga/ga_workers/manager.py" "$root/sources/ovh-app/current/python-ga-upstream.mjs" "$root/sources/ovh-app/current/restart-optimizer-ui.js" "$root/sources/ovh-app/current/auth-runtime.js")
 sha(){ sha256sum "$1"|cut -d' ' -f1; }
-for i in 0 1 2 3;do
+for i in 0 1 2 3 4;do
  test -f "${paths[$i]}" && test ! -L "${paths[$i]}"
  test -f "$stage/${names[$i]}" && test ! -L "$stage/${names[$i]}"
  test "$(sha "${paths[$i]}")" = "${hashes[$i]}"
- test "$(sha "$stage/${names[$i]}")" = "${hashes[$((i+4))]}"
+ test "$(sha "$stage/${names[$i]}")" = "${hashes[$((i+5))]}"
 done
 sudo -n /usr/local/sbin/liftorbit-ops smoke >/dev/null 2>&1
 test ! -e "$backup" && test ! -L "$backup"
 mkdir -m 700 -p "$backup"
-for i in 0 1 2 3;do
+for i in 0 1 2 3 4;do
  cp -p "${paths[$i]}" "$backup/${names[$i]}"
  test "$(sha "$backup/${names[$i]}")" = "${hashes[$i]}"
 done
@@ -114,18 +115,18 @@ rollback(){
  rc=$?
  trap - ERR
  set +e
- for i in 0 1 2 3;do cp -p "$backup/${names[$i]}" "${paths[$i]}";done
+ for i in 0 1 2 3 4;do cp -p "$backup/${names[$i]}" "${paths[$i]}";done
  sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/rollback-private.log" 2>&1
  if test $? -eq 0 && wait_smoke;then echo DECIMAL_INSTALL_ROLLBACK_HEALTH_PASS;else echo DECIMAL_INSTALL_ROLLBACK_UNCONFIRMED;fi
  exit "$rc"
 }
 trap rollback ERR
-echo DECIMAL_INSTALL_FOUR_PROGRESS_FILES
-for i in 0 1 2 3;do cp "$stage/${names[$i]}" "${paths[$i]}";done
-for i in 0 1 2 3;do test "$(sha "${paths[$i]}")" = "${hashes[$((i+4))]}";done
+echo DECIMAL_INSTALL_FIVE_PROGRESS_FILES
+for i in 0 1 2 3 4;do cp "$stage/${names[$i]}" "${paths[$i]}";done
+for i in 0 1 2 3 4;do test "$(sha "${paths[$i]}")" = "${hashes[$((i+5))]}";done
 sudo -n /usr/local/sbin/liftorbit-ops update > "$backup/update-private.log" 2>&1
 wait_smoke
-for i in 0 1 2 3;do test "$(sha "${paths[$i]}")" = "${hashes[$((i+4))]}";done
+for i in 0 1 2 3 4;do test "$(sha "${paths[$i]}")" = "${hashes[$((i+5))]}";done
 trap - ERR
 echo DECIMAL_INTERNAL_HEALTH_PASS
 REMOTE
