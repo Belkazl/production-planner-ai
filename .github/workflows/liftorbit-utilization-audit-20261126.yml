@@ -1,0 +1,22 @@
+name: Inspect actual resource utilization renderer on isolated synthetic project
+on:
+  push:
+    branches: [fix/resource-utilization-calendars-20261126]
+    paths:
+      - ops/ovh/resource-utilization-calendars-20261126/audit.mjs
+      - .github/workflows/liftorbit-utilization-audit-20261126.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-utilization-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - run: node ops/ovh/resource-utilization-calendars-20261126/audit.mjs
