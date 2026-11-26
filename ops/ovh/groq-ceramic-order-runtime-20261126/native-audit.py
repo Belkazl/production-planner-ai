@@ -75,3 +75,19 @@ for name,m in [('browser_before',dict(browser,orders=browser['orders'][:2])),('b
     except Exception as e:
         print('ORDER_NATIVE_BROWSER_CASE',name,json.dumps({'error':type(e).__name__,'code':str(e)[:350]}))
 
+
+# Scale the already-proven integrated setup case rather than inventing a new
+# timing profile. Native errors in the earlier fixture occurred even BEFORE
+# any AI edit; do not use that fixture as an acceptance gate.
+for cap in (600,200):
+    scaled=copy.deepcopy(base)
+    scaled['quantity_unit']='m2'
+    scaled['equipment'][0].update(capacity=cap,capacity_unit='m2')
+    for o in scaled['orders']:o.update(quantity=600,area=600,unit='m2')
+    added=dict(scaled,orders=scaled['orders']+[dict(new,quantity=600,area=600,unit='m2',parameters=copy.deepcopy(scaled['orders'][-1]['parameters']))])
+    try:
+        with open(os.devnull,'w') as sink,contextlib.redirect_stdout(sink),contextlib.redirect_stderr(sink):
+            result=full_runtime_adapter.run({'model':copy.deepcopy(added),'options':{'generations':3,'population':6,'seed':1729,'objective':'duration'}},lambda p:None)
+        print('ORDER_NATIVE_SCALED_CASE',cap,json.dumps({'valid':result.get('valid'),'rows':len(result.get('operations',[])),'duration':result.get('duration_minutes')}))
+    except Exception as e:
+        print('ORDER_NATIVE_SCALED_CASE',cap,json.dumps({'error':type(e).__name__,'code':str(e)[:350]}))
