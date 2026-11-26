@@ -35,14 +35,14 @@ try{
    return {label:item.textContent.trim(),active:item.classList.contains("active"),itemWidth:box.width,itemHeight:box.height,
     icon:svg?.getAttribute("data-pp-solar-icon")||null,key:holder?.getAttribute("data-pp-solar-holder")||null,iconWidth:iconBox?.width??0,iconHeight:iconBox?.height??0,
     paths:svg?.querySelectorAll("path,circle,rect,ellipse,line,polyline,polygon").length||0,viewBox:svg?.getAttribute("viewBox")||null,
-    color:svg?getComputedStyle(svg).color:null,itemColor:getComputedStyle(item).color,children:[...item.children].map(e=>({tag:e.tagName,className:typeof e.className==="string"?e.className:"svg",text:e.textContent.trim().slice(0,70),w:e.getBoundingClientRect().width,h:e.getBoundingClientRect().height}))};
+    pseudo:["before","after"].map(which=>{const c=getComputedStyle(item,"::"+which);return {which,content:c.content,display:c.display,width:c.width,height:c.height,position:c.position,margin:c.margin,boxSizing:c.boxSizing}}),color:svg?getComputedStyle(svg).color:null,itemColor:getComputedStyle(item).color,children:[...item.children].map(e=>({tag:e.tagName,className:typeof e.className==="string"?e.className:"svg",text:e.textContent.trim().slice(0,70),w:e.getBoundingClientRect().width,h:e.getBoundingClientRect().height}))};
   });
  });
  const ready=async()=>{await page.reload({waitUntil:"domcontentloaded",timeout:45000});await page.waitForFunction(()=>document.querySelectorAll(".side .item").length>=10&&typeof model==="object"&&model?.orders?.length===1,{},{timeout:30000});};
  let baseline;
  if(!live){
   await ready();baseline=await inspect();
-  console.log("SOLAR_NAV_BASELINE",JSON.stringify(baseline.map(x=>({label:x.label,children:x.children}))));
+  console.log("SOLAR_NAV_BASELINE",JSON.stringify(baseline.map(x=>({label:x.label,children:x.children,pseudo:x.pseudo}))));
   await page.route("**/",async route=>{
    if(!route.request().isNavigationRequest()||new URL(route.request().url()).pathname!=="/")return route.continue();
    const response=await route.fetch(),html=await response.text();

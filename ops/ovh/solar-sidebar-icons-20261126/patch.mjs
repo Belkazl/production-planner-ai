@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync,writeFileSync} from "node:fs";
 import {icons} from "./icons.mjs";
-export const css="<style id=\"ppSolarSidebarIconsV1\">\n.side .item [data-pp-solar-holder] {\n  box-sizing:border-box!important;\n  width:var(--pp-solar-w,22px)!important;\n  height:var(--pp-solar-h,22px)!important;\n  min-width:var(--pp-solar-w,22px)!important;\n  flex-shrink:0;\n  padding:0!important;\n  border:0!important;\n  border-radius:0!important;\n  box-shadow:none!important;\n  background:none!important;\n  color:inherit!important;\n  overflow:visible!important;\n}\n.side .item [data-pp-solar-holder]::before,\n.side .item [data-pp-solar-holder]::after {content:none!important;display:none!important}\n.side .item [data-pp-solar-holder] > svg[data-pp-solar-icon] {\n  display:block!important;width:100%!important;height:100%!important;color:inherit!important;\n}\n.side .item svg[data-pp-solar-icon] {vertical-align:middle;pointer-events:none}\n</style>";
+export const css="<style id=\"ppSolarSidebarIconsV1\">\n.side .item [data-pp-solar-holder] {\n  box-sizing:border-box!important;\n  width:var(--pp-solar-w,22px)!important;\n  height:var(--pp-solar-h,22px)!important;\n  min-width:var(--pp-solar-w,22px)!important;\n  flex-shrink:0;\n  padding:0!important;\n  border:0!important;\n  border-radius:0!important;\n  box-shadow:none!important;\n  background:none!important;\n  color:inherit!important;\n  overflow:visible!important;\n}\n.side .item [data-pp-solar-holder]::before,\n.side .item [data-pp-solar-holder]::after {content:none!important;display:none!important}\n.side .item [data-pp-solar-holder] > svg[data-pp-solar-icon] {\n  display:block!important;width:100%!important;height:100%!important;color:inherit!important;\n}\n.side .item svg[data-pp-solar-icon] {vertical-align:middle;pointer-events:none}\n.side .item[data-pp-solar-pseudo=\"before\"]::before,\n.side .item[data-pp-solar-pseudo=\"after\"]::after {display:none!important;content:none!important}\n</style>";
 export function installSolarIcons(icons){
  const rail=document.querySelector(".side");if(!rail)return;
  const NS="http://www.w3.org/2000/svg";
@@ -20,7 +20,23 @@ export function installSolarIcons(icons){
    if(!entry)continue;
    const present=item.querySelector("svg[data-pp-solar-icon]");
    if(present?.getAttribute("data-pp-solar-icon")===entry.icon)continue;
-   const holder=pick(item);if(!holder)continue;
+   let holder=pick(item);
+   if(!holder){
+    const pseudo=["before","after"].find(which=>{
+     const p=getComputedStyle(item,"::"+which),w=parseFloat(p.width),h=parseFloat(p.height);
+     return p.content!=="none"&&p.content!=="normal"&&p.display!=="none"&&w>=10&&w<=60&&h>=10&&h<=60;
+    });
+    if(!pseudo)continue;
+    const p=getComputedStyle(item,"::"+pseudo);
+    const px=key=>parseFloat(p[key])||0;
+    const extraWidth=p.boxSizing==="border-box"?0:px("borderLeftWidth")+px("borderRightWidth")+px("paddingLeft")+px("paddingRight");
+    const extraHeight=p.boxSizing==="border-box"?0:px("borderTopWidth")+px("borderBottomWidth")+px("paddingTop")+px("paddingBottom");
+    holder=document.createElement("span");
+    Object.assign(holder.style,{boxSizing:"border-box",display:"block",width:(px("width")+extraWidth)+"px",height:(px("height")+extraHeight)+"px",margin:p.margin,order:p.order,alignSelf:p.alignSelf,flexShrink:"0"});
+    if(p.position==="absolute"||p.position==="fixed")Object.assign(holder.style,{position:p.position,top:p.top,right:p.right,bottom:p.bottom,left:p.left,transform:p.transform});
+    if(pseudo==="before")item.prepend(holder);else item.append(holder);
+    item.setAttribute("data-pp-solar-pseudo",pseudo);
+   }
    // Preserve the old icon's box and the native item/event handlers.
    const box=holder.getBoundingClientRect(),computed=getComputedStyle(holder);
    const width=box.width>0?box.width:parseFloat(computed.width)||22;
