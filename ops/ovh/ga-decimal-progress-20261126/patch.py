@@ -152,7 +152,22 @@ def patch(name,s):
         if "percent++" in ui or "setTimeout(animatePercent" in ui:raise ValueError("decimal_progress_artificial_pacing")
     return s
 
+def test_lifecycle():
+    fixture=(Path(__file__).parent.parent/"optimizer-lifecycle-20261124"/"lifecycle.mjs").read_text()
+    corrected=patch_lifecycle(fixture)
+    assert corrected==fixture.replace("Math.min(99, Math.floor(p.percent))","Math.min(99.99, p.percent)",1)
+    for damaged in (fixture.replace("p.seq <= lastProgressSeq","false"),corrected):
+        try:
+            patch_lifecycle(damaged)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Lifecycle patch must reject guard drift or already patched code")
+    print("DECIMAL_LIFECYCLE_SOURCE_GUARDS_PASS",flush=True)
+
+
 def test(out):
+    test_lifecycle()
     adapter=ast.parse((out/"full_runtime_adapter.py").read_text())
     fn=next(n for n in adapter.body if isinstance(n,ast.FunctionDef) and n.name=="_pp_install_decimal_progress_observer")
     ns={};exec(compile(ast.Module(body=[fn],type_ignores=[]),"<counter-test>","exec"),ns)
