@@ -47,7 +47,6 @@ export function ppGroqPrepareEdit(model,args){
   const equipment=list(clone.equipment).length?clone.equipment:list(clone.autoclaves);
   const required=new Set();
   for(const op of list(p.operations)){
-   if(typeof op.setup_parameter==="string"&&op.setup_parameter.trim())required.add(op.setup_parameter);
    for(const req of list(op.resource_requirements)){
     if(req.resource_type!=="equipment")continue;
     const refs=list(req.resource_refs).length?req.resource_refs:[req.resource_ref];
@@ -91,9 +90,10 @@ export function ppGroqPrepareEdit(model,args){
   if(!template)fail("no_change");
   const current=params(o),missing=Object.fromEntries(Object.entries(template.parameters).filter(([k])=>!Object.hasOwn(current,k)));
   if(!Object.keys(missing).length)fail("no_change");
-  o.parameters={...missing,...current};
+  const previous=o.parameters&&typeof o.parameters==="object"&&!Array.isArray(o.parameters)?o.parameters:{};
+  o.parameters={...previous,...missing};
   const quantity=number(Number(o.quantity??o.area),.000001);
-  change={kind:args.kind,record:String(o.id),before:quantity,after:quantity,unit,process:label(p,"Process"),templateRecord:String(template.o.id),parameters:missing};
+  change={kind:args.kind,record:String(o.id),before:quantity,after:quantity,unit,process:label(p,"Process"),templateRecord:String(template.o.id),parameters:missing,missingRequired:requiredKeys(p).filter(k=>!Object.hasOwn(current,k))};
  }else if(args.kind==="add_order"){
   if(orders.length>=5000)fail("too_many_orders");
   const quantity=number(args.quantity,.000001),p=processAt(args.process_index);
