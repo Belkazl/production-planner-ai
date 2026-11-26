@@ -1,0 +1,32 @@
+name: Inspect native project editing contracts for assistant actions
+on:
+  push:
+    branches: [fix/groq-project-actions-20261126]
+    paths: [.github/workflows/liftorbit-groq-actions-audit-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Read native edit and save functions from delivered planner in a synthetic account
+        run: |
+          python3 - <<'PY'
+          import urllib.request,http.cookiejar,json,uuid,secrets,re
+          base='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          headers={'Content-Type':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin','Accept':'application/json'}
+          body=json.dumps({'email':'action-audit-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'Synthetic actions audit'}).encode()
+          with op.open(urllib.request.Request(base+'/api/auth/register',data=body,headers=headers,method='POST'),timeout=30) as r:assert r.status==200
+          with op.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:s=r.read(16000000).decode()
+          patterns=[r'function\s+\w*(?:Order|Model|Project|Storage|Save|Persist|Dirty|Invalidate|Commit|Apply)\w*\s*\(',r'\.orders\.push\(',r'\.orders\s*=',r'/api/model',r'ppProjectAfter',r'ppWaitForSaves',r'function clearPlan\(']
+          sensitive=re.compile(r'(?i)gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|postgres(?:ql)?://|-----BEGIN|(?:password|secret|api[_ -]?key|token)\s*[:=]\s*["\x27][^"\x27]{12,}')
+          for p in patterns:
+              ms=list(re.finditer(p,s,re.I))
+              print('ACTION_AUDIT_COUNT',p,len(ms))
+              for m in ms[:100]:
+                  chunk=s[max(0,m.start()-80):m.start()+1200]
+                  if sensitive.search(chunk):continue
+                  print('ACTION_AUDIT_CODE',m.group(0),json.dumps(chunk,ensure_ascii=True))
+          PY
