@@ -1,0 +1,51 @@
+name: Diagnose real decimal worker source and progress path
+on:
+  push:
+    branches: [fix/ga-decimal-progress-20261126]
+    paths: [.github/workflows/liftorbit-ga-decimal-live-audit-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify deployed source versions and exact progress hooks read-only
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST" python3 -B -I - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          root=Path.home()/'liftorbit-migration/sources'
+          app=root/'ovh-app/current'
+          worker=root/'current/ga/ga_workers'
+          for p in [worker/'full_runtime_adapter.py',worker/'manager.py',worker/'joint_minibatch.py',worker/'compile_legacy_ga.py',app/'python-ga-upstream.mjs',app/'restart-optimizer-ui.js',app/'ga-worker-build.ts',app/'Dockerfile']:
+              if not p.is_file():continue
+              s=p.read_text()
+              print("DECIMAL_CURRENT_FILE",p.name,hashlib.sha256(p.read_bytes()).hexdigest())
+              if p.name=='full_runtime_adapter.py':
+                  lines=s.splitlines()
+                  for i,line in enumerate(lines):
+                      if re.search(r'ga\s*=|_pp_install_decimal|install_joint|_pp_progress_begin|_pp_progress_step|_pp_progress_snapshot|def compute|pct=|initial_progress|decimal_percent|optimize\x27\]',line):
+                          print("DECIMAL_HOOK",i+1,line[:900])
+              elif p.name in ('ga-worker-build.ts','Dockerfile','compile_legacy_ga.py'):
+                  for i,line in enumerate(s.splitlines()):
+                      if re.search(r'COPY.*ga|ga_workers|adapter|_pp_progress|production_planner',line) and not re.search(r'(?i)password|secret|token|api.key|postgres(?:ql)?://',line):
+                          print("DECIMAL_BUILD",p.name,i+1,line[:700])
+              else:
+                  for i,line in enumerate(s.splitlines()):
+                      if re.search(r'job.progress = min|fraction = float|const pct=.*data.progress|const next=.*p.percent|percent.toFixed|_pp_progress_begin|_pp_progress_step|standard:Object.freeze',line):
+                          print("DECIMAL_PATH",p.name,i+1,line[:700])
+          PY
