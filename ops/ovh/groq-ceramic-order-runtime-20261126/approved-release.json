@@ -1,0 +1,5 @@
+{
+  "candidate": "8e1dca9f2aca56473bf353c525b8e8c523515a29",
+  "native_run": 45841450928,
+  "verified": "RuntimeError on missing required parameter; repaired native result valid with 600 m2 and maximum 200 m2; end-to-end test required before release"
+}
