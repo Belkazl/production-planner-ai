@@ -1,0 +1,33 @@
+name: Test Solar Linear sidebar icons without restarting production
+on:
+  push:
+    branches: [fix/solar-sidebar-icons-20261126]
+    paths:
+      - .github/workflows/liftorbit-solar-sidebar-test-20261126.yml
+      - ops/ovh/solar-sidebar-icons-20261126/**
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-solar-test --no-save --no-package-lock --ignore-scripts @iconify-json/solar@1.2.5 playwright-core@1.58.2
+      - name: Verify authentic Solar assets, scoped patch and actual planner menu
+        run: |
+          set -euo pipefail
+          node --test ops/ovh/solar-sidebar-icons-20261126/test.mjs
+          bash -n ops/ovh/solar-sidebar-icons-20261126/release.sh
+          node ops/ovh/solar-sidebar-icons-20261126/browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: solar-sidebar-candidate
+          path: /tmp/liftorbit-solar-sidebar-candidate.png
+          retention-days: 7
