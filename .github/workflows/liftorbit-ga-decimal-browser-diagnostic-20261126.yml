@@ -1,0 +1,21 @@
+name: Test fractional SSE in the full planner browser environment
+on:
+  push:
+    branches: [fix/ga-decimal-progress-20261126]
+    paths: [.github/workflows/liftorbit-ga-decimal-browser-diagnostic-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-decimal-test --no-save --no-package-lock playwright-core@1.58.2
+      - name: Test the actual UI with synthetic fractional progress only
+        run: node ops/ovh/ga-decimal-progress-20261126/browser-diagnostic.mjs
