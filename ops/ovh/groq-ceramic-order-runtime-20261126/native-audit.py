@@ -42,12 +42,21 @@ for name,f in sorted(ga.items()):
 sys.path.insert(0,str(ops/'integrated-setup-verify-20261125'))
 from cases import model
 base=model()
-cases=[('complete',base),('missing_color',dict(base,orders=base['orders']+[{'id':'NEW_ORDER','quantity':1,'unit':'шт.','technical_process_id':'SYNTHETIC_PROCESS','area':1,'process_hours':1}]))]
-for name,m in cases:
+base['equipment'][0]['capabilities']={'allowed_parameters':{'color':['A','B']}}
+new={'id':'NEW_ORDER','quantity':1,'unit':'шт.','technical_process_id':'SYNTHETIC_PROCESS','area':1,'process_hours':1}
+missing=dict(base,orders=base['orders']+[new])
+fixed=dict(base,orders=base['orders']+[dict(new,parameters=copy.deepcopy(base['orders'][-1]['parameters']))])
+cases=[('complete',base,True),('missing_required_parameter',missing,False),('same_process_template',fixed,True)]
+for name,m,want in cases:
     try:
         with open(os.devnull,'w') as sink,contextlib.redirect_stdout(sink),contextlib.redirect_stderr(sink):
             result=full_runtime_adapter.run({'model':copy.deepcopy(m),'options':{'generations':3,'population':6,'seed':1729,'objective':'duration'}},lambda p:None)
-        print('ORDER_NATIVE_CASE',name,json.dumps({'valid':result.get('valid'),'duration':result.get('duration_minutes'),'orders':len(m['orders']),'rows':len(result.get('operations',[]))}))
+        valid=result.get('valid') is True
+        if valid and want and name=='same_process_template':
+            assert any(str(x.get('order'))=='NEW_ORDER' and not x.get('is_setup') for x in result.get('operations',[]))
+        print('ORDER_NATIVE_CASE',name,json.dumps({'valid':valid,'duration':result.get('duration_minutes'),'orders':len(m['orders']),'rows':len(result.get('operations',[]))}))
     except Exception as e:
-        # Synthetic model only; classify public exception metadata.
+        valid=False
         print('ORDER_NATIVE_CASE',name,json.dumps({'error':type(e).__name__,'code':str(e)[:220]}))
+    assert valid is want,(name,valid,want)
+print('ORDER_NATIVE_COMPATIBILITY_REPRODUCTION_PASS')
