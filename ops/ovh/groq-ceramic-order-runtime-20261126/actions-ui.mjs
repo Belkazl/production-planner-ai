@@ -167,8 +167,8 @@ function ppGroqShowProposal(data,snapshot,userMessage){
   }
  };
 }
-// Only suggest a repair when a single existing order is missing a native
-// compatibility parameter and a same-process template is available. No writes
+// Only suggest a repair when a single existing order has no production
+// parameters and a same-process template is available. No writes
 // or provider requests occur until the user confirms the displayed values.
 function ppGroqOfferIncompleteOrder(){
  try{
@@ -177,22 +177,14 @@ function ppGroqOfferIncompleteOrder(){
   if(typeof model!=="object"||!model||ppGroqEditBusy())return;
   const key=snapshot.id+":"+snapshot.revision;
   if(window.__ppGroqOfferedRepair===key)return;
-  const candidates=[];
-  snapshot.model.orders.forEach((o,i)=>{
-   // Only entirely absent attributes here. Partial repairs remain available
-   // through the explicit AI command, avoiding unsolicited changes.
-   if(o.parameters&&typeof o.parameters==="object"&&Object.keys(o.parameters).length)return;
-   const args={kind:"complete_order_parameters",order_index:i+1};
-   try{
-    const {change}=ppGroqPrepareEdit(snapshot.model,args);
-    if(change.missingRequired?.length)candidates.push({args,change});
-   }catch{}
-  });
-  if(candidates.length!==1)return;
-  if(document.querySelector('[data-groq-action="pending"]'))return;
+  const absent=snapshot.model.orders.map((o,i)=>({o,i})).filter(({o})=>!o.parameters||typeof o.parameters!=="object"||!Object.keys(o.parameters).length);
+  if(absent.length!==1||document.querySelector('[data-groq-action="pending"]'))return;
+  const args={kind:"complete_order_parameters",order_index:absent[0].i+1};
+  let change;try{({change}=ppGroqPrepareEdit(snapshot.model,args))}catch{return}
+  if(!change.templateRecord||!Object.keys(change.parameters||{}).length)return;
   window.__ppGroqOfferedRepair=key;
-  const c=candidates[0];
-  assistantBubble(assistantText("Order "+c.change.record+" is missing production parameters required by equipment. Review the proposed repair before calculating the schedule.","В заказе "+c.change.record+" отсутствуют производственные параметры, необходимые оборудованию. Проверьте предложенное исправление перед расчётом плана."));
+  const c={args,change};
+  assistantBubble(assistantText("Order "+c.change.record+" has no production parameters, unlike other orders of the same process. Review the proposed repair before calculating the schedule.","В заказе "+c.change.record+" отсутствуют производственные параметры, которые заданы в других заказах этого техпроцесса. Проверьте предложенное исправление перед расчётом плана."));
   ppGroqShowProposal({action:{projectId:snapshot.id,revision:snapshot.revision,args:c.args,change:c.change}},snapshot,assistantText("Complete order parameters","Заполнить параметры заказа")+" "+c.change.record);
  }catch{}
 }
