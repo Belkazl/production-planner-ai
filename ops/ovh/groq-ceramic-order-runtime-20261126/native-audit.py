@@ -1,6 +1,6 @@
 """Inspect order-parameter requirements on an isolated native runtime.
 Only synthetic fixtures are run; no account records or credentials."""
-import contextlib,copy,hashlib,importlib.util,inspect,json,os,re,sys
+import ast,builtins,contextlib,copy,hashlib,importlib.util,inspect,json,os,re,sys
 from pathlib import Path
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path)
@@ -16,11 +16,18 @@ sys.path.insert(0,'/native')
 from ga_workers import compile_legacy_ga,full_runtime_adapter
 with open(os.devnull,'w') as sink,contextlib.redirect_stdout(sink),contextlib.redirect_stderr(sink):
     compile_legacy_ga.build()
-    ga=full_runtime_adapter._namespace()
+    trees=[]
+    def capture_compile(source,*args,**kwargs):
+        if isinstance(source,ast.AST):trees.append(source)
+        return builtins.compile(source,*args,**kwargs)
+    full_runtime_adapter.compile=capture_compile
+    try:ga=full_runtime_adapter._namespace()
+    finally:del full_runtime_adapter.compile
+    definitions={n.name:n for tree in trees for n in ast.walk(tree) if isinstance(n,ast.FunctionDef)}
 for name,f in sorted(ga.items()):
     if not inspect.isfunction(f) or not re.search(r'compat|_pp_.*fit|_pp_.*param|_pp_.*state|_pp_.*material|_pp_.*normali|_pp_.*eligible',name,re.I):continue
     try:
-        s=inspect.getsource(f)
+        s=ast.unparse(definitions[name]) if name in definitions else inspect.getsource(f)
     except Exception:continue
     if not re.search(r'parameters|compatib|setup_parameter|order_params|order\.get|match_mode|order_value|material_consumption',s):continue
     if len(s)>7000:
