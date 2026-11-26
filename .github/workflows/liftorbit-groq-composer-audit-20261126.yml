@@ -1,0 +1,33 @@
+name: Diagnose assistant composer disabled and hidden states
+on:
+  push:
+    branches: [feat/groq-assistant-20261125]
+    paths: [.github/workflows/liftorbit-groq-composer-audit-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect current authenticated HTML and assistant controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,uuid,secrets,urllib.request,urllib.error,http.cookiejar,re
+          base='https://app.liftorbit.app'
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          body=json.dumps({'email':'assistant-composer-audit-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'Synthetic composer QA'}).encode()
+          hdr={'Content-Type':'application/json','Accept':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin'}
+          with op.open(urllib.request.Request(base+'/api/auth/register',data=body,headers=hdr,method='POST'),timeout=30) as r:print('REGISTER',r.status)
+          with op.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:html=r.read(16000000).decode()
+          for term in ['chatInput','chatSend','.compose','.assist{','.messages{','assistantState','ppProjectAfterChat','function openProject','function restoreChat','function showProjects','function renderSummary','pointer-events','inert','readOnly']:
+              hits=list(re.finditer(re.escape(term),html))
+              print('COMPOSER_TERM',term,len(hits))
+              for m in hits[:45]:
+                  chunk=html[max(0,m.start()-180):min(len(html),m.end()+230)]
+                  if re.search(r'(?i)(?:gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN|postgres(?:ql)?://|(?:password|secret|token|api.key)\s*[:=]\s*["\x27][^"\x27]{12,})',chunk):continue
+                  print('COMPOSER_SNIP',term,json.dumps(chunk,ensure_ascii=True))
+          PY
