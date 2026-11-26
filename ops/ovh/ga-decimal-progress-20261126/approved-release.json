@@ -1,0 +1,6 @@
+{
+  "candidate_commit": "b71c1e7de46572ae6f937e5292d65196d52d6fc3",
+  "baseline_run_id": 45821766525,
+  "baseline_result": "success",
+  "expected": "native fractional SSE with exact candidate counts, terminal 100.00%, no extra polling"
+}
