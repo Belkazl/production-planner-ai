@@ -1,0 +1,44 @@
+name: Confirm public LiftOrbit recovery after chat cleanup rollback
+on:
+  push:
+    branches: [fix/groq-chat-cleanup-20261126]
+    paths: [.github/workflows/liftorbit-public-recovery-check-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Check external app readiness and authenticated synthetic browser response
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://app.liftorbit.app
+          for attempt in $(seq 1 12); do
+            root=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "$base/" || true)
+            health=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "$base/__bridge_health" || true)
+            auth=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "$base/api/auth/me" || true)
+            printf 'PUBLIC_HEALTH attempt=%s root=%s bridge=%s auth=%s\n' "$attempt" "$root" "$health" "$auth"
+            if test "$root" = 200 && test "$health" = 200 && test "$auth" = 401; then break; fi
+            if test "$attempt" = 12; then exit 6; fi
+            sleep 5
+          done
+          python3 - <<'PY'
+          import json,uuid,secrets,urllib.request,http.cookiejar
+          base='https://app.liftorbit.app'
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          body=json.dumps({'email':'recovery-qa-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'Synthetic recovery QA'}).encode()
+          hdr={'Content-Type':'application/json','Accept':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin'}
+          with op.open(urllib.request.Request(base+'/api/auth/register',data=body,headers=hdr,method='POST'),timeout=30) as r:
+              assert r.status==200
+          with op.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:
+              html=r.read(16000000).decode('utf-8')
+              assert r.status==200 and 'PP_GROQ_ASSISTANT_UI_V1' in html and 'ppGroqComposerV2' in html
+              print('PUBLIC_AUTHENTICATED_PLANNER_PASS', 'cleanup_present='+str('ppGroqChatCleanupV1' in html))
+          body=json.dumps({'message':'Reply with exactly OK.','history':[],'includeProject':False}).encode()
+          with op.open(urllib.request.Request(base+'/api/assistant',data=body,headers=hdr,method='POST'),timeout=45) as r:
+              d=json.load(r)
+              assert r.status==200 and d.get('ok') and d.get('reply')
+              print('PUBLIC_GROQ_ASSISTANT_PASS')
+          PY
