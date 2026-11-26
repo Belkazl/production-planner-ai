@@ -42,6 +42,8 @@ OBSERVER='''def _pp_install_decimal_progress_observer(ga):
     def percent(snapshot):
         from math import isfinite
         done, total = counters
+        if callable(begin) and callable(step) and total == 0:
+            return 0.0  # Native search has not started; never emit the legacy artificial 1%.
         if total > 0:
             # Integer arithmetic avoids rounding up a not-yet-completed slot.
             # 100 is reserved for the independently verified terminal result.
@@ -129,6 +131,7 @@ def test(out):
     ga={"_pp_progress_begin":lambda *a,**k:calls.append(("begin",a,k)),"_pp_progress_step":lambda *a,**k:calls.append(("step",a,k))}
     percent=ns[fn.name](ga)
     assert percent({"percent":0})==0
+    assert percent({"percent":1})==0
     ga["_pp_progress_begin"](18,"optimizing")
     values=[]
     for i in range(1,19):
