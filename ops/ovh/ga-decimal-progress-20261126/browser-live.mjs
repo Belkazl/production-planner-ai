@@ -17,7 +17,7 @@ try{
  cdp.on("Network.responseReceived",e=>{if(streamIds.has(e.requestId))responses.push(e.response.status)});
  cdp.on("Network.eventSourceMessageReceived",e=>{
   if(!streamIds.has(e.requestId)||e.eventName!=="progress")return;
-  try{const p=JSON.parse(e.data);if(Number.isFinite(p.percent))samples.push({source:p.percent,phase:p.phase})}catch{}
+  try{const p=JSON.parse(e.data);if(Number.isFinite(p.percent))samples.push({source:p.percent,phase:p.phase,t:e.timestamp})}catch{}
  });
  const first=await page.goto(base+"/",{waitUntil:"domcontentloaded",timeout:45000});
  assert.equal(first.status(),200);
@@ -51,6 +51,34 @@ try{
  page.on("request",r=>{try{const p=new URL(r.url()).pathname;if(p==="/api/plan-progress")progressGets++;if(p==="/api/plan-events")streams++;if(p==="/api/plan"&&r.method()==="POST")posts++}catch{}});
  await page.evaluate(()=>{
   if(!window.__PP_OPTIMIZER_DEPTH__.set("quick"))throw Error("QUICK_MODE_BLOCKED");
+ });
+ // Capture actual rendered percent from before the native click: the POST
+ // handshake can complete after several real SSE events have arrived.
+ if(!await page.locator("#opt").isVisible()){
+  const planning=page.getByText(/^(Planning|Планирование)$/).first();
+  if(await planning.isVisible())await planning.click();
+ }
+ if(!await page.locator("#opt").isVisible()){
+  const plan=page.getByText(/^(Plan|План)$/).first();
+  if(await plan.isVisible())await plan.click();
+ }
+ await page.locator("#opt").waitFor({state:"visible",timeout:10000});
+ await page.evaluate(()=>{
+  window.__decimalRendered=[];
+  let last="";
+  const record=(frame)=>{
+   const s=window.__PP_SSE_PROGRESS_V1__?.state,label=document.querySelector("#opt .pp-sse-label");
+   if(!label||!s||(!s.active&&!s.completed))return;
+   const text=label.textContent,shown=label.getClientRects().length>0&&getComputedStyle(label).visibility!=="hidden";
+   const key=[s.percent,s.serverTarget,text,shown,frame].join("|");
+   if(key===last||window.__decimalRendered.length>=10000)return;
+   last=key;
+   window.__decimalRendered.push({percent:s.percent,target:s.serverTarget,text,shown,frame,t:performance.now()});
+  };
+  const observer=new MutationObserver(()=>record(false));
+  observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:["aria-valuenow"],childList:true});
+  const tick=()=>{record(true);if(!window.__PP_SSE_PROGRESS_V1__?.state.completed)requestAnimationFrame(tick);else observer.disconnect()};
+  requestAnimationFrame(tick);
  });
  phase="native_button_click";
  const post=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/plan"&&r.request().method()==="POST",{timeout:30000});
@@ -86,11 +114,12 @@ try{
  const final=await page.evaluate(async()=>{
   const state=window.__PP_SSE_PROGRESS_V1__.state;
   const r=await fetch("/api/plan-progress");const p=await r.json();
-  return {state,valid:p.success===true&&p.result?.valid===true,operations:p.result?.operations?.length,evaluated:p.result?.joint_minibatch?.evaluated??null,text:document.querySelector("#opt .pp-sse-label")?.textContent};
+  return {state,valid:p.success===true&&p.result?.valid===true,operations:p.result?.operations?.length,evaluated:p.result?.joint_minibatch?.evaluated??null,text:document.querySelector("#opt .pp-sse-label")?.textContent,rendered:window.__decimalRendered||[]};
  });
  started=false;
  assert(final.valid&&final.operations>0);assert.equal(final.state.percent,100);assert.equal(final.state.networkFinalGets,1);assert(streams>=1);assert.equal(posts,1);
  const running=samples.filter(p=>p.phase!=="completed"&&p.source>0&&p.source<99.99);
+ console.log("DECIMAL_RENDER_TRACE",JSON.stringify({server:running.map(x=>({p:x.source,t:Math.round((x.t-(running[0]?.t||0))*1000)})),rendered:final.rendered.filter(x=>x.frame&&x.shown).filter((x,i,a)=>i===0||x.percent!==a[i-1].percent).slice(0,40),observed:final.rendered.filter(x=>!x.frame).filter((x,i,a)=>i===0||x.percent!==a[i-1].percent).slice(0,40),afterPost:visible.filter((x,i,a)=>i===0||x.percent!==a[i-1].percent).slice(0,30)}));
  assert(running.length>0,"observed native running progress");
  const fractional=running.filter(p=>!Number.isInteger(p.source));
  assert.equal(final.evaluated,18,"unchanged Quick candidate slots");
@@ -98,13 +127,13 @@ try{
   assert.match(final.text,/100[.,]00%$/);assert(fractional.length>0,"native worker must emit fractional values");
   const allowed=new Set(Array.from({length:18},(_,i)=>Math.min(9999,Math.floor((i+1)*10000/18))/100));
   assert(running.every(p=>allowed.has(p.source)),"every progress event is a real native candidate fraction");
-  const observed=visible.filter(v=>v.percent>0&&v.percent<99.99);
-  assert(observed.some(v=>!Number.isInteger(v.percent)),"fractional percent actually visible");
+  const observed=final.rendered.filter(v=>v.shown&&v.percent>0&&v.percent<99.99);
+  assert(observed.some(v=>v.frame&&!Number.isInteger(v.percent)),"fractional percent actually visible on rendered frame");
   assert(observed.every(v=>v.percent===v.target&&Math.abs(Number(v.text.replace("%","").replace(",","."))-v.percent)<1e-8&&/\d+[.,]\d{2}%$/.test(v.text)),"visible labels match confirmed targets");
   assert(running.every((p,i)=>i===0||p.source>=running[i-1].source),"progress monotonic");
   assert(progressGets<=4,"no repeated status polling");
  }
- console.log(baseline?"DECIMAL_BASELINE_NATIVE_CLICK_PASS":"DECIMAL_LIVE_NATIVE_SSE_PASS",JSON.stringify({events:samples.length,running:running.length,fractional:fractional.length,first:fractional[0]?.source,visible:visible.filter(v=>!Number.isInteger(v.percent)).length,evaluated:final.evaluated,final:final.text,valid:final.valid,streams,progressGets,responses,errors}));
+ console.log(baseline?"DECIMAL_BASELINE_NATIVE_CLICK_PASS":"DECIMAL_LIVE_NATIVE_SSE_PASS",JSON.stringify({events:samples.length,running:running.length,fractional:fractional.length,first:fractional[0]?.source,visible:final.rendered.filter(v=>v.frame&&v.shown&&!Number.isInteger(v.percent)).length,evaluated:final.evaluated,final:final.text,valid:final.valid,streams,progressGets,responses,errors}));
 }catch(e){
  console.log("DECIMAL_LIVE_FAILED",phase,e?.name==="AssertionError"?"AssertionError":e?.name==="TimeoutError"?"TimeoutError":"Error");
  if(e?.name==="AssertionError")console.log("DECIMAL_LIVE_ASSERTION",String(e.message).slice(0,180));
