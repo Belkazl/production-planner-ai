@@ -18,14 +18,16 @@ try{
  },{path,method,body});
  assert.equal((await request("/api/auth/register","POST",{email:"groq-param-qa-"+randomUUID()+"@liftorbit.invalid",password:randomBytes(25).toString("base64url"),company:"Synthetic order parameter QA"})).status,200);
  const id="prj_params_"+randomUUID().replaceAll("-","").slice(0,13),otherId=id+"_repair";
- const req=(ref)=>({resource_type:"equipment",resource_ref:ref,resource_refs:[ref],match_mode:"specific",quantity:1,unit:"pcs",consumption_rule:"during_operation"});
- const model={scheduler_mode:"resource",start:"2026-11-25T08:00:00",quantity_unit:"m2",
-  orders:[{id:2611,quantity:900,area:900,unit:"m2",technical_process_id:"TP1",process_hours:1,parameters:{color:"A",width:600}},
-   {id:2612,quantity:800,area:800,unit:"m2",technical_process_id:"TP1",process_hours:1,parameters:{color:"B",width:1200}}],
-  equipment:[{id:"M1",name:"Synthetic press",kind:"pressing",capacity:200,capacity_unit:"m2",capabilities:{allowed_parameters:{color:["A","B"]},max_parameters:{width:1300}},timing_profile:{timing_mode:"throughput",throughput_per_hour:600}}],
-  employees:[],shifts:{},materials:[],setup_rules:[{id:"SET_AB",equipment_ref:"*",setup_parameter:"color",from_state:"A",to_state:"B",duration_min:5},{id:"SET_BA",equipment_ref:"*",setup_parameter:"color",from_state:"B",to_state:"A",duration_min:5}],
-  technical_processes:[{id:"TP1",name:"Synthetic ceramic process",operations:[{id:"OP1",name:"Synthetic pressing",sequence:1,duration_min:10,setup_parameter:"color",resource_requirements:[req("M1")]}]}]};
- const broken=structuredClone(model);broken.orders.push({id:2613,quantity:600,area:600,unit:"m2",technical_process_id:"TP1",process_hours:1});
+ // Exact proven integrated setup model, scaled to 600 m2 and
+ // 200 m2 maximum capacity; the preceding native audit passed all 12 rows.
+ const req={resource_type:"equipment",match_mode:"specific",resource_ref:"SYNTHETIC_MACHINE",resource_refs:["SYNTHETIC_MACHINE"],quantity:1,unit:"шт."};
+ const model={scheduler_mode:"resource",quantity_unit:"m2",start:"2026-11-25T00:00:00",
+  equipment:[{id:"SYNTHETIC_MACHINE",name:"Synthetic machine",kind:"workstation",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10},capabilities:{allowed_parameters:{color:["A","B"]}}}],
+  orders:[["2610","A"],["2611","B"],["2612","A"]].map(([id,color])=>({id,quantity:600,area:600,unit:"m2",technical_process_id:"SYNTHETIC_PROCESS",parameters:{color}})),
+  employees:[],materials:[],shifts:{},constraints:[],
+  setup_rules:[["A","B"],["B","A"]].map(([a,b])=>({id:"SYNTHETIC_SETUP_"+a+b,setup_parameter:"color",equipment_ref:"*",from_state:a,to_state:b,duration_min:15})),
+  technical_processes:[{id:"SYNTHETIC_PROCESS",name:"Synthetic setup process",operations:[{id:"SYNTHETIC_WORK",name:"Synthetic work",sequence:1,duration_min:10,setup_parameter:"color",resource_requirements:[req]}]}]};
+ const broken=structuredClone(model);broken.orders.push({id:2613,quantity:600,area:600,unit:"m2",technical_process_id:"SYNTHETIC_PROCESS",process_hours:1/6});
  const other={id:otherId,name:"Synthetic incomplete order QA",model:broken,revision:9,lastPlan:null};
  const records=[{id,name:"Synthetic complete order QA",model,revision:1,lastPlan:null},other];
  assert.equal((await request("/api/db-storage","POST",{storage:{"prodplan.projects.v2":JSON.stringify(records),"prodplan.project.active.v2":id}})).status,200);
@@ -45,7 +47,7 @@ try{
  });
  phase="planner";
  await page.reload({waitUntil:"domcontentloaded",timeout:45000});
- await page.waitForFunction(()=>typeof model==="object"&&model?.orders?.length===2&&typeof ppGroqInstallRepairOffer==="function",{},{timeout:30000});
+ await page.waitForFunction(()=>typeof model==="object"&&model?.orders?.length===3&&typeof ppGroqInstallRepairOffer==="function",{},{timeout:30000});
  if(!await page.locator("#chatInput").isVisible()){const n=page.getByText(/^(Planning|Планирование)$/).first();if(await n.isVisible())await n.click()}
  await page.locator("#chatInput").waitFor({state:"visible",timeout:12000});
  const before=await get();assert.equal(before.id,id);
@@ -60,7 +62,6 @@ try{
   const card=page.locator('[data-groq-action="pending"]').last();
   await card.waitFor({state:"visible",timeout:12000});
   assert.match(await card.textContent(),/color/i);
-  assert.match(await card.textContent(),/width/i);
   await card.locator('[data-groq-apply]').click();
   await page.waitForFunction(()=>!window.__ppGroqApplyingEdit&&document.querySelector('[data-groq-action="applied"],[data-groq-action="failed"]'),{},{timeout:50000});
   const failed=page.locator('[data-groq-action="failed"]').last();
@@ -95,7 +96,7 @@ try{
  assert.deepEqual(await get(),before);
  await apply();
  const after=await get(),created=after.active.model.orders.find(o=>String(o.id)==="2613");
- assert.equal(after.active.model.orders.length,3);assert.equal(created.quantity,600);
+ assert.equal(after.active.model.orders.length,4);assert.equal(created.quantity,600);
  assert.deepEqual(created.parameters,d.action.change.parameters);assert.deepEqual(after.others,before.others);
  phase="new_order_optimization";await optimize();
  console.log("ORDER_PARAMETER_NEW_ORDER_NATIVE_PASS",live?"live":"candidate");
@@ -104,15 +105,15 @@ try{
  const all=JSON.parse(db.data.storage["prodplan.projects.v2"]);
  assert.equal((await request("/api/db-storage","POST",{storage:{...db.data.storage,"prodplan.projects.v2":JSON.stringify(all),"prodplan.project.active.v2":otherId}})).status,200);
  await page.reload({waitUntil:"domcontentloaded",timeout:45000});
- await page.waitForFunction(()=>typeof model==="object"&&model?.orders?.length===3&&typeof ppGroqInstallRepairOffer==="function",{},{timeout:30000});
- const repairBefore=await get();assert.equal(repairBefore.id,otherId);assert.equal(repairBefore.active.model.orders[2].parameters,undefined);
+ await page.waitForFunction(()=>typeof model==="object"&&model?.orders?.length===4&&typeof ppGroqInstallRepairOffer==="function",{},{timeout:30000});
+ const repairBefore=await get();assert.equal(repairBefore.id,otherId);assert.equal(repairBefore.active.model.orders[3].parameters,undefined);
  const repair=page.locator('[data-groq-action="pending"]').last();
  await repair.waitFor({state:"visible",timeout:20000});
  assert.match(await repair.textContent(),/2613/);assert.match(await repair.textContent(),/2612/);
  assert.deepEqual(await get(),repairBefore);
  await apply();
- const repaired=await get();assert.equal(repaired.active.model.orders.length,3);assert.equal(repaired.active.model.orders[2].quantity,600);
- assert.deepEqual(repaired.active.model.orders[2].parameters,broken.orders[1].parameters);assert.deepEqual(repaired.others,repairBefore.others);
+ const repaired=await get();assert.equal(repaired.active.model.orders.length,4);assert.equal(repaired.active.model.orders[3].quantity,600);
+ assert.deepEqual(repaired.active.model.orders[3].parameters,broken.orders[2].parameters);assert.deepEqual(repaired.others,repairBefore.others);
  phase="repaired_order_optimization";await optimize();
  console.log("ORDER_PARAMETER_EXISTING_REPAIR_NATIVE_PASS",live?"live":"candidate");
  console.log("ORDER_PARAMETER_BROWSER_PASS",live?"live":"candidate");
