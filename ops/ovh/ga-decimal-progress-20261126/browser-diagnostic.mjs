@@ -21,12 +21,24 @@ try{
   const end=s.indexOf("\n})();",i)+6;
   assert(end>i);
   const original=s.slice(i,end);
+  for(const name of ["setProgressTarget","receiveProgress","ensureMeter"]){
+   const start=original.indexOf("function "+name+"(");
+   if(start<0)continue;
+   const stop=original.indexOf("\nfunction ",start+10);
+   const fn=original.slice(start,stop<0?start+1800:Math.min(stop,start+1800));
+   console.log("DECIMAL_BROWSER_DELIVERED_FUNCTION",name,JSON.stringify(fn));
+  }
   let ui=original;
   function once(a,b){assert.equal(ui.split(a).length,2,a);ui=ui.replace(a,b)}
   const a=ui.indexOf("function animatePercent(){"),b=ui.indexOf("function hideFog(){",a);
   assert(a>=0&&b>a);
   ui=ui.slice(0,a)+"function setProgressTarget(target){if(!Number.isFinite(target))return;targetPercent=Math.max(targetPercent,Math.max(0,Math.min(verifiedTerminal?100:99.99,target)));if(verifiedTerminal){finishVisible();return}percent=targetPercent;ensureMeter();}\n"+ui.slice(b);
-  once("const next=Math.max(0,Math.min(99,Math.floor(p.percent)));","const next=Math.max(0,Math.min(99.99,p.percent));window.__qaDecimalTrace.push({raw:raw,parsed:p.percent,next:next,phase:p.phase});");
+  const receiveStart=ui.indexOf("function receiveProgress(raw){");
+  const receiveEnd=ui.indexOf("\nfunction ",receiveStart+10);
+  assert(receiveStart>=0&&receiveEnd>receiveStart);
+  const receive=ui.slice(receiveStart,receiveEnd);
+  assert.equal(receive.split("setProgressTarget(next);").length,2);
+  ui=ui.slice(0,receiveStart)+receive.replace(/const next=[^;]+;/,"const next=Math.max(0,Math.min(99.99,p.percent));window.__qaDecimalTrace.push({raw:raw,parsed:p.percent,next:next,phase:p.phase});")+ui.slice(receiveEnd);
   once('const shownText=completed?doneText:percent+"%";','const shownText=percent.toFixed(2)+"%";');
   patches++;
   return s.slice(0,i)+ui+s.slice(end);
@@ -35,7 +47,7 @@ try{
  await page.route("**/*",async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;
   if(req.isNavigationRequest()&&path==="/"||req.resourceType()==="script"&&path.includes("restart-optimizer-ui")){
-   const resp=await route.fetch();const original=await resp.text();const output=patch(original);
+   const resp=await route.fetch();const original=await resp.text();let output;try{output=patch(original)}catch(e){console.log("DECIMAL_BROWSER_PATCH_ERROR",e.name,String(e.message).slice(0,200));await route.abort();return}
    return route.fulfill({response:resp,body:output});
   }
   if(path==="/api/plan-events"){
