@@ -27,6 +27,8 @@ jobs:
           python3 -m py_compile ops/ovh/ga-decimal-progress-20261126/patch.py
           node --check ops/ovh/ga-decimal-progress-20261126/browser-unit.mjs
           node --check ops/ovh/ga-decimal-progress-20261126/browser-live.mjs
+      - name: Verify actual native click and rendered progress trace before touching production
+        run: DECIMAL_BASELINE=1 node ops/ovh/ga-decimal-progress-20261126/browser-live.mjs
       - name: Test captured code, deploy and verify true fractional progress
         env:
           DEPLOY_HOST: ${{ vars.OVH_HOST }}
