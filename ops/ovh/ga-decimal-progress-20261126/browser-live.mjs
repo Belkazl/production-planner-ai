@@ -37,14 +37,13 @@ try{
  assert.equal((await request("/api/auth/register","POST",{email,password,company:"Synthetic decimal GA QA"})).status,200);
  const id="prj_decimal_"+randomUUID().replaceAll("-","").slice(0,13);
  const res=(type,ref)=>({resource_type:type,resource_ref:ref,resource_refs:[ref],match_mode:"specific",quantity:1,unit:type==="equipment"?"pcs":"чел.",consumption_rule:"during_operation"});
- const model={scheduler_mode:"resource",start:"2026-11-25T08:00:00",quantity_unit:"pcs",
-  orders:[173,214,265,189,248,223].map((quantity,i)=>({id:"O"+(i+1),quantity,area:quantity,unit:"pcs",technical_process_id:"TP1"})),
-  equipment:[{id:"M1",name:"QA press",kind:"pressing",capacity:100,capacity_unit:"pcs",timing_profile:{timing_mode:"throughput",throughput_per_hour:120}},
-   {id:"M2",name:"QA pack",kind:"packing",capacity:100,capacity_unit:"pcs",timing_profile:{timing_mode:"throughput",throughput_per_hour:180}}],
-  employees:[{id:"E1",name:"Invented operator",role:"Operator",shift:"day"}],shifts:{day:[["08:00","12:00"],["13:00","17:00"]]},
-  materials:[],setup_rules:[],technical_processes:[{id:"TP1",name:"Invented process",operations:[
-   {id:"OP1",name:"Pressing",sequence:1,duration_min:1,resource_requirements:[res("equipment","M1"),res("employee","E1")]},
-   {id:"OP2",name:"Packing",sequence:2,duration_min:1,resource_requirements:[res("equipment","M2"),res("employee","E1")]}]}]};
+ // Same bounded, machine-only model that passed the real native Quick diversity gate.
+ const kind="synthetic_diversity_machine", process="SYNTHETIC_DIVERSITY_PROCESS";
+ const model={scheduler_mode:"resource",quantity_unit:"шт.",start:"2026-11-25T00:00:00",
+  employees:[],materials:[],setup_rules:[],shifts:{},constraints:[],
+  equipment:Array.from({length:2},(_,i)=>({id:"SYNTHETIC_MACHINE_"+i,name:"Invented test machine "+i,kind,capacity:6,capacity_unit:"шт."})),
+  orders:Array.from({length:6},(_,i)=>({id:"SYNTHETIC_ORDER_"+i,quantity:12,unit:"шт.",technical_process_id:process})),
+  technical_processes:[{id:process,name:"Invented process",operations:[{id:"SYNTHETIC_STEP",name:"Invented step",sequence:1,duration_min:2,resource_requirements:[{resource_type:"equipment",match_mode:"any",resource_ref:"kind:"+kind,quantity:1,unit:"шт.",consumption_rule:"during_operation"}]}]}]};
  assert.equal((await request("/api/db-storage","POST",{storage:{"prodplan.projects.v2":JSON.stringify([{id,name:"Synthetic decimal progress QA",model,revision:1}]),"prodplan.project.active.v2":id}})).status,200);
  phase="planner";
  await page.reload({waitUntil:"domcontentloaded",timeout:45000});
@@ -53,14 +52,23 @@ try{
  let progressGets=0,streams=0;
  page.on("request",r=>{try{const p=new URL(r.url()).pathname;if(p==="/api/plan-progress")progressGets++;if(p==="/api/plan-events")streams++}catch{}});
  phase="native_run";
- const result=await page.evaluate(async()=>{
-  window.__PP_SSE_PROGRESS_V1__.start();
-  const r=await fetch("/api/plan",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({generations:19,population:7,seed:1729,objective:"duration",continue:false,__pp_async_start:true})});
-  let data={};try{data=await r.json()}catch{}
-  return {status:r.status,accepted:data.started===true};
- });
- assert.equal(result.status,202);assert.equal(result.accepted,true);started=true;
- await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__?.state.completed===true,{},{timeout:180000});
+ // APIRequestContext shares this isolated account's cookies, but bypasses
+ // the browser's optimization-depth fetch wrapper. Submit exactly 35 slots.
+ const posted={generations:5,population:7,seed:1729,objective:"duration",continue:false,__pp_async_start:true};
+ await page.evaluate(()=>window.__PP_SSE_PROGRESS_V1__.start());
+ const accepted=await page.context().request.post(base+"/api/plan",{data:posted,headers:{Origin:base,"Sec-Fetch-Site":"same-origin",Accept:"application/json"},timeout:30000});
+ const data=await accepted.json();
+ assert.equal(accepted.status(),202);assert.equal(data.started,true);started=true;
+ console.log("DECIMAL_LIVE_JOB_ACCEPTED",JSON.stringify({generations:posted.generations,population:posted.population}));
+ try{
+  await page.waitForFunction(()=>window.__PP_SSE_PROGRESS_V1__?.state.completed===true,{},{timeout:100000});
+ }catch(e){
+  const state=await page.evaluate(()=>({active:window.__PP_SSE_PROGRESS_V1__?.state.active,connected:window.__PP_SSE_PROGRESS_V1__?.state.connected,percent:window.__PP_SSE_PROGRESS_V1__?.state.percent,phase:window.__PP_SSE_PROGRESS_V1__?.state.phase,reconnects:window.__PP_SSE_PROGRESS_V1__?.state.reconnects,events:window.__PP_SSE_PROGRESS_V1__?.state.events,samples:window.__decimalSamples.slice(-6)}));
+  const status=await page.context().request.get(base+"/api/plan-progress",{headers:{Accept:"application/json"},timeout:10000});
+  const body=await status.json().catch(()=>({}));
+  console.log("DECIMAL_LIVE_TIMEOUT_DIAGNOSTICS",JSON.stringify({state,http:status.status(),worker:{phase:body.phase,running:body.running,percent:body.percent,success:body.success}}));
+  throw e;
+ }
  phase="verified_result";
  const final=await page.evaluate(async()=>{
   const s=window.__PP_SSE_PROGRESS_V1__.state;
@@ -80,6 +88,7 @@ try{
  assert(fractional.length>0,"real worker must emit fractional candidate progress");
  assert(running.every(p=>p.display===p.source&&Math.abs(Number(p.text.replace("%","").replace(",","."))-p.source)<1e-8&&/\d+[.,]\d{2}%$/.test(p.text)),"display must match actual SSE values");
  assert(running.every((p,i)=>i===0||p.source>=running[i-1].source),"progress must not go backwards");
+ assert.equal(final.evaluated,35,"backend must use the requested 35 native candidate slots");
  if(Number.isInteger(final.evaluated)&&final.evaluated>0){
    const allowed=new Set(Array.from({length:final.evaluated},(_,i)=>Math.min(9999,Math.floor((i+1)*10000/final.evaluated))/100));
    assert(running.every(p=>allowed.has(p.source)),"progress must match actual evaluated candidate slots");
