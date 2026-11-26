@@ -1,0 +1,57 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import {ppGroqPrepareEdit as edit,prepareSource,ppGroqEntityApplied as applied} from "./prepare.mjs";
+import {source} from "./actions-ui.mjs";
+import {patchTenant,patchAuth} from "./patch.mjs";
+import {prepareSource as oldPrepare} from "../groq-universal-parameters-20261126/prepare.mjs";
+import {serverTransform as oldTransform} from "../groq-parameter-units-20261126/patch.mjs";
+import {readFileSync} from "node:fs";
+const base=()=>({scheduler_mode:"resource",quantity_unit:"pcs",orders:[{id:1,quantity:10,area:10,unit:"pcs",technical_process_id:"P"}],equipment:[{id:"E",name:"Press",kind:"press",capacity:20,capacity_unit:"pcs",timing_profile:{timing_mode:"fixed",duration_min:10}}],employees:[],materials:[],shifts:{},technical_processes:[{id:"P",name:"Process",operations:[{id:"O",name:"Press",sequence:1,duration_min:10,resource_requirements:[{id:"R",resource_type:"equipment",resource_ref:"E",resource_refs:["E"],match_mode:"specific",quantity:1,unit:"pcs",consumption_rule:"during_operation"}]}]}],setup_rules:[]});
+const cmd=(m,entity,verb,fields={})=>edit(m,{kind:"manage_entity",entity,verb,...fields});
+test("create four entities with deterministic server/browser changes; no original mutation",()=>{
+ const b=base(),snapshot=structuredClone(b);
+ let x=cmd(b,"equipment","create",{name:"Mixer",equipment_kind:"mixer",capacity:50,unit:"pcs",throughput:100});
+ assert.equal(x.model.equipment.length,2);assert.equal(x.model.equipment[1].timing_profile.throughput_per_hour,100);
+ x=cmd(x.model,"employee","create",{name:"Operator A",role:"operator"});assert.equal(x.model.employees[0].role,"operator");
+ x=cmd(x.model,"material","create",{name:"Powder",stock:100,unit:"kg"});assert.equal(x.model.materials[0].initial_stock,100);
+ const a={kind:"manage_entity",entity:"process",verb:"create",name:"Mixing",operations:[{name:"Mix",duration_minutes:15,requirements:[{resource_type:"equipment",resource_index:2,quantity:1},{resource_type:"employee",resource_index:1,quantity:1},{resource_type:"material",resource_index:1,quantity:2,consumption_rule:"per_operation"}]}]};
+ const y=edit(x.model,a),p=y.model.technical_processes[1];assert.equal(p.operations[0].resource_requirements.length,3);assert.equal(p.operations[0].resource_requirements[0].resource_ref,x.model.equipment[1].id);
+ assert.equal(p.operations[0].resource_requirements[2].unit,"kg");
+ assert.deepEqual(b,snapshot);
+ const client=vm.runInNewContext(prepareSource+"\nppGroqPrepareEdit",{structuredClone});
+ assert.equal(JSON.stringify(client(x.model,a)),JSON.stringify(y));
+ assert(applied(y.model,structuredClone(y.model),a));
+ const bad=structuredClone(y.model);bad.technical_processes[1].operations[0].duration_min=999;assert(!applied(y.model,bad,a));
+});
+test("duplicates, updates, appends, deletes and refuses referenced resources",()=>{
+ let m=base();
+ assert.throws(()=>cmd(m,"equipment","delete",{record_index:1}),/entity_in_use/);
+ assert.throws(()=>cmd(m,"process","delete",{record_index:1}),/entity_in_use/);
+ m=cmd(m,"equipment","duplicate",{record_index:1,name:"Second press"}).model;
+ assert.notEqual(m.equipment[1].id,"E");
+ m=cmd(m,"equipment","update",{record_index:2,capacity:35}).model;assert.equal(m.equipment[1].capacity,35);
+ m=cmd(m,"process","duplicate",{record_index:1,name:"Second process"}).model;
+ assert.notEqual(m.technical_processes[1].operations[0].id,"O");
+ assert.notEqual(m.technical_processes[1].operations[0].resource_requirements[0].id,"R");
+ m=cmd(m,"process","update",{record_index:2,operations:[{name:"Wait",duration_minutes:2,requirements:[]}]}).model;assert.equal(m.technical_processes[1].operations.length,2);
+ m=cmd(m,"process","delete",{record_index:2}).model;m=cmd(m,"equipment","delete",{record_index:2}).model;
+ m=cmd(m,"order","duplicate",{record_index:1}).model;assert.equal(m.orders[1].id,2);
+ m=cmd(m,"order","delete",{record_index:2}).model;assert.equal(m.orders.length,1);
+});
+test("invalid or ambiguous data rejected; old actions unchanged",()=>{
+ const b=base();
+ assert.throws(()=>cmd(b,"equipment","create",{name:"Incomplete"}),/missing_entity_fields/);
+ assert.throws(()=>cmd(b,"employee","create",{name:"Worker",role:"operator",shift:"nonexistent"}),/unknown_shift/);
+ assert.throws(()=>cmd(b,"process","create",{name:"Bad",operations:[{name:"Work",duration_minutes:10,requirements:[{resource_type:"equipment",resource_index:99,quantity:1}]}]}),/unknown_record/);
+ assert.throws(()=>cmd(b,"material","create",{name:"Bad",unit:"kg",stock:-5}),/invalid_number/);
+ assert.throws(()=>cmd(b,"equipment","create",{name:"Press",equipment_kind:"press",capacity:10,unit:"pcs",duration_minutes:5}),/duplicate_entity/);
+ assert.equal(edit(b,{kind:"update_equipment_capacity",equipment_index:1,value:50}).model.equipment[0].capacity,50);
+});
+test("exact patch preserves outside code and compiles embedded JS",()=>{
+ const old=readFileSync(new URL("../groq-universal-parameters-20261126/actions-runtime.js",import.meta.url),"utf8");
+ const before="/* untouched */\n\n// PP_GROQ_ACTIONS_V1\n// PP_GROQ_ORDER_PARAMETERS_V1\n// PP_GROQ_UNIVERSAL_PARAMETERS_V1\n"+oldPrepare+"\n"+old+"\n";
+ const after=patchTenant(before);assert(after.startsWith("/* untouched */"));assert(after.includes("PP_GROQ_ENTITY_MANAGEMENT_V1"));new vm.Script(after);
+ new vm.Script(patchAuth(oldTransform()));new vm.Script(source);
+ assert.throws(()=>patchTenant("unrelated"));
+});
