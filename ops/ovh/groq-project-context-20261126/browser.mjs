@@ -74,7 +74,7 @@ try{
  phase="resource_utilization";
  const tabs=page.locator("#planView .tabs > div");assert.equal(await tabs.count(),6);
  await tabs.nth(4).click();
- await page.waitForFunction(()=>{const c=ppGroqCaptureContext();return c.view==="resource_utilization"&&c.utilization.some(r=>r.name==="QA machine Alpha")&&c.utilization.some(r=>r.name==="QA machine Idle")},{},{timeout:15000});
+ await page.waitForFunction(()=>{const c=ppGroqCaptureContext();return c.view==="resource_utilization"&&c.utilizationSource==="visible_resource_utilization"&&c.utilization.some(r=>r.name==="QA machine Alpha")&&c.utilization.some(r=>r.name==="QA machine Idle")},{},{timeout:15000});
  const view=await page.evaluate(()=>ppGroqCaptureContext());
  assert.equal(view.projectId,id);assert.equal(view.utilizationSource,"visible_resource_utilization");
  assert(view.utilization.length>=3);
