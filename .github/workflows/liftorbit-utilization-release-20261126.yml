@@ -1,0 +1,41 @@
+name: Deploy calendar-aware utilization after successful verification
+on:
+  push:
+    branches: [fix/resource-utilization-calendars-20261126]
+    paths:
+      - ops/ovh/resource-utilization-calendars-20261126/DEPLOY_APPROVED
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-utilization-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Recheck exact candidate
+        run: |
+          set -euo pipefail
+          node --test ops/ovh/resource-utilization-calendars-20261126/test.mjs
+          node ops/ovh/resource-utilization-calendars-20261126/browser.mjs
+      - name: Deploy UI-only calculation and verify actual renderer
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/resource-utilization-calendars-20261126/release.sh
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: utilization-live
+          path: /tmp/liftorbit-utilization-live.png
+          retention-days: 7

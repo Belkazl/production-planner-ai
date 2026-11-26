@@ -1,0 +1,36 @@
+name: Verify calendar-aware resource utilization and separated groups
+on:
+  push:
+    branches: [fix/resource-utilization-calendars-20261126]
+    paths:
+      - ops/ovh/resource-utilization-calendars-20261126/metrics.mjs
+      - ops/ovh/resource-utilization-calendars-20261126/patch.mjs
+      - ops/ovh/resource-utilization-calendars-20261126/browser.mjs
+      - ops/ovh/resource-utilization-calendars-20261126/test.mjs
+      - .github/workflows/liftorbit-utilization-verify-20261126.yml
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-utilization-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Test calendar math, resource matching, grouped layout and real renderer
+        run: |
+          set -euo pipefail
+          node --test ops/ovh/resource-utilization-calendars-20261126/test.mjs
+          bash -n ops/ovh/resource-utilization-calendars-20261126/release.sh
+          node ops/ovh/resource-utilization-calendars-20261126/browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: utilization-candidate
+          path: /tmp/liftorbit-utilization-candidate.png
+          retention-days: 7
