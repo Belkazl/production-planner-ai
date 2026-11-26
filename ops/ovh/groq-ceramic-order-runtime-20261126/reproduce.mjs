@@ -38,7 +38,7 @@ try{
  }
  const found=info.projects.find(p=>p.count===6&&/керамик|ceramic/i.test(p.name))||info.projects.find(p=>p.count===6);
  if(!found){
-  const hints=await page.evaluate(()=>[...document.scripts].flatMap(t=>{const s=t.textContent||"";return [...s.matchAll(/.{0,90}(?:loadDemo|demoModel|demoProject|demoCeramic|Керамика|12 900|12900|\\/api\\/demo|demo-ceramic).{0,110}/gi)].slice(0,10).map(x=>x[0])}).slice(0,35));
+  const hints=await page.evaluate(()=>[...document.scripts].flatMap(t=>{const s=t.textContent||"";return [...s.matchAll(/.{0,90}(?:loadDemo|demoModel|demoProject|demoCeramic|Керамика|12 900|12900|api.demo|demo-ceramic).{0,110}/gi)].slice(0,10).map(x=>x[0])}).slice(0,35));
   console.log("CERAMIC_DEMO_HINTS",JSON.stringify(hints));
   throw Error("native_demo_not_found");
  }
