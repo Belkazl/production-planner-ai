@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import types
 
-NAMES=("full_runtime_adapter.py","manager.py","python-ga-upstream.mjs","restart-optimizer-ui.js")
+NAMES=("full_runtime_adapter.py","manager.py","python-ga-upstream.mjs","restart-optimizer-ui.js","auth-runtime.js")
 BASE={
  "full_runtime_adapter.py":"e4806ff78c6c203e9a1e36513b4db0b6947c3f7bd12003468c7ae458fbca5ead",
  "manager.py":"058cfecc8e411253ecb922a6a83a8ffbdaba63d97d3971be4125553e763ece58",
@@ -68,7 +68,36 @@ def once(s,a,b):
 def digest(b):
     return hashlib.sha256(b).hexdigest()
 
+def patch_lifecycle(s):
+    # Authenticated HTML replaces the base SSE receiver with the lifecycle
+    # receiver. Preserve every job/sequence/terminal check; change only its cap
+    # and integer truncation, and fail closed if the audited source has drifted.
+    start="function ppOptimizerLifecycleHtml(html) {"
+    if s.count(start)!=1:
+        raise ValueError("decimal_lifecycle_owner_drift")
+    i=s.index(start)
+    j=s.index("\n}\n",i)+3
+    helper=s[i:j]
+    if "PP_OPTIMIZER_LIFECYCLE_20261124" not in helper:
+        raise ValueError("decimal_lifecycle_marker_drift")
+    a=helper.index("function receiveProgress(raw) {")
+    b=helper.index("function connect() {",a)
+    receiver=helper[a:b]
+    for guard in ("p?.job_id !== jobId","p.seq <= lastProgressSeq","lastProgressSeq = p.seq","Number.isFinite(p.percent)","setProgressTarget(next)"):
+        if guard not in receiver:
+            raise ValueError("decimal_lifecycle_guard_drift")
+    before="Math.min(99, Math.floor(p.percent))"
+    after="Math.min(99.99, p.percent)"
+    candidate=once(receiver,before,after)
+    updated=helper[:a]+candidate+helper[b:]
+    result=s[:i]+updated+s[j:]
+    assert result[:i]+updated[:a]+once(candidate,after,before)+updated[a+len(candidate):]+result[i+len(updated):]==s
+    return result
+
+
 def patch(name,s):
+    if name=="auth-runtime.js":
+        return patch_lifecycle(s)
     if digest(s.encode())!=BASE[name]:
         raise ValueError('decimal_progress_audited_source_drift_'+name)
     if name=="full_runtime_adapter.py":
@@ -162,4 +191,5 @@ if __name__=="__main__":
         candidate=patch(name,raw.decode()).encode()
         (after/name).write_bytes(candidate)
     test(after)
-    print("DECIMAL_EXACT_FOUR_FILE_PATCH_PASS",flush=True)
+    print("DECIMAL_LIFECYCLE_RECEIVER_PATCH_PASS",flush=True)
+    print("DECIMAL_EXACT_FIVE_FILE_PATCH_PASS",flush=True)
