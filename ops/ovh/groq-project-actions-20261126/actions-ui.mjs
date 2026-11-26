@@ -66,7 +66,7 @@ async function ppGroqApplyProposal(action,snapshot,userMessage){
  const before=ppGroqLocalEntry();
  if(!ppGroqSameEntry(before,snapshot)||before.id!==action.projectId||before.revision!==action.revision)throw Error("stale");
  if(typeof window.ppProjectAfterChat!=="function"||typeof renderSummary!=="function"||typeof clearPlan!=="function")throw Error("unavailable");
- if(typeof model!=="object"||ppGroqStable(model)!==ppGroqStable(before.model))throw Error("stale");
+ if(!model||typeof model!=="object")throw Error("stale");
  // Do not discard unsaved native form edits. Apply from the planner view,
  // or save the current form first if any of its controls have changed.
  const section=document.getElementById("sectionView");
@@ -79,7 +79,7 @@ async function ppGroqApplyProposal(action,snapshot,userMessage){
   // altogether; the user can switch to Chat/Planning before applying.
   if(section.querySelector("[data-order-save],[data-pp-save]"))throw Error("unsaved");
  }
- const prepared=ppGroqPrepareEdit(before.model,action.args);
+ let prepared=ppGroqPrepareEdit(before.model,action.args);
  if(ppGroqStable(prepared.change)!==ppGroqStable(action.change))throw Error("stale");
  window.__ppGroqApplyingEdit=true;
  const wasInert=document.body.inert;document.body.inert=true;
@@ -96,7 +96,11 @@ async function ppGroqApplyProposal(action,snapshot,userMessage){
   if(!ppGroqSameEntry(before,remote)||!ppGroqSameEntry(before,ppGroqLocalEntry()))throw Error("stale");
   if(window.__ppOptimizationInFlight||window.__PP_SSE_PROGRESS_V1__?.state?.active)throw Error("busy");
   const current=await request("/api/model");
-  if(ppGroqStable(current.model)!==ppGroqStable(before.model))throw Error("stale");
+  if(!current.model||ppGroqStable(current.model)!==ppGroqStable(model))throw Error("stale");
+  // The native import/read route may normalize legacy defaults. Preserve its
+  // current canonical model, but require the identical reviewed change.
+  prepared=ppGroqPrepareEdit(current.model,action.args);
+  if(ppGroqStable(prepared.change)!==ppGroqStable(action.change))throw Error("stale");
   if(!ppGroqSameEntry(before,ppGroqLocalEntry()))throw Error("stale");
   const d=await request("/api/project/model/import","POST",{model:prepared.model});
   let accepted=d.model;
@@ -150,7 +154,7 @@ function ppGroqShowProposal(data,snapshot,userMessage){
    const reply=await ppGroqApplyProposal(a,snapshot,userMessage);
    settle("applied",reply);
    const history=assistantState.history;
-   if(history.at(-1)?.role==="assistant")history[history.length-1]={role:"assistant",content:(reply+"\n"+detail.textContent).slice(0,1800)};
+   if(history.at(-1)?.role==="assistant"&&history.at(-2)?.role==="user"&&history.at(-2)?.content===userMessage)history[history.length-1]={role:"assistant",content:(reply+"\n"+detail.textContent).slice(0,1800)};
   }catch(e){
    const msg={busy:assistantText("Stop or finish optimization before applying changes.","Сначала завершите или остановите оптимизацию."),unsaved:assistantText("Save or close the open editor, then return to Planning/Chat and apply again.","Сохраните или закройте редактор, вернитесь в Планирование/Чат и примените изменение."),stale:assistantText("The active project or its revision has changed. Request a new proposal.","Проект или его версия изменились. Запросите изменение заново."),save_unconfirmed:assistantText("The save could not be confirmed. Reopen the project and check the data before retrying.","Не удалось подтвердить сохранение. Откройте проект заново и проверьте данные перед повтором.")}[e?.message]||assistantText("The change could not be confirmed. Reopen the project and check its data before retrying.","Не удалось подтвердить изменение. Откройте проект заново и проверьте данные перед повтором.");
    if(["busy","unsaved"].includes(e?.message)){note.textContent=msg;apply.disabled=false;cancel.disabled=false}
