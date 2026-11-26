@@ -2,7 +2,9 @@ name: Test fractional SSE in the full planner browser environment
 on:
   push:
     branches: [fix/ga-decimal-progress-20261126]
-    paths: [.github/workflows/liftorbit-ga-decimal-browser-diagnostic-20261126.yml]
+    paths:
+      - .github/workflows/liftorbit-ga-decimal-browser-diagnostic-20261126.yml
+      - ops/ovh/ga-decimal-progress-20261126/browser-diagnostic.mjs
 permissions:
   contents: read
 jobs:
