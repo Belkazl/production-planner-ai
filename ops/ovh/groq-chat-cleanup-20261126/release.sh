@@ -108,6 +108,24 @@ trap - ERR
 echo GROQ_CHAT_CLEANUP_SERVICE_HEALTH_PASS
 REMOTE
 deployed=yes
+# The internal smoke command can succeed before the public reverse proxy
+# has reconnected. Require three consecutive complete public readiness
+# checks before launching the browser; never bypass the acceptance test.
+stable=0
+for n in $(seq 1 30); do
+ root_code=$(curl --silent --show-error --max-time 8 -o /dev/null -w '%{http_code}' https://app.liftorbit.app/ 2>/dev/null || true)
+ bridge_code=$(curl --silent --show-error --max-time 8 -o /dev/null -w '%{http_code}' https://app.liftorbit.app/__bridge_health 2>/dev/null || true)
+ auth_code=$(curl --silent --show-error --max-time 8 -o /dev/null -w '%{http_code}' https://app.liftorbit.app/api/auth/me 2>/dev/null || true)
+ printf 'GROQ_CLEANUP_PUBLIC_READY attempt=%s root=%s bridge=%s auth=%s\n' "$n" "$root_code" "$bridge_code" "$auth_code"
+ if test "$root_code" = 200 && test "$bridge_code" = 200 && test "$auth_code" = 401; then
+  stable=$((stable+1))
+ else
+  stable=0
+ fi
+ if test "$stable" -ge 3; then break; fi
+ sleep 5
+done
+test "$stable" -ge 3
 GROQ_CLEANUP_LIVE=1 node ops/ovh/groq-chat-cleanup-20261126/browser.mjs
 accepted=yes
 echo GROQ_CHAT_CLEANUP_DEPLOYED_AND_VERIFIED
