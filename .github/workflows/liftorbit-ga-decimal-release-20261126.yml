@@ -3,8 +3,7 @@ on:
   push:
     branches: [fix/ga-decimal-progress-20261126]
     paths:
-      - .github/workflows/liftorbit-ga-decimal-release-20261126.yml
-      - ops/ovh/ga-decimal-progress-20261126/**
+      - ops/ovh/ga-decimal-progress-20261126/approved-release.json
 permissions:
   contents: read
 concurrency:
