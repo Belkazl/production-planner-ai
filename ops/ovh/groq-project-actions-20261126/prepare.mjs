@@ -18,7 +18,8 @@ export function ppGroqPrepareEdit(model,args){
  const index=(v,rows)=>{if(!Number.isSafeInteger(v)||v<1||v>rows.length)fail("unknown_record");return v-1};
  const clone=structuredClone(model);
  const orders=list(clone.orders),processes=list(clone.technical_processes);
- const projectUnit=String(clone.quantity_unit||"м²");
+ const existingUnits=[...new Set(orders.map(o=>o.unit).filter(u=>typeof u==="string"&&u.trim()))];
+ const projectUnit=String(clone.quantity_unit||(existingUnits.length===1?existingUnits[0]:"м²"));
  const canonicalUnit=u=>String(u).toLowerCase().trim().replace(/[²]/g,"2").replace(/[³]/g,"3").replace(/^(м|м2|м3)$/u,v=>v.replace("м","m")).replace(/^(шт\.?|pieces|units)$/u,"pcs").replace(/^кг$/u,"kg");
  const validateUnit=(value,expected)=>{if(value!==undefined&&(typeof value!=="string"||canonicalUnit(value)!==canonicalUnit(expected)))fail("unit_mismatch")};
  const processAt=(n,current)=>{
@@ -60,7 +61,7 @@ export function ppGroqPrepareEdit(model,args){
   const p=processAt(args.process_index,o.technical_process_id);
   if(p.id==null||String(p.id)==="")fail("unknown_record");
   o.quantity=quantity;o.area=quantity;o.unit=unit;
-  if(args.process_index!==undefined){o.technical_process_id=p.id;o.process_hours=opHours(p)}
+  if(args.process_index!==undefined||!oldProcess){o.technical_process_id=p.id;o.process_hours=opHours(p)}
   if(quantity===before&&String(oldProcess?.id)===String(p.id))fail("no_change");
   change={kind:args.kind,record:String(o.id),before,after:quantity,unit,process:label(p,"Process"),previousProcess:oldProcess?label(oldProcess,"Process"):null};
  }else if(args.kind==="update_equipment_capacity"||args.kind==="update_equipment_rate"){
