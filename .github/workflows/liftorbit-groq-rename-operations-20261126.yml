@@ -1,0 +1,39 @@
+name: Verify and release confirmed operation title translation
+on:
+  push:
+    branches: [fix/groq-rename-operations-20261126]
+    paths:
+      - .github/workflows/liftorbit-groq-rename-operations-20261126.yml
+      - ops/ovh/groq-rename-operations-20261126/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock playwright-core@1.58.2
+      - name: Test bulk rename, dependency safety, old actions and visible review
+        run: |
+          set -euo pipefail
+          node --test ops/ovh/groq-rename-operations-20261126/test.mjs
+          node --test ops/ovh/groq-universal-parameters-20261126/test.mjs
+          node --test ops/ovh/groq-parameter-units-20261126/test.mjs
+          bash -n ops/ovh/groq-rename-operations-20261126/release.sh
+          node ops/ovh/groq-rename-operations-20261126/browser.mjs
+      - name: Deploy and verify actual Groq translation, confirmation and persisted names
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/groq-rename-operations-20261126/release.sh

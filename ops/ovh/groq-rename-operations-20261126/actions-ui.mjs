@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import {source as unitSource} from "../groq-parameter-units-20261126/patch.mjs";
+import {transformActionsHtml} from "../groq-universal-parameters-20261126/actions-ui.mjs";
+import {prepareSource as oldPrepare} from "../groq-universal-parameters-20261126/prepare.mjs";
+import {prepareSource,ppGroqRenamesApplied} from "./prepare.mjs";
+const once=(s,a,b)=>{assert.equal(s.split(a).length,2,"RENAME_UI_ANCHOR");return s.replace(a,()=>b)};
+let s=once(unitSource,oldPrepare,prepareSource+"\n"+ppGroqRenamesApplied.toString());
+s=once(s,' const t=assistantText;',' const t=assistantText;\n if(c.kind==="rename_operations"){\n  return t("Rename operations: ","Переименовать операции: ")+c.record+"\\n"+c.renames.map(r=>r.process+" · "+r.before+" → "+r.after).join("\\n");\n }');
+s=once(s,' if(!actual||typeof actual!=="object")return false;',' if(args.kind==="rename_operations")return ppGroqRenamesApplied(expected,actual);\n if(!actual||typeof actual!=="object")return false;');
+export const source=s;
+export const serverTransform=()=>"\nfunction ppGroqActionsHtml(html){return ("+transformActionsHtml.toString()+")(html,"+JSON.stringify(source)+");}\n";

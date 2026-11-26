@@ -1,0 +1,45 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import {ppGroqPrepareEdit as edit,prepareSource,ppGroqRenamesApplied as applied} from "./prepare.mjs";
+import {source} from "./actions-ui.mjs";
+import {patchTenant,patchAuth} from "./patch.mjs";
+import {prepareSource as oldPrepare} from "../groq-universal-parameters-20261126/prepare.mjs";
+import {serverTransform as oldTransform} from "../groq-parameter-units-20261126/patch.mjs";
+import {readFileSync} from "node:fs";
+const base=()=>({scheduler_mode:"resource",quantity_unit:"pcs",orders:[{id:1,quantity:10,area:10,unit:"pcs",technical_process_id:"P"}],equipment:[{id:"E",name:"Press",kind:"press",capacity:20,capacity_unit:"pcs",timing_profile:{timing_mode:"fixed",duration_min:10}}],employees:[],materials:[],shifts:{},technical_processes:[{id:"P",name:"Ceramics",operations:[{id:"O",name:"Прессование",sequence:1,duration_min:10,setup_parameter:"color",resource_requirements:[{id:"R",resource_type:"equipment",resource_ref:"E",resource_refs:["E"],match_mode:"specific",quantity:1,unit:"pcs",consumption_rule:"during_operation"}]},{id:"D",name:"Сушка",sequence:2,duration_min:15,resource_requirements:[]}]}],setup_rules:[]});
+const args={kind:"rename_operations",scope:"all",renames:[{process_index:1,operation_index:1,name:"Pressing"},{process_index:1,operation_index:2,name:"Drying"}]};
+test("bulk rename changes only titles; deterministic client and server; names and IDs checked",()=>{
+ const b=base(),snapshot=structuredClone(b),expected=structuredClone(b);
+ expected.technical_processes[0].operations[0].name="Pressing";
+ expected.technical_processes[0].operations[1].name="Drying";
+ const r=edit(b,args);assert.deepEqual(r.model,expected);assert.deepEqual(b,snapshot);assert.equal(r.change.renames.length,2);
+ const client=vm.runInNewContext(prepareSource+"\nppGroqPrepareEdit",{structuredClone});
+ assert.equal(JSON.stringify(client(b,args)),JSON.stringify(r));
+ assert(applied(r.model,structuredClone(r.model)));
+ assert(!applied(r.model,b));const bad=structuredClone(r.model);bad.technical_processes[0].operations[0].id="NEW";assert(!applied(r.model,bad));
+});
+test("single selected, all completeness, unchanged names, duplicate and invalid index rejection",()=>{
+ const b=base();
+ const one=edit(b,{...args,scope:"selected",renames:[args.renames[0]]});
+ assert.equal(one.model.technical_processes[0].operations[1].name,"Сушка");
+ assert.throws(()=>edit(b,{...args,renames:[args.renames[0]]}),/incomplete_renames/);
+ assert.throws(()=>edit(b,{...args,renames:[args.renames[0],args.renames[0]]}),/duplicate_operation/);
+ assert.throws(()=>edit(b,{...args,renames:[{...args.renames[0],operation_index:3}]}),/unknown_record/);
+ const already=structuredClone(b);already.technical_processes[0].operations[0].name="Pressing";
+ assert.equal(edit(already,args).change.renames.length,1);
+ b.constraints=[{operation_ref:"Прессование"}];assert.throws(()=>edit(b,args),/operation_name_dependency/);
+});
+test("previous actions preserved and exact patch compiles",()=>{
+ assert.equal(edit(base(),{kind:"update_equipment_capacity",equipment_index:1,value:50}).model.equipment[0].capacity,50);
+ const old=readFileSync(new URL("../groq-universal-parameters-20261126/actions-runtime.js",import.meta.url),"utf8");
+ const stub='function request(){const estimated=Math.ceil(new TextEncoder().encode(JSON.stringify(messages)).length/2)+700;return {messages,max_completion_tokens:700,reasoning_effort:"low"}}';
+ const before="/* untouched */\n"+stub+"\n// PP_GROQ_ACTIONS_V1\n// PP_GROQ_ORDER_PARAMETERS_V1\n// PP_GROQ_UNIVERSAL_PARAMETERS_V1\n"+oldPrepare+"\n"+old+"\n";
+ const after=patchTenant(before);assert(after.startsWith("/* untouched */"));assert(after.includes("PP_GROQ_RENAME_OPERATIONS_V1"));new vm.Script(after);
+ new vm.Script(patchAuth(oldTransform()));new vm.Script(source);
+ assert.throws(()=>patchTenant("unrelated"));
+ const sandbox=vm.createContext({ppGroqModel:"test",structuredClone});
+ vm.runInContext(after,sandbox);
+ const proposal=vm.runInContext("ppGroqMakeProposal",sandbox)([{function:{name:"propose_project_edit",arguments:JSON.stringify(args)}}],{model:base(),projectId:"demo",revision:1},"измени названия операций на английские слова");
+ assert.equal(proposal.mode,"edit_proposal");assert.equal(proposal.action.change.renames.length,2);
+});
