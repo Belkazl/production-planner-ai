@@ -1,0 +1,1 @@
+The corrected Solar sidebar candidate passed browser validation (run 45877175319). The user has confirmed optimization is stopped. Run the gated UI-only release with its existing preflight and rollback checks.
