@@ -1,0 +1,31 @@
+name: Inspect exact planner metrics renderer and active project context
+on:
+  push:
+    branches: [fix/groq-project-context-20261126]
+    paths: [.github/workflows/liftorbit-groq-context-audit-20261126.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect UI code using disposable synthetic account
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request,http.cookiejar,json,uuid,secrets,re
+          base='https://app.liftorbit.app'
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          hdr={'Content-Type':'application/json','Origin':base,'Sec-Fetch-Site':'same-origin','Accept':'application/json'}
+          body=json.dumps({'email':'context-audit-'+uuid.uuid4().hex+'@liftorbit.invalid','password':secrets.token_urlsafe(32),'company':'Synthetic context QA'}).encode()
+          with opener.open(urllib.request.Request(base+'/api/auth/register',data=body,headers=hdr,method='POST'),timeout=30) as r:assert r.status==200
+          with opener.open(urllib.request.Request(base+'/',headers={'Accept':'text/html'}),timeout=45) as r:s=r.read(16000000).decode()
+          for term,length in [('function renderLoad',5500),('function renderBottleneck',3500),('function renderMaterials',3500),('function renderGenericLoad',4500),('function renderResource',2500),('function renderTab',4000),('ppGroqAssistant',300),('function renderKpis',2500),('id="dur"',1000),('function assistantSyncProject',800),('function sendChat',4500),('function installAssistantControls',2500),('id="ppGroqControls"',1000)]:
+              hits=list(re.finditer(re.escape(term),s))
+              print('CONTEXT_TERM',term,len(hits))
+              for m in hits[:2]:
+                  snippet=s[max(0,m.start()-60):m.start()+length]
+                  if re.search(r'(?i)(?:gsk_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN|postgres(?:ql)?://|(?:password|secret|token|api.key)\s*[:=]\s*["\x27][^"\x27]{12,})',snippet):continue
+                  print('CONTEXT_CODE',term,json.dumps(snippet,ensure_ascii=True))
+          PY
