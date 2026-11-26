@@ -1,0 +1,39 @@
+name: Verify and release confirmed assistant project editing
+on:
+  push:
+    branches: [fix/groq-project-actions-20261126]
+    paths:
+      - .github/workflows/liftorbit-groq-project-actions-release-20261126.yml
+      - ops/ovh/groq-project-actions-20261126/**
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-groq-test --no-save --no-package-lock playwright-core@1.58.2
+      - name: Verify action schemas, isolation and native save before deployment
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/groq-project-actions-20261126/actions-runtime.js
+          node --check ops/ovh/groq-project-actions-20261126/actions-ui.mjs
+          bash -n ops/ovh/groq-project-actions-20261126/release.sh
+          node --test ops/ovh/groq-project-actions-20261126/test.mjs
+          node ops/ovh/groq-project-actions-20261126/browser.mjs
+      - name: Deploy and verify actual Groq action and persistent native write
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/groq-project-actions-20261126/release.sh
