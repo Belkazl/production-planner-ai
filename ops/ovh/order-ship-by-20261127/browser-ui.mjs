@@ -51,7 +51,7 @@ export function ppInstallShipBy(){
   const project=ppShipByProject(),plan=ppShipByCurrentPlan(project),ru=ppShipByLang(),report=ppShipByReport(project?.model,plan),byId=new Map(report.map(x=>[x.order_id,x]));
   if(section){
    for(const row of section.querySelectorAll('tr:has(input[data-f="ship_by"])')){
-    const input=row.querySelector('input[data-f="ship_by"]'),status=row.querySelector("[data-pp-ship-status]"),idx=Number(row.dataset.idx);
+    const input=row.querySelector('input[data-f="ship_by"]'),status=row.querySelector("[data-pp-ship-status]"),idx=Number(row.dataset.i??row.dataset.idx);
     if(!status)continue;
     const order=Number.isInteger(idx)&&idx>=0?project?.model?.orders?.[idx]:null;
     const id=row.querySelector('[data-f="id"]')?.value??order?.id;
