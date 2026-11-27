@@ -70,7 +70,7 @@ try{
   const colors=JSON.parse(await section.evaluate(s=>{
    const style=e=>getComputedStyle(e),rect=e=>e.getBoundingClientRect();
    const info=e=>({tag:e.tagName,id:e.id,cls:String(e.className),bg:style(e).backgroundColor,border:style(e).borderTopColor,display:style(e).display});
-   const nodes=[...s.querySelectorAll(".pp-sdk-production-main-surface,.pp-sdk-production-op-card,.pp-sdk-production-op-head,.pp-sdk-production-op-body,.pp-sdk-production-neutral-wrap,.pp-rr-table,.pp-rr-table th,.pp-rr-table td")].filter(e=>rect(e).width&&rect(e).height);
+   const nodes=[...s.querySelectorAll(".pp-sdk-production-main-surface,.pp-sdk-production-op-card,.pp-sdk-production-op-head,.pp-sdk-production-op-body,.pp-sdk-production-neutral-wrap,.pp-rr-table,.pp-rr-table th,.pp-rr-table td")].filter(e=>rect(e).width&&rect(e).height).map(info);
    const ancestry=[];for(const table of s.querySelectorAll(".pp-rr-table")){const chain=[];for(let n=table;n&&n!==s;n=n.parentElement)chain.push(info(n));ancestry.push(chain)}
    const buttons=[...s.querySelectorAll("button[data-save],button[data-pt],button[data-radd],button[data-pdel]")].map(b=>({label:b.textContent.trim(),variant:b.dataset.variant,color:b.dataset.color,bg:style(b,"::before").backgroundColor,height:rect(b).height}));
    const nativeBg=[...s.querySelectorAll("div,section,article,header,table,thead,tbody,tr,td,th")].filter(e=>rect(e).width&&rect(e).height&&!e.closest(".pp-sdk-InputContainer,.pp-sdk-TextareaContainer,.pp-sdk-SelectControl,.pp-sdk-Button")).map(info);
