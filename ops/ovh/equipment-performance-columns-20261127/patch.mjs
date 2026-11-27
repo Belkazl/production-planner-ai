@@ -19,7 +19,7 @@ export function transformPerformanceColumns(html,oldCell,newCell,css){
  const match=matches[0],source=match[2],edits=[
   [oldCell,"/* PP_EQUIPMENT_PERFORMANCE_COLUMNS_V1 */\n"+newCell],
   ['sel=cell.querySelector("[data-pp-perf-unit]")','sel=cell.closest("tr").querySelector("[data-pp-perf-unit]")'],
-  ["<th>Производительность</th>",'<th class="pp-perf-value-heading">Производительность</th><th class="pp-perf-unit-heading">Единица расчёта</th>']
+  ["<th>Производительность</th>",'<th class=pp-perf-value-heading>Производительность</th><th class=pp-perf-unit-heading>Единица расчёта</th>']
  ];
  if(edits.some(([old])=>source.split(old).length!==2))return html;
  let next=source;for(const [old,value] of edits)next=next.replace(old,()=>value);
