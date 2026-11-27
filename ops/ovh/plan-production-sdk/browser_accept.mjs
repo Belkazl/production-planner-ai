@@ -26,7 +26,7 @@ try{
  },id);
  assert.equal(seeded,200);
  const errors=[];page.on("pageerror",e=>errors.push(String(e.stack||e).split("\n").slice(0,4).join("\n").slice(0,1000)));
- const ready=async()=>{await page.reload({waitUntil:"domcontentloaded",timeout:45000});await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&window.__PP_PLAN_PRODUCTION_SDK_V1__&&typeof model==="object"&&model?.orders?.length===1,null,{timeout:30000});await page.locator("#ppLanguageSelect").selectOption("en");if(await page.evaluate(()=>document.body.classList.contains("projects-mode")))await page.locator(".top .nav > span").filter({hasText:/^(Planning|Планирование)$/}).click()};
+ const ready=async()=>{await page.reload({waitUntil:"domcontentloaded",timeout:45000});await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&window.__PP_PLAN_PRODUCTION_SDK_V1__&&typeof model==="object"&&model?.orders?.length>=1,null,{timeout:30000});await page.locator("#ppLanguageSelect").selectOption("en");if(await page.evaluate(()=>document.body.classList.contains("projects-mode")))await page.locator(".top .nav > span").filter({hasText:/^(Planning|Планирование)$/}).click()};
  const analytics=()=>page.locator(".side .item").filter({hasText:/^(Analytics|Аналитика)$/});
  const scenarios=()=>page.locator(".side .item").filter({hasText:/^(Scenarios|Сценарии)$/});
  if(!live)await page.route("**/",async route=>{
@@ -85,6 +85,20 @@ try{
  assert.equal(await page.evaluate(()=>JSON.stringify(model)),original,"unsaved production edits do not change model");
  await page.locator("#ppLanguageSelect").selectOption("ru");await page.waitForFunction(()=>document.querySelector("#sectionView h1")?.textContent.trim()==="Производство");await inspectProduction("PRODUCTION_RU");
  await page.locator("#ppLanguageSelect").selectOption("en");
+ // Switch to an independent, previously proven native optimizer fixture.
+ // The production editor fixture deliberately exercises material/unit mutations.
+ const planId="prj_plan_"+randomUUID().replaceAll("-","").slice(0,13);
+ const planModel={scheduler_mode:"resource",quantity_unit:"m2",start:"2026-10-05T08:00:00",
+  equipment:[{id:"M1",__ppid:"M1",name:"QA press",kind:"pressing",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:30}}],
+  orders:[{id:"2601",quantity:200,area:200,unit:"m2",technical_process_id:"P",process_hours:1,parameters:{color:"A"},ship_by:"2099-12-01T08:00"},{id:"2602",quantity:200,area:200,unit:"m2",technical_process_id:"P",process_hours:1,parameters:{color:"A"}}],
+  employees:[{id:"E1",name:"QA operator",role:"operator",shift:"day"}],materials:[{id:"M",name:"QA material",unit:"kg",initial_stock:1000,deliveries:[]}],shifts:{day:[["08:00","12:00"],["13:00","17:00"]]},constraints:[],setup_rules:[],
+  technical_processes:[{id:"P",name:"QA process",operations:[{id:"OP",name:"Press",sequence:1,duration_min:30,resource_requirements:[{resource_type:"equipment",match_mode:"specific",resource_ref:"M1",resource_refs:["M1"],quantity:1,unit:"pcs"},{resource_type:"employee",match_mode:"specific",resource_ref:"E1",resource_refs:["E1"],quantity:1,unit:"pcs",consumption_rule:"during_operation"}]}]}]};
+ planModel.autoclaves=structuredClone(planModel.equipment);
+ const records=JSON.parse((await request("/api/db-storage")).data.storage["prodplan.projects.v2"]);
+ records.push({id:planId,name:"Synthetic Plan SDK QA",model:planModel,revision:1,lastPlan:null});
+ assert.equal((await request("/api/db-storage","POST",{storage:{"prodplan.projects.v2":JSON.stringify(records),"prodplan.project.active.v2":planId}})).status,200);
+ await ready();
+ await page.waitForFunction(id=>localStorage.getItem("prodplan.project.active.v2")===id&&model?.orders?.length===2,planId,{timeout:30000});
  await nav(/^(Plan|План)$/).click();
  const plan=page.locator("#planView"),opt=page.locator("#opt");
  await plan.waitFor({state:"visible"});await opt.waitFor({state:"visible"});
@@ -105,6 +119,15 @@ try{
   return d;
  };
  await inspectPlan("PLAN_EMPTY");
+ const future=await page.evaluate(()=>{const d=new Date();d.setDate(d.getDate()+1);while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);d.setHours(8,0,0,0);return ppPlanningStartNow(d)});
+ const date=page.locator("#ppPlanningStartDate"),time=page.locator("#ppPlanningStartTime");
+ for(const [field,minWidth] of [[date,176],[time,172]]){
+   const d=await field.evaluate(e=>({height:e.getBoundingClientRect().height,width:e.getBoundingClientRect().width,radius:parseFloat(getComputedStyle(e).borderRadius)}));
+   assert.ok(Math.abs(d.height-40)<1&&d.width>=minWidth-1&&d.radius>=20,JSON.stringify(d));
+ }
+ await date.fill(future.slice(0,10));await time.fill(future.slice(11,16));await page.locator("#ppPlanningStartApply").click();
+ await page.waitForFunction(()=>document.querySelector(".pp-planning-start-status")?.textContent.includes("Saved")&&!window.__ppPlanningStartSaving,null,{timeout:45000});
+ const state=await request("/api/model");console.log("PLAN_PRODUCTION_SDK_MODEL_READY",JSON.stringify({ready:state.data.model_ready,orders:state.data.model?.orders?.length,start:state.data.model?.start,button:await opt.isDisabled()}));
  // Exercise the actual optimizer on the isolated small QA model, not the user's project.
  await page.waitForFunction(()=>!document.getElementById("opt")?.disabled,null,{timeout:20000});
  const posted=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/plan"&&r.request().method()==="POST",{timeout:30000});
