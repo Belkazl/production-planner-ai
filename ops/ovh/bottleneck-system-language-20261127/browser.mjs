@@ -74,10 +74,11 @@ try{
  await activate(5);
  let en;
  try{en=await verify("en")}catch(e){console.log("BOTTLENECK_I18N_DIAGNOSTIC",JSON.stringify(await snap()));throw e}
- if(initial)assert.deepEqual(en.labels.map(x=>x.next),initial.labels.map(x=>x.next),"card values unchanged");
+ const values=state=>state.labels.map(x=>x.next?.replace(/^(\d+(?:[.,]\d+)?)\s+(?:мин|min)$/u,"$1 min"));
+ if(initial)assert.deepEqual(values(en),values(initial),"card values unchanged, allowing localized minute unit");
  assert(en.text.includes("Тестовый пресс"),"user-defined resource name stays unchanged");
  await page.locator("#ppLanguageSelect").selectOption("ru");const ru=await verify("ru");
- assert.deepEqual(ru.labels.map(x=>x.next),en.labels.map(x=>x.next));
+ assert.deepEqual(values(ru),values(en));
  await page.locator("#ppLanguageSelect").selectOption("en");await verify("en");
  // The remaining secondary sections use their original renderers. Report
  // remaining Cyrillic leaf labels (excluding known fixture data), for review.
