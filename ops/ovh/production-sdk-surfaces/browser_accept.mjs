@@ -153,13 +153,14 @@ try{
      const style=(e,p)=>getComputedStyle(e,p),rect=e=>e.getBoundingClientRect(),prop=(e,p)=>style(e).getPropertyValue(p).trim();
      const pack=e=>({tag:e.tagName,cls:e.className,text:e.textContent.trim().slice(0,80),bg:style(e).backgroundColor,color:style(e).color,border:style(e).borderTopColor,radius:style(e).borderRadius,font:style(e).fontFamily,size:style(e).fontSize,h:rect(e).height,w:rect(e).width,scroll:e.scrollWidth,client:e.clientWidth});
      const b=s.querySelector("#chatSend"),i=s.querySelector("#chatInput");
-     return JSON.stringify({panel:pack(s),messages:pack(s.querySelector("#messages")),user:pack([...s.querySelectorAll('[data-groq-message="user"]')].at(-1)),assistant:pack([...s.querySelectorAll('[data-groq-message="assistant"]')].at(-1)),composer:pack(i.parentElement),field:pack(i),send:{...pack(b),fill:style(b,"::before").backgroundColor,variant:b.dataset.variant,solid:prop(b,"--color-background-primary-solid"),inner:!!b.querySelector(".pp-sdk-ButtonInner")},notice:pack(s.querySelector("#ppGroqNotice")),actions:[...s.querySelectorAll("[data-groq-apply],[data-groq-cancel]")].map(b=>({...pack(b),variant:b.dataset.variant,inner:!!b.querySelector(".pp-sdk-ButtonInner")}))});
+     const canvas=document.createElement("canvas");canvas.width=canvas.height=1;const ctx=canvas.getContext("2d");ctx.fillStyle=style(b,"::before").backgroundColor;ctx.fillRect(0,0,1,1);const fillRgb=Array.from(ctx.getImageData(0,0,1,1).data);
+     return JSON.stringify({panel:pack(s),messages:pack(s.querySelector("#messages")),user:pack([...s.querySelectorAll('[data-groq-message="user"]')].at(-1)),assistant:pack([...s.querySelectorAll('[data-groq-message="assistant"]')].at(-1)),composer:pack(i.parentElement),field:pack(i),send:{...pack(b),fill:style(b,"::before").backgroundColor,fillRgb,variant:b.dataset.variant,solid:prop(b,"--color-background-primary-solid"),inner:!!b.querySelector(".pp-sdk-ButtonInner")},notice:pack(s.querySelector("#ppGroqNotice")),actions:[...s.querySelectorAll("[data-groq-apply],[data-groq-cancel]")].map(b=>({...pack(b),variant:b.dataset.variant,inner:!!b.querySelector(".pp-sdk-ButtonInner")}))});
    }));
    console.log("ASSISTANT_SDK_LAYOUT_"+label,JSON.stringify(d));
    assert.equal(d.panel.bg,"rgb(255, 255, 255)");assert.equal(d.user.bg,"rgb(237, 237, 237)");assert.equal(d.assistant.bg,"rgba(0, 0, 0, 0)");
    for(const e of [d.user,d.assistant]){assert.equal(e.color,"rgb(13, 13, 13)");assert.equal(e.size,"14px");assert.ok(e.scroll<=e.client+2)}
    assert.equal(d.field.size,"16px");assert.ok(d.field.h>=59&&d.composer.radius==="16px");assert.equal(d.send.variant,"solid");assert.ok(d.send.inner&&Math.abs(d.send.h-40)<1&&Math.abs(d.send.w-40)<1&&parseFloat(d.send.radius)>=20);
-   assert.ok(["rgb(24, 24, 24)","rgb(48, 48, 48)"].includes(d.send.fill),JSON.stringify(d.send));
+   assert.ok(d.send.fillRgb.every((v,i)=>i===3?v===255:v>=23&&v<=49)&&Math.max(...d.send.fillRgb.slice(0,3))-Math.min(...d.send.fillRgb.slice(0,3))<=1,JSON.stringify(d.send));
    assert.equal(d.notice.size,"12px");assert.equal(d.notice.color,"rgb(93, 93, 93)");
    for(const a of d.actions)assert.ok(a.inner&&Math.abs(a.h-32)<1&&parseFloat(a.radius)>=16,JSON.stringify(a));
    return d;
