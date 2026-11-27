@@ -67,17 +67,17 @@ try{
    const n=s.querySelectorAll('[data-of="sequence"]').length;
    return n>=2&&s.querySelectorAll(".pp-sdk-production-op-card").length===n&&s.querySelectorAll(".pp-sdk-production-op-head").length===n&&s.querySelectorAll(".pp-sdk-production-op-body").length>=n;
   },null,{timeout:15000});
-  const colors=await section.evaluate(s=>{
+  const colors=JSON.parse(await section.evaluate(s=>{
    const style=e=>getComputedStyle(e),rect=e=>e.getBoundingClientRect();
    const info=e=>({tag:e.tagName,id:e.id,cls:String(e.className),bg:style(e).backgroundColor,border:style(e).borderTopColor,display:style(e).display});
    const nodes=[...s.querySelectorAll(".pp-sdk-production-main-surface,.pp-sdk-production-op-card,.pp-sdk-production-op-head,.pp-sdk-production-op-body,.pp-sdk-production-neutral-wrap,.pp-rr-table,.pp-rr-table th,.pp-rr-table td")].filter(e=>rect(e).width&&rect(e).height);
    const ancestry=[];for(const table of s.querySelectorAll(".pp-rr-table")){const chain=[];for(let n=table;n&&n!==s;n=n.parentElement)chain.push(info(n));ancestry.push(chain)}
    const buttons=[...s.querySelectorAll("button[data-save],button[data-pt],button[data-radd],button[data-pdel]")].map(b=>({label:b.textContent.trim(),variant:b.dataset.variant,color:b.dataset.color,bg:style(b,"::before").backgroundColor,height:rect(b).height}));
    const nativeBg=[...s.querySelectorAll("div,section,article,header,table,thead,tbody,tr,td,th")].filter(e=>rect(e).width&&rect(e).height&&!e.closest(".pp-sdk-InputContainer,.pp-sdk-TextareaContainer,.pp-sdk-SelectControl,.pp-sdk-Button")).map(info);
-   return {page:info(s),parent:info(s.parentElement),nodes,ancestry,buttons,nativeBg};
-  });
+   return JSON.stringify({page:info(s),parent:info(s.parentElement),nodes,ancestry,buttons,nativeBg});
+  }));
   console.log("PRODUCTION_SDK_SURFACES_"+label,JSON.stringify(colors));
-  const rgb=s=>{const a=s.match(/[\d.]+/g)?.map(Number)||[];if(s.startsWith("color(srgb"))return a.slice(0,3).map(x=>x*255);return a.slice(0,3)};
+  const rgb=s=>{if(s.startsWith("oklab(")){const a=s.slice(6).match(/-?[\d.]+(?:e[+-]?\d+)?/gi)?.map(Number)||[];if(Math.abs(a[1])<.0001&&Math.abs(a[2])<.0001){const v=a[0]**3,x=(v<=.0031308?12.92*v:1.055*v**(1/2.4)-.055)*255;return [x,x,x]}}const a=s.match(/[\d.]+/g)?.map(Number)||[];if(s.startsWith("color(srgb"))return a.slice(0,3).map(x=>x*255);return a.slice(0,3)};
   const neutral=s=>{const a=rgb(s);return a.length===3&&Math.max(...a)-Math.min(...a)<=1};
   const equals=(s,expected)=>{const a=rgb(s);return a.length===3&&a.every((x,i)=>Math.abs(x-expected[i])<1)};
   assert.ok(equals(colors.page.bg,[249,249,249]),JSON.stringify(colors.page));
@@ -126,6 +126,58 @@ try{
  await page.waitForFunction(()=>!document.querySelector("#sectionView.pp-sdk-production-editor")&&document.querySelector("#sectionView.pp-sdk-resource-editor .pp-sdk-InputContainer"),null,{timeout:15000});
  assert.equal(await page.locator("#sectionView .pp-sdk-production-op-card").count(),0);
  await nav(/^(Production|Производство)$/).click();await inspectProduction("RETURN");await verifySurfaces("RETURN");
+
+ // Exercise the native assistant UI with deterministic replies on an isolated QA project.
+ await nav(/^(Plan|План)$/).click();
+ const panel=page.locator(".assist.pp-sdk-assistant"),input=panel.locator("#chatInput"),send=panel.locator("#chatSend");
+ await panel.waitFor({state:"visible"});await input.waitFor({state:"visible"});await send.locator(".pp-sdk-ButtonInner").waitFor({state:"visible"});
+ const ask=async(message,proposal=false)=>{
+   await page.route("**/api/assistant",async route=>{
+     const body=route.request().postDataJSON();assert.equal(body.message,message);assert.equal(body.allowActions,true);
+     let action;
+     if(proposal)action=await page.evaluate(()=>{
+       const snapshot=ppGroqLocalEntry(),args={kind:"add_order",quantity:600};
+       const {change}=ppGroqPrepareEdit(snapshot.model,args);
+       return {projectId:snapshot.id,revision:snapshot.revision,args,change};
+     });
+     await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({ok:true,reply:proposal?"Confirm the proposed change.":"Synthetic SDK assistant reply. "+("Long production parameter ".repeat(10)),...(proposal?{mode:"edit_proposal",action}:{mode:"answer"})})});
+   },{times:1});
+   const response=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/assistant"&&r.request().method()==="POST",{timeout:15000});
+   await input.fill(message);await send.click();assert.ok((await response).ok());
+   await page.waitForFunction(()=>!document.getElementById("chatSend").disabled,null,{timeout:15000});
+   await panel.locator('[data-groq-message="assistant"]').last().waitFor({state:"visible"});
+ };
+ await ask("QA production question");
+ const verifyChat=async label=>{
+   const d=JSON.parse(await panel.evaluate(s=>{
+     const style=(e,p)=>getComputedStyle(e,p),rect=e=>e.getBoundingClientRect(),prop=(e,p)=>style(e).getPropertyValue(p).trim();
+     const pack=e=>({tag:e.tagName,cls:e.className,text:e.textContent.trim().slice(0,80),bg:style(e).backgroundColor,color:style(e).color,border:style(e).borderTopColor,radius:style(e).borderRadius,font:style(e).fontFamily,size:style(e).fontSize,h:rect(e).height,w:rect(e).width,scroll:e.scrollWidth,client:e.clientWidth});
+     const b=s.querySelector("#chatSend"),i=s.querySelector("#chatInput");
+     return JSON.stringify({panel:pack(s),messages:pack(s.querySelector("#messages")),user:pack([...s.querySelectorAll('[data-groq-message="user"]')].at(-1)),assistant:pack([...s.querySelectorAll('[data-groq-message="assistant"]')].at(-1)),composer:pack(i.parentElement),field:pack(i),send:{...pack(b),fill:style(b,"::before").backgroundColor,variant:b.dataset.variant,solid:prop(b,"--color-background-primary-solid"),inner:!!b.querySelector(".pp-sdk-ButtonInner")},notice:pack(s.querySelector("#ppGroqNotice")),actions:[...s.querySelectorAll("[data-groq-apply],[data-groq-cancel]")].map(b=>({...pack(b),variant:b.dataset.variant,inner:!!b.querySelector(".pp-sdk-ButtonInner")}))});
+   }));
+   console.log("ASSISTANT_SDK_LAYOUT_"+label,JSON.stringify(d));
+   assert.equal(d.panel.bg,"rgb(255, 255, 255)");assert.equal(d.user.bg,"rgb(237, 237, 237)");assert.equal(d.assistant.bg,"rgba(0, 0, 0, 0)");
+   for(const e of [d.user,d.assistant]){assert.equal(e.color,"rgb(13, 13, 13)");assert.equal(e.size,"14px");assert.ok(e.scroll<=e.client+2)}
+   assert.equal(d.field.size,"16px");assert.ok(d.field.h>=59&&d.composer.radius==="16px");assert.equal(d.send.variant,"solid");assert.ok(d.send.inner&&Math.abs(d.send.h-40)<1&&Math.abs(d.send.w-40)<1&&parseFloat(d.send.radius)>=20);
+   assert.ok(["rgb(24, 24, 24)","rgb(48, 48, 48)"].includes(d.send.fill),JSON.stringify(d.send));
+   assert.equal(d.notice.size,"12px");assert.equal(d.notice.color,"rgb(93, 93, 93)");
+   for(const a of d.actions)assert.ok(a.inner&&Math.abs(a.h-32)<1&&parseFloat(a.radius)>=16,JSON.stringify(a));
+   return d;
+ };
+ await verifyChat("REPLY");
+ const beforeChat=await page.evaluate(()=>JSON.stringify(model));
+ await ask("QA add another order",true);
+ const proposal=panel.locator('[data-groq-action="pending"]').last();await proposal.waitFor({state:"visible"});
+ await proposal.locator('[data-groq-apply] .pp-sdk-ButtonInner').waitFor({state:"visible"});
+ const layout=await verifyChat("PROPOSAL");
+ assert.equal(layout.actions.length,2);assert.equal(layout.actions[0].variant,"solid");assert.equal(layout.actions[1].variant,"outline");
+ assert.equal(await page.evaluate(()=>JSON.stringify(model)),beforeChat,"AI proposal must not change the project before confirmation");
+ await proposal.locator("[data-groq-cancel]").click();assert.equal(await proposal.getAttribute("data-groq-action"),"cancelled");
+ assert.equal(await page.evaluate(()=>JSON.stringify(model)),beforeChat,"Cancel must not change project");
+ await page.locator("#ppLanguageSelect").selectOption("ru");await verifyChat("RU");
+ await page.locator("#ppLanguageSelect").selectOption("en");
+ await page.screenshot({path:"/tmp/assistant-sdk-"+(live?"live":"candidate")+".png"});
+ console.log("ASSISTANT_SDK_BROWSER_"+(live?"LIVE":"CANDIDATE")+"_PASS");
  assert.deepEqual(errors,[],"No uncaught page errors");
  console.log("PRODUCTION_SDK_SURFACES_BROWSER_"+(live?"LIVE":"CANDIDATE")+"_PASS");
 }finally{await browser.close()}
