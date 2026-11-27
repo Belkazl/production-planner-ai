@@ -1,0 +1,30 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import {helpers} from "../equipment-performance-units-20261127/patch.mjs";
+import {oldCell,newCell,css,transformPerformanceColumns,patchSource} from "./patch.mjs";
+test("separate real table cells, exactly five options, same original value",()=>{
+ const c={};
+ vm.createContext(c);
+ vm.runInContext(helpers+"\n"+newCell+"\nthis.render=ppPerformanceCell",c);
+ const markup=c.render({capacity_unit:"m2",process_multiplier:1,timing_profile:{timing_mode:"throughput",throughput_per_hour:900}},{quantity_unit:"m2"},String);
+ assert.equal((markup.match(/<td\b/g)||[]).length,2);
+ assert(markup.includes('value="900"'));
+ assert.deepEqual([...markup.matchAll(/<option value="([^"]+)"/g)].map(x=>x[1]),["m²/h","kg/h","pcs/h","l/h","min/cycle"]);
+ assert(markup.includes('</td><td class="pp-perf-unit-cell">'));
+});
+test("exact existing editor patch and preservation of calculation/save code",()=>{
+ const source=helpers+'\nfunction header(){return "<th>Производительность</th>"}';
+ const html='<html><head></head><body><script>const trMap=new Map(Object.entries(texts));</script><script id="ppEditableTablesJs">/* PP_EQUIPMENT_PERFORMANCE_UNITS_V1 */\n'+source+'</script></body></html>';
+ const out=transformPerformanceColumns(html,oldCell,newCell,css);
+ assert.notEqual(out,html);assert.equal(transformPerformanceColumns(out,oldCell,newCell,css),out);
+ assert(out.includes('trMap.set("Единица расчёта","Calculation unit")'));
+ assert(out.includes('sel=cell.closest("tr").querySelector("[data-pp-perf-unit]")'));
+ assert(out.includes('width:100px!important'));assert(out.includes('width:140px!important'));
+ const changed=out.match(/<script id="ppEditableTablesJs">([\s\S]*?)<\/script>/)[1];
+ new vm.Script(changed);
+ const apply=source.slice(source.indexOf("function ppApplyEquipmentPerformance"),source.indexOf("function header"));
+ assert(changed.includes(apply),"calculation mapping stays byte-identical");
+ const auth="function f(branded){"+"const assistantHtml=ppEquipmentPerformanceUnitsPage(ppEquipmentGroupsPage(ppProjectCardsLanguagePage(ppHideLaunchSettingsPage(ppLaunchAnalyticsPage(ppBottleneckLanguagePage(ppIndependentScrollPage(ppUniversalConsumptionPage(ppProductionUnitsPage(ppPrimaryNavPage(ppCalendarLanguagePage(ppCalendarUtilizationPage(ppSolarNavHtml(ppGroqActionsHtml(ppGroqProjectContextHtml(ppGroqChatCleanupHtml(ppGroqComposerHtml(ppGroqUiHtml(branded))))))))))))))))));"+"return assistantHtml;}";
+ new vm.Script(patchSource(auth));assert.throws(()=>patchSource("unrelated"));
+});
