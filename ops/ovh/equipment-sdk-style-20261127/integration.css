@@ -10,7 +10,7 @@
 #sectionView .pp-sdk-equipment-table .pp-perf-unit-heading,#sectionView .pp-sdk-equipment-table .pp-perf-unit-cell{width:140px;min-width:140px}
 #sectionView .pp-sdk-equipment-table th{white-space:nowrap}
 #sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer{box-sizing:border-box;font-family:var(--font-sans);min-width:0}
-#sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer>input.pp-sdk-Input{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:none;height:var(--input-size);padding:0 calc(var(--input-gutter)*var(--control-gutter-pill-scaling));border:0;border-radius:0;background:none;box-shadow:none;color:inherit;font:inherit;line-height:inherit}
+#sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer>input.pp-sdk-Input{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:none;height:var(--input-size);min-height:var(--input-size);max-height:var(--input-size);padding:0 calc(var(--input-gutter)*var(--control-gutter-pill-scaling));border:0;border-radius:0;background:none;box-shadow:none;color:inherit;font:inherit;line-height:inherit}
 #sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer:focus-within{box-shadow:0 0 0 1px var(--input-outline-border-color-focus) inset}
 #sectionView .pp-sdk-equipment-table .pp-perf-value-cell>.pp-sdk-InputContainer{width:100px}
 #sectionView .pp-sdk-equipment-table .pp-perf-unit-cell>.pp-sdk-SelectControl{width:140px}

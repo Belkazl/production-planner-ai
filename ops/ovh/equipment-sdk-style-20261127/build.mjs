@@ -5,9 +5,11 @@ const compile=s=>s.replace(/spacing\(([\d.]+)\)/g,"calc(var(--spacing) * $1)").r
 const tokens=new Map();
 for(const name of ["primitive.css","semantic.css","components.css"]){
  const s=read(name).replace(/\/\*[\s\S]*?\*\//g,"");
+ const current=new Map();
  for(const m of s.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+);/g)){
-  if(!tokens.has(m[1]))tokens.set(m[1],compile(m[2].trim()));
+  if(!current.has(m[1]))current.set(m[1],compile(m[2].trim()));
  }
+ for(const [k,v] of current)tokens.set(k,v);
 }
 const componentCSS=["Input.css","SelectControl.css","Select.css"].map(name=>{
  let s=read(name);

@@ -40,7 +40,7 @@ export function installEquipmentSDK(){
   const highlight=item=>{for(const i of items)i.toggleAttribute("data-highlight",i===item)};
   const rect=t.getBoundingClientRect();menu.style.setProperty("--pp-sdk-trigger-width",rect.width+"px");document.body.append(menu);
   menu.showPopover();open={menu,trigger:t,select:s};t.setAttribute("aria-expanded","true");t.setAttribute("data-state","open");
-  const h=menu.getBoundingClientRect().height,space=Number.parseFloat(getComputedStyle(menu).getPropertyValue("--spacing"))||4;
+  const h=menu.getBoundingClientRect().height,spacing=getComputedStyle(menu).getPropertyValue("--spacing").trim(),space=spacing.endsWith("rem")?parseFloat(spacing)*parseFloat(getComputedStyle(document.documentElement).fontSize):parseFloat(spacing)||4;
   menu.style.left=Math.max(space,Math.min(rect.left,innerWidth-rect.width-space))+"px";
   menu.style.top=Math.max(space,rect.bottom+space+h<=innerHeight?rect.bottom+space:rect.top-h-space)+"px";
   const selected=items.find(i=>i.hasAttribute("data-selected"))||items[0];if(selected){highlight(selected);selected.focus({preventScroll:true})}
