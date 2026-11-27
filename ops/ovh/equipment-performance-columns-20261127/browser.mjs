@@ -73,7 +73,18 @@ try{
  const save=async()=>{
   const response=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/project/model/import"&&r.request().method()==="POST",{timeout:45000});
   await page.locator("#sectionView [data-pp-save]").click();
-  const result=await response;assert(result.ok());const body=await result.json();assert.notEqual(body.ok,false);await page.waitForFunction(()=>!document.querySelector("#sectionView [data-pp-save]")?.disabled,{},{timeout:15000});return captured.at(-1);
+  const result=await response;assert(result.ok());const body=await result.json();assert.notEqual(body.ok,false);
+  const expected=captured.at(-1);
+  // The native editor also persists the active project asynchronously. Wait
+  // for both the complete in-memory model and its project record before the
+  // next edit, rather than racing the initial import's storage synchronization.
+  await page.waitForFunction(expected=>{
+   const signature=eq=>JSON.stringify(eq.map(e=>[e.id,e.kind,e.process_multiplier,e.timing_profile??null]));
+   const list=JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]");
+   const project=list.find(p=>String(p.id)===String(localStorage.getItem("prodplan.project.active.v2")));
+   return !document.querySelector("#sectionView [data-pp-save]")?.disabled&&signature(model?.equipment||[])===signature(expected)&&signature(project?.model?.equipment||[])===signature(expected);
+  },expected.equipment,{timeout:20000});
+  return expected;
  };
  const fields=r=>({id:r.id,name:r.name,kind:r.kind,capacity:r.capacity,capacity_unit:r.capacity_unit,process_multiplier:r.process_multiplier,capabilities:r.capabilities,timing_profile:r.timing_profile});
  const unchanged=await save();
@@ -95,8 +106,30 @@ try{
  assert.deepEqual(edited.technical_processes,original.technical_processes);
  assert.deepEqual(edited.autoclaves.map(fields),edited.equipment.map(fields));
  if(live){
-  await page.waitForFunction(async expected=>{const r=await fetch("/api/model",{credentials:"same-origin",cache:"no-store"});const actual=(await r.json()).model;return actual?.equipment?.[0]?.timing_profile?.duration_min===expected},{expected:20}.expected,{timeout:20000});
-  const actual=await page.evaluate(async()=>{const r=await fetch("/api/model",{credentials:"same-origin",cache:"no-store"});return (await r.json()).model});assert(actual);assert.deepEqual(actual.equipment.map(fields),edited.equipment.map(fields));
+  const readServer=async()=>page.evaluate(async()=>{
+   const r=await fetch("/api/model",{credentials:"same-origin",cache:"no-store"});
+   if(!r.ok)throw Error("model read failed: "+r.status);
+   return (await r.json()).model;
+  });
+  // Use consecutive matching full-model reads, not a single successful poll
+  // of one field followed by a separate potentially stale request.
+  let actual,consecutive=0;
+  const deadline=Date.now()+30000;
+  while(Date.now()<deadline&&consecutive<3){
+   actual=await readServer();
+   let matched=false;try{assert.deepEqual(actual?.equipment?.map(fields),edited.equipment.map(fields));matched=true}catch{}
+   consecutive=matched?consecutive+1:0;
+   if(consecutive<3)await page.waitForTimeout(500);
+  }
+  assert.equal(consecutive,3,"edited server model must remain stable");
+  assert.deepEqual(actual.equipment.map(fields),edited.equipment.map(fields));
+  await ready();
+  const reopened=await inspect();
+  assert.deepEqual(reopened.rows.map(r=>r.value),["16","1000","800","130"]);
+  assert.deepEqual(reopened.rows.map(r=>r.unit),["min/cycle","m²/h","m²/h","m²/h"]);
+  assert.equal(reopened.rows[2].residence,"6");
+  const persisted=await readServer();
+  assert.deepEqual(persisted.equipment.map(fields),edited.equipment.map(fields));
  }
  assert.deepEqual(errors,[],"no page errors");
  console.log("PERFORMANCE_COLUMNS_BROWSER_PASS",JSON.stringify({live,originalTimingPreserved:true,editableSpeed:true,editableCycleAndFlow:true,legacyCompatible:true,mirrorPreserved:true,localized:true}));
