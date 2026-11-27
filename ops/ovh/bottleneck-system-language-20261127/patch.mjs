@@ -14,8 +14,7 @@ export function transformBottleneckLanguage(html,labels){
  const mapping=JSON.stringify(labels);
  const replacement=`/* PP_BOTTLENECK_SYSTEM_LANGUAGE_V1 */
  const ppBottleneckLabels=${mapping};
- const ppBottleneckTab=document.querySelectorAll("#planView .tabs > div")[5];
- const ppBottleneckCaption=ppBottleneckTab?.classList.contains("a")&&parent.closest("#ppTabsView")&&parent.nextElementSibling&&Object.hasOwn(ppBottleneckLabels,ru.trim());
+ const ppBottleneckCaption=Object.hasOwn(ppBottleneckLabels,ru.trim())&&parent.tagName==="SPAN"&&parent.nextElementSibling?.tagName==="B"&&parent.closest("#ppTabsView")&&document.querySelectorAll("#planView .tabs > div")[5]?.classList.contains("a");
  const tr=ppBottleneckCaption?ppBottleneckLabels[ru.trim()]:translate(ru);`;
  const updated=source.slice(0,a)+text.replace(anchor,()=>replacement)+source.slice(b);
  const offset=match.index+match[0].indexOf(">")+1;

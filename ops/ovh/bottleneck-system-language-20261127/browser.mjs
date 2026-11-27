@@ -16,7 +16,7 @@ try{
  const id="prj_units_"+randomUUID().replaceAll("-","").slice(0,13);
  const seeded=await page.evaluate(async id=>{
   const model={scheduler_mode:"resource",quantity_unit:"m2",start:"2026-11-25T00:00:00",
-   equipment:[{id:"M1",name:"Synthetic manual press",kind:"press",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10}},{id:"M2",name:"Тестовая печь",kind:"oven",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10}}],
+   equipment:[{id:"M1",name:"Тестовый пресс",kind:"press",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10}},{id:"M2",name:"Тестовая печь",kind:"oven",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10}}],
    orders:[{id:"2601",quantity:600,area:600,unit:"m2",technical_process_id:"P",parameters:{color:"A"}}],
    employees:[{id:"E1",name:"Synthetic operator",role:"operator",shift:"day"}],materials:[],shifts:{day:[["08:00","12:00"],["13:00","17:00"]]},constraints:[],setup_rules:[],
    technical_processes:[{id:"P",name:"Synthetic process",operations:[{id:"OP",name:"Press",sequence:1,duration_min:10,resource_requirements:[{resource_type:"equipment",match_mode:"specific",resource_ref:"M1",resource_refs:["M1"],quantity:1,unit:"pcs"},{resource_type:"employee",match_mode:"specific",resource_ref:"E1",resource_refs:["E1"],quantity:1,unit:"pcs",consumption_rule:"during_operation"}]},{id:"OP2",name:"Fire",sequence:2,duration_min:10,resource_requirements:[{resource_type:"equipment",match_mode:"specific",resource_ref:"M2",resource_refs:["M2"],quantity:1,unit:"pcs"}]}]}]};
@@ -75,7 +75,7 @@ try{
  let en;
  try{en=await verify("en")}catch(e){console.log("BOTTLENECK_I18N_DIAGNOSTIC",JSON.stringify(await snap()));throw e}
  if(initial)assert.deepEqual(en.labels.map(x=>x.next),initial.labels.map(x=>x.next),"card values unchanged");
- assert(en.text.includes("Тестовая печь"),"user-defined resource name stays unchanged");
+ assert(en.text.includes("Тестовый пресс"),"user-defined resource name stays unchanged");
  await page.locator("#ppLanguageSelect").selectOption("ru");const ru=await verify("ru");
  assert.deepEqual(ru.labels.map(x=>x.next),en.labels.map(x=>x.next));
  await page.locator("#ppLanguageSelect").selectOption("en");await verify("en");
@@ -86,7 +86,7 @@ try{
   await activate(i);
   await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   const state=await snap();
-  audit.push({tab:i,remaining:[...new Set((state?.leaf||[]).map(x=>x.text).filter(x=>/[\u0400-\u04ff]/.test(x)&&!x.includes("Тестовая печь")))].slice(0,24)});
+  audit.push({tab:i,remaining:[...new Set((state?.leaf||[]).map(x=>x.text).filter(x=>/[\u0400-\u04ff]/.test(x)&&!x.includes("Тестовая печь")&&!x.includes("Тестовый пресс")))].slice(0,24)});
  }
  console.log("BOTTLENECK_I18N_OTHER_PLAN_TABS",JSON.stringify(audit));
  await activate(5);await verify("en");

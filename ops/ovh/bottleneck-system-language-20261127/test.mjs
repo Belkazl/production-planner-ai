@@ -12,9 +12,9 @@ test("only authenticated localizer patched, exact captions and idempotence",()=>
  const ctx={document:{querySelectorAll:()=>[null,null,null,null,null,tab]},translate:s=>s};
  vm.createContext(ctx);vm.runInContext(src,ctx);
  for(const [ru,en] of Object.entries(labels)){
-  assert.equal(ctx.transformText({nodeValue:ru,parentElement:{closest:()=>true,nextElementSibling:{}}}),en);
-  assert.equal(ctx.transformText({nodeValue:ru,parentElement:{closest:()=>false,nextElementSibling:{}}}),ru);
-  assert.equal(ctx.transformText({nodeValue:ru,parentElement:{closest:()=>true,nextElementSibling:null}}),ru);
+  assert.equal(ctx.transformText({nodeValue:ru,parentElement:{tagName:"SPAN",closest:()=>true,nextElementSibling:{tagName:"B"}}}),en);
+  assert.equal(ctx.transformText({nodeValue:ru,parentElement:{tagName:"SPAN",closest:()=>false,nextElementSibling:{tagName:"B"}}}),ru);
+  assert.equal(ctx.transformText({nodeValue:ru,parentElement:{tagName:"SPAN",closest:()=>true,nextElementSibling:null}}),ru);
  }
 });
 test("preserves auth wrappers",()=>{const s="function f(branded){"+"const assistantHtml=ppIndependentScrollPage(ppUniversalConsumptionPage(ppProductionUnitsPage(ppPrimaryNavPage(ppCalendarLanguagePage(ppCalendarUtilizationPage(ppSolarNavHtml(ppGroqActionsHtml(ppGroqProjectContextHtml(ppGroqChatCleanupHtml(ppGroqComposerHtml(ppGroqUiHtml(branded))))))))))));"+"return assistantHtml;}";new vm.Script(patchSource(s));assert.throws(()=>patchSource("unrelated"))});
