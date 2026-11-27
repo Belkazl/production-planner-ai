@@ -1,0 +1,62 @@
+name: Diagnose current optimization status and verify live synthetic run
+on:
+  push:
+    branches: [fix/ga-status-recovery-20261127]
+    paths:
+      - ops/ovh/ga-status-recovery-20261127/browser.mjs
+      - .github/workflows/liftorbit-ga-status-recovery-20261127.yml
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-ga-status-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - run: node ops/ovh/ga-status-recovery-20261127/browser.mjs
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect only current status recovery code without changing production
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = "51.255.163.121" && test "$USER" = "liftorbit-ci"
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KH" > "$RUNNER_TEMP/kh"
+          chmod 600 "$RUNNER_TEMP/key" "$RUNNER_TEMP/kh"
+          opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
+          base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
+          mkdir -p "$RUNNER_TEMP/ga-status-inspect"
+          for file in restart-optimizer-ui.js async-plan-transport.js python-ga-upstream.mjs; do
+            scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "$RUNNER_TEMP/ga-status-inspect/$file"
+          done
+          python3 - <<'PY'
+          import os,re,hashlib
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'ga-status-inspect'
+          pat=re.compile(r'Could not check GA status|status unavailable|function (?:reconnect|progressOnce|joinOrStart)|async function (?:reconnect|progressOnce|joinOrStart)')
+          sensitive=re.compile(r'(?i)password|secret|cookie|authorization|credential|api[_-]?key|token|process\.env')
+          for file in sorted(root.iterdir()):
+            source=file.read_text()
+            print('GA_STATUS_SOURCE_HASH',file.name,hashlib.sha256(file.read_bytes()).hexdigest())
+            lines=source.splitlines()
+            matches=[i for i,l in enumerate(lines) if pat.search(l)]
+            ids=set()
+            for i in matches[:12]:ids.update(range(max(0,i-14),min(len(lines),i+16)))
+            for i in sorted(ids):
+              if not sensitive.search(lines[i]):print('GA_STATUS_SOURCE',file.name,i+1,lines[i][:350])
+          PY
+          curl -sS --max-time 15 -o /dev/null -w 'GA_STATUS_PUBLIC_HEALTH %{http_code}\n' https://app.liftorbit.app/__bridge_health
