@@ -4,7 +4,7 @@ on:
     branches: [fix/plan-default-navigation-20261127]
     paths:
       - ops/ovh/plan-default-navigation-20261127/**
-      - .github/workflows/liftorbit-planning-start-release-20261127.yml
+      - .github/workflows/liftorbit-plan-default-navigation-release-20261127.yml
 permissions:
   contents: read
 concurrency:
