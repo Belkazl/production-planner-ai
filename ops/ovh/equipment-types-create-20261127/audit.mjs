@@ -31,13 +31,13 @@ try{
  if(await page.evaluate(()=>document.body.classList.contains("projects-mode")))await page.locator(".top .nav > span").filter({hasText:/^(Planning|Планирование)$/}).click();
  await page.locator(".side .item").filter({hasText:/^(Equipment|Оборудование)$/}).click();
  const out=await page.evaluate(async()=>{
-  const s=document.getElementById("ppEditableTablesJs")?.textContent||"";
+  const s=document.getElementById("ppTechProcessJs")?.textContent||"";
   const lines=s.split("\n");
   const ids=new Set();
-  for(let i=0;i<lines.length;i++)if(/function (?:.*[Rr]esource.*|.*[Pp]rocess.*|equipmentRow|.*[Ss]ave.*)|kind:|data-f="kind"|data-pp-save/.test(lines[i]))for(let n=Math.max(0,i-2);n<Math.min(lines.length,i+5);n++)ids.add(n);
+  for(let i=0;i<lines.length;i++)if(/function (?:.*[Rr]esource.*|.*[Pp]rocess.*|rr|.*[Ss]ave.*|.*[Oo]ption.*)|kind:|\.kind|equipment_types|resource_ref|match_mode/.test(lines[i]))for(let n=Math.max(0,i-2);n<Math.min(lines.length,i+5);n++)ids.add(n);
   const candidate=structuredClone(model);candidate.equipment_types=["synthetic-unused-kind"];
   const r=await fetch("/api/project/model/import",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({model:candidate})});const d=await r.json();
-  return {importStatus:r.status,keys:Object.keys(d.model||{}),types:d.model?.equipment_types??null,nav:[...document.querySelectorAll(".side .item")].map(x=>x.textContent.trim()),code:[...ids].sort((a,b)=>a-b).map(i=>[i+1,lines[i].slice(0,2000)]).filter(x=>!/(password|secret|credential|api[_-]?key|authorization|token)/i.test(x[1]))};
+  return {importStatus:r.status,keys:Object.keys(d.model||{}),types:d.model?.equipment_types??null,nav:[...document.querySelectorAll(".side .item")].map(x=>x.textContent.trim()),code:[...ids].sort((a,b)=>a-b).map(i=>[i+1,lines[i].slice(0,4000)]).filter(x=>!/(password|secret|credential|api[_-]?key|authorization|token)/i.test(x[1]))};
  });
  console.log("EQUIPMENT_TYPE_UI_AUDIT",JSON.stringify(out));
 }finally{await browser.close()}
