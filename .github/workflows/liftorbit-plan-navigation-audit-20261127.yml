@@ -1,0 +1,21 @@
+name: Plan navigation audit
+on:
+  push:
+    branches: [fix/plan-default-navigation-20261127]
+    paths:
+      - .github/workflows/liftorbit-plan-navigation-audit-20261127.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-plan-default-navigation-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - run: node ops/ovh/plan-default-navigation-20261127/audit.mjs
