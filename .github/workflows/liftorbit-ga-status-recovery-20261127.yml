@@ -57,7 +57,11 @@ jobs:
             matches=[i for i,l in enumerate(lines) if pat.search(l)]
             ids=set()
             for i in matches[:30]:ids.update(range(max(0,i-9),min(len(lines),i+12)))
-            for i in sorted(ids):
+            if file.name=='python-ga-upstream.mjs':
+                  ids.update(range(495,min(len(lines),625)))
+                  ids.update(range(806,min(len(lines),995)))
+                  ids.update(range(1275,min(len(lines),1320)))
+              for i in sorted(ids):
               if not sensitive.search(lines[i]):print('GA_STATUS_SOURCE',file.name,i+1,lines[i][:350])
           PY
           curl -sS --max-time 15 -o /dev/null -w 'GA_STATUS_PUBLIC_HEALTH %{http_code}\n' https://app.liftorbit.app/__bridge_health
