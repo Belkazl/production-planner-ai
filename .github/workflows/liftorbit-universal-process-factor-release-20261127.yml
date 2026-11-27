@@ -1,0 +1,36 @@
+name: Verify and release universal production process factor
+on:
+  push:
+    branches: [fix/universal-process-factor-20261127]
+    paths:
+      - ops/ovh/universal-process-factor-20261127/release.sh
+      - ops/ovh/universal-process-factor-20261127/patch.py
+      - ops/ovh/universal-process-factor-20261127/prepare.py
+      - ops/ovh/universal-process-factor-20261127/verify.py
+      - ops/ovh/universal-process-factor-20261127/deploy_contract.py
+      - .github/workflows/liftorbit-universal-process-factor-release-20261127.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact native candidate and install only after acceptance
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          bash -n ops/ovh/universal-process-factor-20261127/release.sh
+          bash ops/ovh/universal-process-factor-20261127/release.sh
