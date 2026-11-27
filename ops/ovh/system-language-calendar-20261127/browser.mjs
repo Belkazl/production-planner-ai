@@ -77,9 +77,10 @@ try{
  assert.equal(imports,baselineImports,"no additional model imports while changing language or editing the unsaved calendar");
  // Confirm the selected language is persisted across an authenticated reload.
  await page.reload({waitUntil:"domcontentloaded",timeout:45000});
- await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&document.getElementById("ppLanguageSelect")?.value==="en",{},{timeout:30000});
+ await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&document.getElementById("ppLanguageSelect")?.value==="en"&&typeof model==="object"&&model?.employees?.length===1&&model?.shift_calendars?.day?.days?.length===5,{},{timeout:30000});
  const employees=page.locator(".side .item").filter({hasText:/^(Employees|Сотрудники)$/});
- await employees.click();await verify("en");
+ await employees.click();
+ try{await verify("en")}catch(e){console.log("CALENDAR_RELOAD_DIAGNOSTIC",JSON.stringify(await page.evaluate(()=>({lang:document.documentElement.lang,selected:document.getElementById("ppLanguageSelect")?.value,section:document.getElementById("sectionView")?.innerText.slice(0,3000),panel:document.querySelector("[data-pp-weekly-calendar]")?.innerText.slice(0,2000),active:[...document.querySelectorAll(".side .item.active")].map(x=>x.textContent.trim())}))));throw e}
  assert.deepEqual(pageErrors,[],"no uncaught page errors");
  await page.screenshot({path:"/tmp/liftorbit-calendar-language-"+(live?"live":"candidate")+".png"});
  console.log("CALENDAR_LANGUAGE_BROWSER_PASS",JSON.stringify({live,roundtrip:true,draftPreserved:true,modelUnchanged:true,languagePersisted:true}));
