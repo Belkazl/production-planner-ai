@@ -9,6 +9,7 @@ permissions:
   contents: read
 jobs:
   browser:
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -40,14 +41,14 @@ jobs:
           opts=(-i "$RUNNER_TEMP/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/kh" -o ConnectTimeout=20)
           base=/home/liftorbit-ci/liftorbit-migration/sources/ovh-app/current
           mkdir -p "$RUNNER_TEMP/ga-status-inspect"
-          for file in restart-optimizer-ui.js async-plan-transport.js python-ga-upstream.mjs; do
+          for file in stop-ui.js restart-optimizer-ui.js async-plan-transport.js python-ga-upstream.mjs; do
             scp -q "${opts[@]}" "$USER@$HOST:$base/$file" "$RUNNER_TEMP/ga-status-inspect/$file"
           done
           python3 - <<'PY'
           import os,re,hashlib
           from pathlib import Path
           root=Path(os.environ['RUNNER_TEMP'])/'ga-status-inspect'
-          pat=re.compile(r'Could not check GA status|status unavailable|function (?:reconnect|progressOnce|joinOrStart)|async function (?:reconnect|progressOnce|joinOrStart)')
+          pat=re.compile(r'Could not check GA status|status unavailable|function (?:reconnect|progressOnce|joinOrStart)|async function (?:reconnect|progressOnce|joinOrStart|progress|stop|reset|load|save)|optimization_running_stop_first|remotePhase="unavailable"|ppAttachRecoveredJob|ppConfirmStoppedAfterAmbiguousResponse|__PP_GA_RECHECK__')
           sensitive=re.compile(r'(?i)password|secret|cookie|authorization|credential|api[_-]?key|token|process\.env')
           for file in sorted(root.iterdir()):
             source=file.read_text()
@@ -55,7 +56,7 @@ jobs:
             lines=source.splitlines()
             matches=[i for i,l in enumerate(lines) if pat.search(l)]
             ids=set()
-            for i in matches[:12]:ids.update(range(max(0,i-14),min(len(lines),i+16)))
+            for i in matches[:30]:ids.update(range(max(0,i-9),min(len(lines),i+12)))
             for i in sorted(ids):
               if not sensitive.search(lines[i]):print('GA_STATUS_SOURCE',file.name,i+1,lines[i][:350])
           PY
