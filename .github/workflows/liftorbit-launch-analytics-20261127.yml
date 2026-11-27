@@ -1,0 +1,44 @@
+name: Verify and deploy launch analytics and hide deferred scenarios
+on:
+  push:
+    branches: [fix/launch-analytics-hide-scenarios-20261127]
+    paths:
+      - ops/ovh/launch-analytics-hide-scenarios-20261127/**
+      - .github/workflows/liftorbit-launch-analytics-20261127.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-launch-analytics-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Verify analytics data, shared calendar math, hidden scenarios, and native navigation
+        run: |
+          set -euo pipefail
+          node --test ops/ovh/launch-analytics-hide-scenarios-20261127/test.mjs
+          node --check ops/ovh/launch-analytics-hide-scenarios-20261127/patch.mjs
+          bash -n ops/ovh/launch-analytics-hide-scenarios-20261127/release.sh
+          node ops/ovh/launch-analytics-hide-scenarios-20261127/browser.mjs
+      - name: Install tested presentation-only change and verify production
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/launch-analytics-hide-scenarios-20261127/release.sh
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: launch-analytics-live
+          path: /tmp/liftorbit-launch-analytics-live.png
+          retention-days: 7
