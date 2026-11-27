@@ -74,7 +74,7 @@ try{
  assert.equal(await deadline.inputValue(),"2099-12-01T08:00");
  await deadline.fill("2099-12-02T19:15");
  const orderQuantity=first.locator('input[data-f="area"],input[data-f="quantity"]').first();await orderQuantity.fill("230");
- const process=first.locator(".pp-sdk-SelectControl").first();await process.focus();await process.press("Enter");await page.locator(".pp-sdk-MenuList:popover-open").getByRole("option").first().click();
+ const process=first.locator(".pp-sdk-SelectControl").first();await process.focus();await process.press("Enter");await page.locator(".pp-sdk-MenuList:popover-open").getByRole("option",{name:"QA process",exact:true}).click();
  let p=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/project/model/import"&&r.request().method()==="POST",{timeout:30000});
  await section.locator("[data-order-save]").click();assert.ok((await p).ok());
  await waitModel(m=>m.orders?.[0]?.ship_by==="2099-12-02T19:15"&&Number(m.orders[0].quantity??m.orders[0].area)===230);
