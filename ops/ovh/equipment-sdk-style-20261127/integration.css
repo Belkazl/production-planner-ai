@@ -1,0 +1,28 @@
+/* Integration only: fit original controls into the existing equipment table. */
+#sectionView:has(.pp-perf-value-cell) .pp-sdk-equipment-card{background:var(--color-surface-elevated);border:1px solid var(--color-border);border-radius:var(--radius-2xl);padding:calc(var(--spacing)*4)}
+#sectionView table.pp-sdk-equipment-table{border-collapse:collapse;width:100%;color:var(--color-text);font-family:var(--font-sans);font-size:var(--font-text-sm-size);line-height:var(--font-text-sm-line-height)}
+#sectionView .pp-sdk-equipment-table th{background:transparent;border:0;border-bottom:1px solid var(--color-border);font-weight:var(--font-weight-semibold);padding:0 calc(var(--spacing)*2) calc(var(--spacing)*4);text-align:left;color:inherit}
+#sectionView .pp-sdk-equipment-table td{background:transparent;border:0;padding:calc(var(--spacing)*1.5) calc(var(--spacing)*2);vertical-align:middle}
+#sectionView .pp-sdk-equipment-table tbody tr:first-child td{padding-top:calc(var(--spacing)*4)}
+#sectionView .pp-sdk-equipment-table tr>th:first-child,#sectionView .pp-sdk-equipment-table tr>td:first-child{padding-left:0}
+#sectionView .pp-sdk-equipment-table tr>th:last-child,#sectionView .pp-sdk-equipment-table tr>td:last-child{padding-right:0}
+#sectionView .pp-sdk-equipment-table .pp-perf-value-heading,#sectionView .pp-sdk-equipment-table .pp-perf-value-cell{width:100px;min-width:100px}
+#sectionView .pp-sdk-equipment-table .pp-perf-unit-heading,#sectionView .pp-sdk-equipment-table .pp-perf-unit-cell{width:140px;min-width:140px}
+#sectionView .pp-sdk-equipment-table th{white-space:nowrap}
+#sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer{box-sizing:border-box;font-family:var(--font-sans);min-width:0}
+#sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer>input.pp-sdk-Input{display:block;box-sizing:border-box;width:100%;min-width:0;max-width:none;height:var(--input-size);padding:0 calc(var(--input-gutter)*var(--control-gutter-pill-scaling));border:0;border-radius:0;background:none;box-shadow:none;color:inherit;font:inherit;line-height:inherit}
+#sectionView .pp-sdk-equipment-table .pp-sdk-InputContainer:focus-within{box-shadow:0 0 0 1px var(--input-outline-border-color-focus) inset}
+#sectionView .pp-sdk-equipment-table .pp-perf-value-cell>.pp-sdk-InputContainer{width:100px}
+#sectionView .pp-sdk-equipment-table .pp-perf-unit-cell>.pp-sdk-SelectControl{width:140px}
+#sectionView .pp-sdk-equipment-table .pp-sdk-SelectControl{box-sizing:border-box;min-width:0;color:var(--color-text);font-family:var(--font-sans);background:transparent}
+#sectionView .pp-sdk-equipment-table select.pp-sdk-native-select{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important;min-width:0!important;padding:0!important;clip-path:inset(50%)}
+#sectionView .pp-sdk-equipment-table [data-pp-flow-residence]{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--spacing);margin-top:var(--spacing)}
+#sectionView .pp-sdk-equipment-table [data-pp-flow-residence]>span:first-child{grid-column:1/-1}
+#sectionView .pp-sdk-equipment-table tr:has(select[data-pp-perf-unit] option[value="min/cycle"]:checked) [data-pp-flow-residence]{display:none!important}
+.pp-sdk-MenuList[popover]{position:fixed;inset:auto;margin:0;border:0;padding:0;box-sizing:border-box;--select-list-min-width:0;--select-list-width:var(--pp-sdk-trigger-width);--radix-popover-content-available-height:400px;font-family:var(--font-sans);color:var(--color-text);z-index:2147483000}
+.pp-sdk-MenuList[popover]:not(:popover-open){display:none}
+.pp-sdk-MenuList .pp-sdk-Option{outline:0}
+.pp-sdk-MenuList .pp-sdk-Option:focus{outline:none}
+.pp-sdk-MenuList .pp-sdk-OptionInner svg{position:relative;color:currentColor}
+.pp-sdk-MenuList .pp-sdk-Option[data-selected] .pp-sdk-OptionCheck{visibility:visible}
+.pp-sdk-MenuList .pp-sdk-Option:not([data-selected]) .pp-sdk-OptionCheck{visibility:hidden}
