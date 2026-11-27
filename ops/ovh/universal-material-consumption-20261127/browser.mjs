@@ -16,10 +16,10 @@ try{
  const id="prj_units_"+randomUUID().replaceAll("-","").slice(0,13);
  const seeded=await page.evaluate(async id=>{
   const model={scheduler_mode:"resource",quantity_unit:"m2",start:"2026-11-25T00:00:00",
-   equipment:[{id:"M1",name:"Synthetic machine",kind:"workstation",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10}}],
+   equipment:[{id:"M1",__ppid:"M1",name:"Synthetic machine",kind:"workstation",capacity:200,capacity_unit:"m2",timing_profile:{timing_mode:"fixed",duration_min:10}}],
    orders:[{id:"2601",quantity:600,area:600,unit:"m2",technical_process_id:"P",parameters:{color:"A"}}],
    employees:[{id:"E1",name:"Тестовый сотрудник",role:"Тестовая роль",shift:"day"}],materials:[{id:"MAT1",name:"Synthetic powder",unit:"kg",initial_stock:20000,deliveries:[]},{id:"MAT2",name:"Synthetic boxes",unit:"pcs",initial_stock:20000,deliveries:[]}],shifts:{day:[["08:00","12:00"],["13:00","19:00"]]},shift_calendars:{day:{name:"day",days:[1,2,3,4,5],start:"08:00",end:"19:00",breaks:[["12:00","13:00"]],full_day:true}},constraints:[],setup_rules:[],
-   technical_processes:[{id:"P",name:"Synthetic process",operations:[{id:"OP",name:"Synthetic work",sequence:1,duration_min:10,resource_requirements:[{resource_type:"equipment",match_mode:"specific",resource_ref:"M1",resource_refs:["M1"],quantity:1,unit:"pcs",consumption_rule:"during_operation"},{id:"R2",resource_type:"employee",match_mode:"specific",resource_ref:"E1",resource_refs:["E1"],quantity:1,unit:"person",consumption_rule:"during_operation"},{id:"R3",resource_type:"material",match_mode:"specific",resource_ref:"MAT1",resource_refs:["MAT1"],quantity:18.5,unit:"kg",consumption_rule:"per_m2"}]}]},{id:"P2",name:"Synthetic second process",operations:[{id:"OP2",name:"Synthetic second work",sequence:1,duration_min:5,resource_requirements:[{id:"R4",resource_type:"material",match_mode:"specific",resource_ref:"MAT2",resource_refs:["MAT2"],quantity:2,unit:"pcs",consumption_rule:"per_m2"}]}]}]};
+   technical_processes:[{id:"P",name:"Synthetic process",operations:[{id:"OP",name:"Synthetic work",sequence:1,duration_min:10,resource_requirements:[{resource_type:"equipment",match_mode:"any",resource_ref:"kind:workstation",resource_refs:["kind:workstation"],quantity:1,unit:"pcs",consumption_rule:"during_operation"},{id:"R2",resource_type:"employee",match_mode:"specific",resource_ref:"E1",resource_refs:["E1"],quantity:1,unit:"person",consumption_rule:"during_operation"},{id:"R3",resource_type:"material",match_mode:"specific",resource_ref:"MAT1",resource_refs:["MAT1"],quantity:18.5,unit:"kg",consumption_rule:"per_m2"}]}]},{id:"P2",name:"Synthetic second process",operations:[{id:"OP2",name:"Synthetic second work",sequence:1,duration_min:5,resource_requirements:[{id:"R4",resource_type:"material",match_mode:"specific",resource_ref:"MAT2",resource_refs:["MAT2"],quantity:2,unit:"pcs",consumption_rule:"per_m2"}]}]}]};
   const storage={"prodplan.projects.v2":JSON.stringify([{id,name:"Synthetic consumption QA",model,revision:1,lastPlan:null}]),"prodplan.project.active.v2":id};
   return (await fetch("/api/db-storage",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage})})).status;
  },id);
@@ -34,7 +34,8 @@ try{
  const inspect=()=>page.evaluate(()=>[...document.querySelectorAll("#sectionView .pp-rr-table [data-r]")].map(r=>{const c=r.querySelector("[data-rf=consumption_rule]");return {type:r.querySelector("[data-rf=resource_type]").value,ref:r.querySelector("[data-rf=resource_ref]").value,quantity:r.querySelector("[data-rf=quantity]").value,rule:c.value,options:[...c.options].map(o=>({value:o.value,text:o.textContent})),unit:r.querySelector("[data-rf=unit]")?.value,unitHidden:r.querySelector("[data-rf=unit]")?.hidden}}));
  if(!live){
   await ready();const initial=await inspect();assert(initial[2].options.some(x=>x.value==="per_m2"));assert.equal(initial[2].rule,"per_m2");
-  console.log("CONSUMPTION_BASELINE",JSON.stringify(initial[2]));
+  console.log("CONSUMPTION_BASELINE",JSON.stringify(initial));
+  assert.equal(initial[0].ref,"kind:workstation","baseline valid equipment selection");
   await page.route("**/",async route=>{
    if(!route.request().isNavigationRequest()||new URL(route.request().url()).pathname!=="/")return route.continue();
    const response=await route.fetch(),old=await response.text(),out=transformConsumption(old);
@@ -46,7 +47,7 @@ try{
  const verify=async()=>{
   const rows=await inspect();assert.equal(rows.length,3);
   for(const r of rows){assert(!r.options.some(o=>o.value==="per_m2"));assert.deepEqual(new Set(r.options.map(o=>o.value)),new Set(["per_operation","per_unit","during_operation"]));assert.equal(r.unitHidden,true)}
-  assert.equal(rows[0].rule,"during_operation");assert.equal(rows[1].rule,"during_operation");assert.equal(rows[2].rule,"per_unit");assert.equal(rows[2].quantity,"18.5");assert.match(rows[2].unit,/^(kg|кг)$/);
+  assert.equal(rows[0].ref,"kind:workstation");assert.equal(rows[0].rule,"during_operation");assert.equal(rows[1].rule,"during_operation");assert.equal(rows[2].rule,"per_unit");assert.equal(rows[2].quantity,"18.5");assert.match(rows[2].unit,/^(kg|кг)$/);
   return rows;
  };
  await page.locator("#ppLanguageSelect").selectOption("en");await verify();
