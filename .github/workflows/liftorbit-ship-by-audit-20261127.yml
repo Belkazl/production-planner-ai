@@ -1,0 +1,30 @@
+name: Ship-by integration audit (read-only)
+on:
+  push:
+    branches: [fix/order-ship-by-20261127]
+    paths:
+      - ops/ovh/order-ship-by-20261127/audit*
+      - .github/workflows/liftorbit-ship-by-audit-20261127.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect allowlisted source anchors (no write on OVH)
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/order-ship-by-20261127/audit.sh
+      - run: npm install --prefix /tmp/liftorbit-order-ship-by-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Inspect order editor and model import in a disposable QA project
+        run: node ops/ovh/order-ship-by-20261127/audit.mjs
