@@ -27,10 +27,30 @@ try{
  },id);
  assert.equal(seeded,200);
  const errors=[];page.on("pageerror",e=>errors.push(String(e).slice(0,200)));
- const ready=async()=>{await page.reload({waitUntil:"domcontentloaded",timeout:45000});await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]").length===2,{},{timeout:30000});await page.locator("#ppLanguageSelect").selectOption("en");if(!await page.evaluate(()=>document.body.classList.contains("projects-mode")))await page.locator(".top .nav > span").filter({hasText:/^(Projects|Проекты)$/}).click();try{await page.waitForFunction(()=>document.body.classList.contains("projects-mode")&&document.body.innerText.includes("Тестовый проект"),{},{timeout:15000})}catch(e){console.log("PROJECTS_READY_DIAGNOSTIC",JSON.stringify(await page.evaluate(()=>({bodyClass:document.body.className,body:document.body.innerText.slice(0,5000),names:JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]").map(p=>p.name),nav:[...document.querySelectorAll(".top .nav > span")].map(n=>({text:n.textContent,cls:n.className}))}))));throw e}};
+ const ready=async()=>{
+  await page.reload({waitUntil:"domcontentloaded",timeout:45000});
+  await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&typeof model==="object"&&model?.orders?.length===1&&JSON.parse(localStorage.getItem("prodplan.projects.v2")||"[]").length===2,{},{timeout:30000});
+  await page.locator("#ppLanguageSelect").selectOption("en");
+  const projects=page.locator(".top .nav > span").filter({hasText:/^(Projects|Проекты)$/});
+  // Saved-plan hydration may asynchronously return to Planning on reload.
+  // Wait for hydration and check the route again before inspecting cards.
+  await page.waitForTimeout(2000);
+  if(!await page.evaluate(()=>document.body.classList.contains("projects-mode")))await projects.click();
+  await page.locator(".pm-card").first().waitFor({state:"visible",timeout:15000});
+  await page.waitForTimeout(500);
+  if(!await page.evaluate(()=>document.body.classList.contains("projects-mode")))await projects.click();
+  await page.waitForFunction(()=>document.querySelectorAll(".pm-card").length===2&&[...document.querySelectorAll(".pm-card h3")].some(e=>e.textContent.trim()==="Тестовый проект"),{},{timeout:15000});
+ };
  const snapshot=()=>page.evaluate(()=>{
-  const leaf=[...document.querySelectorAll("body.projects-mode .main *")].filter(e=>e.children.length===0&&e.getClientRects().length&&e.textContent.trim()).map(e=>({text:e.textContent.trim(),tag:e.tagName,cls:e.className,prev:e.previousElementSibling?.textContent?.trim().slice(0,70),next:e.nextElementSibling?.textContent?.trim().slice(0,70),parent:e.parentElement?.className,ancestor:e.parentElement?.parentElement?.className}));
-  return {leaf:leaf.slice(0,160),body:document.querySelector(".main")?.innerText.slice(0,5000)};
+  const cards=[...document.querySelectorAll(".pm-card")].filter(e=>e.getClientRects().length).map(card=>({
+   name:card.querySelector(".pm-name h3")?.textContent.trim(),
+   modified:card.querySelector(".pm-name > small")?.textContent.trim(),
+   stats:[...card.querySelectorAll(".pm-stat")].map(e=>({count:e.querySelector("b")?.textContent.trim(),caption:[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.nodeValue.trim()).filter(Boolean).join(" ")})),
+   last:card.querySelector(".pm-last > span")?.textContent.trim(),
+   hours:card.querySelector(".pm-last > b")?.textContent.trim(),
+   actions:[...card.querySelectorAll(".pm-actions button")].map(e=>e.textContent.trim())
+  }));
+  return {cards,body:document.querySelector(".main")?.innerText.slice(0,3000)};
  });
  if(!live){
   await ready();console.log("PROJECT_CARD_LANGUAGE_BASELINE",JSON.stringify(await snapshot()));
@@ -39,21 +59,25 @@ try{
  await ready();
  const original=await page.evaluate(()=>localStorage.getItem("prodplan.projects.v2"));
  const verify=async lang=>{
-  const words=lang==="en"?["Equipment","Employees","Orders","Calculations","Latest plan","Copy","Export"]:["оборудование","сотрудников","заказов","расчётов","Последний план","Копия","Экспорт"];
-  try{await page.waitForFunction(({words,lang})=>{
-   const main=document.querySelector(".main");if(!main)return false;
-   const leaf=[...main.querySelectorAll("*")].filter(e=>e.children.length===0&&e.getClientRects().length>0).map(e=>e.textContent.trim());
-   return words.every(w=>leaf.filter(s=>s===w).length>=2)&&leaf.includes("Тестовый проект")&&leaf.includes("Копия")&&leaf.filter(x=>x.startsWith(lang==="en"?"Modified ":"Изменено ")).length>=2;
-  },{words,lang},{timeout:15000})}catch(e){console.log("PROJECT_CARD_LANGUAGE_DIAGNOSTIC",JSON.stringify(await snapshot()));throw e}
-  const s=await snapshot();
-  console.log("PROJECT_CARD_LANGUAGE_VIEW",JSON.stringify({lang,leaf:s.leaf.filter(x=>words.includes(x.text)||/^(Modified|Изменено) /.test(x.text)||/^\d+[.,]?\d*\s+[hч]$/.test(x.text))}));
-  if(lang==="en")assert(!s.leaf.some(x=>["автоклавов","сотрудников","заказов","расчётов","Последний план","Экспорт"].includes(x.text)||/^Изменено\s/.test(x.text)||/^\d+(?:[.,]\d+)?\s*ч$/.test(x.text)),JSON.stringify(s));
+  const expected=lang==="en"?{stats:["Equipment","Employees","Orders","Calculations"],last:"Latest plan",hours:"0.1 h",copy:"Copy",exp:"Export",date:"Modified "}:{stats:["оборудование","сотрудников","заказов","расчётов"],last:"Последний план",hours:"0,1 ч",copy:"Копия",exp:"Экспорт",date:"Изменено "};
+  try{await page.waitForFunction(expected=>{
+   const cards=[...document.querySelectorAll(".pm-card")].filter(e=>e.getClientRects().length);
+   if(cards.length!==2)return false;
+   return cards.every(card=>{
+    const stats=[...card.querySelectorAll(".pm-stat")].map(e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.nodeValue.trim()).filter(Boolean).join(" "));
+    const actions=[...card.querySelectorAll(".pm-actions button")].map(e=>e.textContent.trim());
+    return JSON.stringify(stats)===JSON.stringify(expected.stats)&&card.querySelector(".pm-last > span")?.textContent.trim()===expected.last&&card.querySelector(".pm-last > b")?.textContent.trim()===expected.hours&&card.querySelector(".pm-name > small")?.textContent.trim().startsWith(expected.date)&&actions.includes(expected.copy)&&actions.includes(expected.exp);
+   });
+  },expected,{timeout:15000})}catch(e){console.log("PROJECT_CARD_LANGUAGE_DIAGNOSTIC",JSON.stringify(await snapshot()));throw e}
+  const s=await snapshot();assert.deepEqual(s.cards.map(x=>x.name).sort(),["Копия","Тестовый проект"].sort());
+  for(const card of s.cards)assert.deepEqual(card.stats.map(x=>x.count),["2","1","1","0"]);
+  console.log("PROJECT_CARD_LANGUAGE_VIEW",JSON.stringify({lang,cards:s.cards}));
  };
  await verify("en");await page.locator("#ppLanguageSelect").selectOption("ru");await verify("ru");await page.locator("#ppLanguageSelect").selectOption("en");await verify("en");
  assert.equal(await page.evaluate(()=>localStorage.getItem("prodplan.projects.v2")),original,"language switching must not write project records");
  // Search and regenerated card labels must retain locale and user-defined names.
  const search=page.getByPlaceholder("Search projects");await search.fill("Тестовый проект");
- await page.waitForFunction(()=>document.querySelector(".main")?.innerText.includes("Тестовый проект")&&!document.querySelector(".main")?.innerText.includes("Копия"),{},{timeout:12000});
+ await page.waitForFunction(()=>document.querySelectorAll(".pm-card").length===1&&document.querySelector(".pm-card .pm-name h3")?.textContent.trim()==="Тестовый проект",{},{timeout:12000});
  await search.fill("");await verify("en");
  await ready();await verify("en");
  assert.deepEqual(errors,[],"no page errors");

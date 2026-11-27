@@ -1,35 +1,18 @@
 import assert from "node:assert/strict";
 import {readFileSync,writeFileSync} from "node:fs";
 export function ppProjectCardCaption(parent,raw){
- if(!parent||!document.body.classList.contains("projects-mode"))return null;
- const norm=s=>String(s??"").trim();
- const value=norm(raw);
+ if(!parent||!document.body.classList.contains("projects-mode")||!parent.closest(".pm-card"))return null;
+ const value=String(raw??"").trim();
  const counts={"автоклавов":["оборудование","Equipment"],"автоклава":["оборудование","Equipment"],"автоклав":["оборудование","Equipment"],"оборудование":["оборудование","Equipment"],"сотрудников":["сотрудников","Employees"],"сотрудника":["сотрудника","Employees"],"сотрудник":["сотрудник","Employees"],"заказов":["заказов","Orders"],"заказа":["заказа","Orders"],"заказ":["заказ","Orders"],"расчётов":["расчётов","Calculations"],"расчетов":["расчётов","Calculations"],"расчёта":["расчёта","Calculations"],"расчёт":["расчёт","Calculations"]};
- const buttons={"Копия":["Копия","Copy"],"Экспорт":["Экспорт","Export"]};
- const last={"Последний план":["Последний план","Latest plan"]};
- const date=/^Изменено(?:\s|$)/.test(value);
+ if(parent.matches(".pm-stat")&&Object.hasOwn(counts,value))return counts[value];
+ if(parent.matches(".pm-actions button")){
+  if(value==="Копия")return [value,"Copy"];
+  if(value==="Экспорт")return [value,"Export"];
+ }
+ if(parent.matches(".pm-name > small")&&/^Изменено(?:\s|$)/.test(value))return [value,value.replace(/^Изменено/,"Modified")];
+ if(parent.matches(".pm-last > span")&&value==="Последний план")return [value,"Latest plan"];
  const hours=/^(\d+(?:[.,]\d+)?)\s*ч\.?$/.exec(value);
- if(!Object.hasOwn(counts,value)&&!Object.hasOwn(buttons,value)&&!Object.hasOwn(last,value)&&!date&&!hours)return null;
- // Detect the native project-card action cluster, not generic page text.
- // Check both locales because the existing translator visits nodes in order.
- let card=null;
- for(let node=parent,depth=0;node&&depth<9;node=node.parentElement,depth++){
-  if(node===document.body||node.matches(".main,.shell"))break;
-  const labels=[...node.querySelectorAll("button,[role=button]")].map(b=>norm(b.textContent));
-  if(labels.some(t=>["Open","Открыть"].includes(t))&&labels.some(t=>["Delete","Удалить"].includes(t))&&labels.some(t=>["Copy","Копия"].includes(t))&&labels.some(t=>["Export","Экспорт"].includes(t))){card=node;break}
- }
- if(!card)return null;
- if(Object.hasOwn(buttons,value))return parent.closest("button,[role=button]")?buttons[value]:null;
- // Preserve user-entered project names even when they match a system label.
- if(parent.closest("button,input,textarea,[contenteditable],h1,h2,h3,h4,strong,b"))return null;
- const prev=norm(parent.previousElementSibling?.textContent),next=norm(parent.nextElementSibling?.textContent);
- if(Object.hasOwn(counts,value)){
-  const numeric=/^\d+(?:[.,]\d+)?$/;
-  return numeric.test(prev)||numeric.test(norm(parent.parentElement?.firstElementChild?.textContent))&&parent.parentElement.firstElementChild!==parent?counts[value]:null;
- }
- if(date)return /^Изменено\s+\d/.test(value)?[value,value.replace(/^Изменено/,"Modified")]:null;
- if(Object.hasOwn(last,value))return /^(?:\d|[—–-])/.test(next)?last[value]:null;
- if(hours&&["Последний план","Latest plan"].includes(prev))return [value,hours[1].replace(",",".")+" h"];
+ if(parent.matches(".pm-last > b")&&hours)return [value,hours[1].replace(",",".")+" h"];
  return null;
 }
 export function transformProjectsLanguage(html,helper){
