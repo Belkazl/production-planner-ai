@@ -1,0 +1,44 @@
+name: Verify and release Employees SDK styling
+on:
+  push:
+    branches: [main, release/employees-sdk-20261127]
+    paths:
+      - ops/ovh/employees-sdk/**
+      - .github/workflows/release-employees-sdk.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: |
+          bash -n ops/ovh/employees-sdk/release.sh
+          npm install --prefix /tmp/liftorbit-equipment-sdk-toolbar-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+          node ops/ovh/employees-sdk/browser_accept.mjs
+  release:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: npm install --prefix /tmp/liftorbit-equipment-sdk-toolbar-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Release and verify employee editor
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/employees-sdk/release.sh
