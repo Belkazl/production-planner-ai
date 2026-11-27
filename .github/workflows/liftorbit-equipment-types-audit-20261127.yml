@@ -1,0 +1,22 @@
+name: Inspect equipment type editor and metadata preservation
+on:
+  push:
+    branches: [fix/equipment-types-create-20261127]
+    paths:
+      - ops/ovh/equipment-types-create-20261127/audit.mjs
+      - .github/workflows/liftorbit-equipment-types-audit-20261127.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-equipment-types-create-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - run: node ops/ovh/equipment-types-create-20261127/audit.mjs
