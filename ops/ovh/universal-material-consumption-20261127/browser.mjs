@@ -64,7 +64,9 @@ try{
  const savedResponse=await response;assert(savedResponse.ok());assert.equal(captured.length,1);
  const saved=captured[0],requirements=m=>m.technical_processes.flatMap(p=>p.operations.flatMap(o=>o.resource_requirements));
  const a=requirements(old),b=requirements(saved);assert.equal(a.length,b.length);
- for(let i=0;i<a.length;i++){assert.equal(a[i].resource_type,b[i].resource_type);assert.equal(String(a[i].resource_ref),String(b[i].resource_ref));assert.equal(Number(a[i].quantity),Number(b[i].quantity));assert.equal(b[i].consumption_rule,a[i].consumption_rule==="per_m2"?"per_unit":a[i].consumption_rule||"during_operation")}
+ const refs=r=>[...new Set([...(Array.isArray(r.resource_refs)?r.resource_refs:[]),r.resource_ref].filter(x=>x!=null&&String(x).trim()).map(String))].sort();
+ console.log("CONSUMPTION_REQUIREMENT_COMPARISON",JSON.stringify({before:a.map(r=>({type:r.resource_type,refs:refs(r),quantity:r.quantity,rule:r.consumption_rule})),after:b.map(r=>({type:r.resource_type,refs:refs(r),quantity:r.quantity,rule:r.consumption_rule}))}));
+ for(let i=0;i<a.length;i++){assert.equal(a[i].resource_type,b[i].resource_type);assert.deepEqual(refs(a[i]),refs(b[i]),"resource binding unchanged");assert.equal(Number(a[i].quantity),Number(b[i].quantity));assert.equal(b[i].consumption_rule,a[i].consumption_rule==="per_m2"?"per_unit":a[i].consumption_rule||"during_operation")}
  assert.equal(b.filter(x=>x.resource_type==="material"&&x.consumption_rule==="per_unit").length,2);
  if(live){
   const actual=await page.evaluate(async()=>{const r=await fetch("/api/model",{cache:"no-store",credentials:"same-origin"});return (await r.json()).model});
