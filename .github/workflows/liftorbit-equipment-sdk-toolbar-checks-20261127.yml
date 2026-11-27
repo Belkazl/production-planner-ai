@@ -1,0 +1,31 @@
+name: Equipment toolbar SDK checks
+on:
+  push:
+    branches: [fix/equipment-sdk-toolbar-20261127]
+    paths:
+      - ops/ovh/equipment-sdk-toolbar-20261127/**
+      - .github/workflows/liftorbit-equipment-sdk-toolbar-checks-20261127.yml
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test ops/ovh/equipment-sdk-toolbar-20261127/test_patch.mjs
+      - run: node --check ops/ovh/equipment-sdk-toolbar-20261127/browser_accept.mjs
+      - run: npm install --prefix /tmp/liftorbit-equipment-sdk-toolbar-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Test candidate UI in an isolated QA project without deploying
+        run: node ops/ovh/equipment-sdk-toolbar-20261127/browser_accept.mjs
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: equipment-sdk-toolbar-candidate
+          path: /tmp/equipment-sdk-toolbar-candidate.png
+          retention-days: 7
