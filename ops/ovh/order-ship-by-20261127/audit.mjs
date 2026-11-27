@@ -31,7 +31,7 @@ try{
  if(await page.evaluate(()=>document.body.classList.contains("projects-mode")))await page.locator(".top .nav > span").filter({hasText:/^(Planning|Планирование)$/}).click();
  await page.locator(".side .item").filter({hasText:/^(Orders|Заказы)$/}).click();
  const result=await page.evaluate(async()=>{
-  const editor=document.getElementById("ppTechProcessJs")?.textContent||"";
+  const editors=[...document.scripts].filter(s=>/technical_process_id/.test(s.textContent||"")&&/data-f=|ppOrderParamBody|orders\.map|orderRow/.test(s.textContent||""));
   const snippets=(s,pattern,before=120,after=1100,limit=15)=>Array.from(s.matchAll(pattern)).slice(0,limit).map(m=>s.slice(Math.max(0,m.index-before),m.index+after)).filter(x=>!/(password|secret|api[_-]?key|authorization|token|credential)/i.test(x));
   const relevant=[];
   for(const s of document.scripts){
@@ -45,7 +45,7 @@ try{
   const response=await fetch("/api/project/model/import",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({model:candidate})});
   const imported=await response.json();
   return {importStatus:response.status,deadline:imported.model?.orders?.[0]?.ship_by??null,
-    editor:snippets(editor,/function \w*[Oo]rder\w*\(|function \w*[Ss]ave\w*\(|technical_process_id|next\.orders\s*=|<th>Заказ/g,140,1500,28),
+    editor:editors.map(s=>({id:s.id,length:s.textContent.length,code:snippets(s.textContent,/data-f=["']technical_process_id|function \w*[Oo]rder\w*\(|next\.orders\s*=|<th>Заказ|data-order-save/g,160,650,25)})),
     ui:relevant,table:[...document.querySelectorAll("#sectionView table")].map(t=>({headers:[...t.querySelectorAll("th")].map(x=>x.textContent),first:[...(t.querySelector("tbody tr")||t.querySelector("tr[data-row]"))?.querySelectorAll("input,select")||[]].map(x=>({tag:x.tagName,dataset:{...x.dataset}}))}))};
  });
  console.log("SHIP_BY_BROWSER_AUDIT",JSON.stringify(result));
