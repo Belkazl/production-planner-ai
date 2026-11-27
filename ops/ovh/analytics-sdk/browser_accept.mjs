@@ -94,7 +94,7 @@ try{
  await dash.locator("[data-pp-ana-ai]").click();assert((await page.locator("#chatInput").inputValue()).includes("available working time"));assert.equal(chatRequests.length,0);
  await page.locator("#ppLanguageSelect").selectOption("ru");await page.waitForFunction(()=>document.querySelector("[data-pp-analytics-dashboard] h2")?.textContent==="Аналитика");assert(!(await scenarios().isVisible()));await verifyButton("[data-pp-ana-ai]");await verifyLayout("PLAN_RU");
  await page.locator("#ppLanguageSelect").selectOption("en");await page.waitForFunction(()=>document.querySelector("[data-pp-analytics-dashboard] h2")?.textContent==="Analytics");
- await page.locator(".side .item").filter({hasText:/^(Settings|Настройки)$/}).click();assert(!(await dash.isVisible()));assert(await page.locator("#sectionView").isVisible());
+ await page.locator(".side .item").filter({hasText:/^(Orders|Заказы)$/}).click();assert(!(await dash.isVisible()));assert(await page.locator("#sectionView").isVisible());
  await analytics().click();await dash.locator('[data-pp-kpi="duration"]').waitFor({state:"visible"});
  assert.equal(await page.evaluate(()=>{const id=localStorage.getItem("prodplan.project.active.v2");return JSON.stringify(JSON.parse(localStorage.getItem("prodplan.projects.v2")).find(p=>p.id===id).model)}),original);
  await verifyButton("[data-pp-ana-ai]");await verifyLayout("PLAN_RETURN");
