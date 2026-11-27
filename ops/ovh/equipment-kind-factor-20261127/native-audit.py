@@ -29,10 +29,10 @@ for name,f in sorted(ga.items()):
     if not inspect.isfunction(f):continue
     try:s=ast.unparse(definitions[name]) if name in definitions else inspect.getsource(f)
     except Exception:continue
-    if not re.search(r'process_factor|processFactor|[\x27"]factor[\x27"]',s):continue
+    if not re.search(r'process_multiplier|process_factor|processFactor|[\x27"]factor[\x27"]',s):continue
     lines=s.splitlines();ids=set()
     for i,l in enumerate(lines):
-        if re.search(r'process_factor|processFactor|[\x27"]factor[\x27"]',l):ids.update(range(max(0,i-2),min(len(lines),i+3)))
+        if re.search(r'process_multiplier|process_factor|processFactor|[\x27"]factor[\x27"]',l):ids.update(range(max(0,i-2),min(len(lines),i+3)))
     print('EQUIPMENT_FACTOR_CODE',name,json.dumps('\n'.join(lines[i] for i in sorted(ids)[:40]),ensure_ascii=True))
 sys.path.insert(0,str(ops/'integrated-setup-verify-20261125'))
 from cases import model, rows
@@ -41,7 +41,7 @@ for mode in ('fixed','throughput'):
         m=model(zero=True)
         e=m['equipment'][0]
         e['timing_profile']={'timing_mode':'fixed','duration_min':10} if mode=='fixed' else {'timing_mode':'throughput','throughput_per_hour':60}
-        e.update(process_factor=factor,factor=factor,processFactor=factor)
+        e.update(process_multiplier=factor)
         m['setup_rules']=[]
         with open(os.devnull,'w') as sink,contextlib.redirect_stdout(sink),contextlib.redirect_stderr(sink):
             p=full_runtime_adapter.run({'model':copy.deepcopy(m),'options':{'generations':3,'population':6,'seed':1729,'objective':'duration'}},lambda _:None)
