@@ -1,0 +1,44 @@
+name: Planning start OVH release
+on:
+  push:
+    branches: [fix/planning-start-20261127]
+    paths:
+      - ops/ovh/planning-start-20261127/**
+      - .github/workflows/liftorbit-planning-start-release-20261127.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test date semantics and native page patch
+        run: |
+          node --test ops/ovh/planning-start-20261127/test_*.mjs
+          node --check ops/ovh/planning-start-20261127/browser-ui.mjs
+          node --check ops/ovh/planning-start-20261127/browser_accept.mjs
+          bash -n ops/ovh/planning-start-20261127/release.sh
+          bash -n ops/ovh/planning-start-20261127/remote_release.sh
+      - run: npm install --prefix /tmp/liftorbit-planning-start-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Stage authenticated page, validate saving, deploy and verify actual native start
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/planning-start-20261127/release.sh
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: planning-start-live
+          path: /tmp/planning-start-live.png
+          retention-days: 7
