@@ -75,7 +75,7 @@ export function ppInstallShipBy(){
   if(planView){
    // Annotate only real order lanes. Use their native bars and displayed
    // time scale, never an inferred start from the first visible operation.
-   const byLane=new Map();
+   const byLane=new Map(),lateBars=new Set();
    for(const bar of planView.querySelectorAll(".pg2-bar,.pp3-bar")){
     if(bar.__ppResourceKind!=="order"||!bar.__ppOperation||bar.__ppKind==="setup")continue;
     const lane=bar.parentElement,oid=String(bar.__ppOperation.order??bar.__ppResource?.id??"");
@@ -84,7 +84,10 @@ export function ppInstallShipBy(){
     if(shown!==plan&&(!shown||shown.partial||shown.duration_minutes!==plan.duration_minutes||shown.operations?.length!==plan.operations?.length))continue;
     if(!byLane.has(lane))byLane.set(lane,{r,bars:[]});
     byLane.get(lane).bars.push(bar);
+    const start=Number(bar.__ppOperation.start_min),end=Number(bar.__ppOperation.end_min);
+    if(r.status==="late"&&end>r.deadline_min&&end>start){lateBars.add(bar);bar.dataset.ppShipLate="";bar.style.setProperty("--pp-ship-late-start",Math.max(0,Math.min(100,100*(r.deadline_min-start)/(end-start)))+"%")}
    }
+   for(const bar of planView.querySelectorAll("[data-pp-ship-late]"))if(!lateBars.has(bar)){delete bar.dataset.ppShipLate;bar.style.removeProperty("--pp-ship-late-start")}
    for(const marker of planView.querySelectorAll("[data-pp-ship-marker]"))if(!byLane.has(marker.parentElement))marker.remove();
    for(const [lane,{r,bars}] of byLane){
     const samples=bars.map(bar=>({bar,start:Number(bar.__ppOperation.start_min),end:Number(bar.__ppOperation.end_min)})).filter(x=>Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start&&x.bar.offsetWidth>2).sort((a,b)=>(b.end-b.start)-(a.end-a.start));
@@ -101,7 +104,7 @@ export function ppInstallShipBy(){
  };
  const schedule=()=>{if(!scheduled){scheduled=true;requestAnimationFrame(refresh)}};
  if(section)new MutationObserver(schedule).observe(section,{childList:true,subtree:true});
- if(planView)new MutationObserver(schedule).observe(planView,{childList:true,subtree:true});
+ if(planView){new MutationObserver(schedule).observe(planView,{childList:true,subtree:true});planView.addEventListener("click",schedule)}
  if(rail)new MutationObserver(schedule).observe(rail,{attributes:true,subtree:true,attributeFilter:["class"]});
  document.addEventListener("input",e=>{if(e.target?.closest?.("#sectionView"))schedule()});
  document.addEventListener("change",schedule);
@@ -109,5 +112,5 @@ export function ppInstallShipBy(){
  schedule();
 }
 export const browserFunctions=[ppShipByValue,ppShipByStart,ppShipByReport,ppShipByScore,ppShipByCompare,ppShipByFormatMinutes,ppShipByProject,ppShipByCurrentPlan,ppShipByLang,ppShipByText,ppShipByEscape,ppShipByCells,ppShipByValidate,ppShipBySave,ppShipByAnalytics,ppInstallShipBy].map(f=>f.toString()).join("\n");
-export const css='<style id="ppShipByStyle">#sectionView .pp-ship-by-date{min-width:180px;width:205px}#sectionView .pp-ship-by-date input{width:100%;min-width:0;box-sizing:border-box;font:inherit}#sectionView .pp-ship-by-status{min-width:120px;white-space:nowrap} [data-pp-ship-status]{font-size:12px;color:#687c92}[data-pp-ship-status][data-status="on_time"]{color:#167844}[data-pp-ship-status][data-status="late"],[data-pp-ship-analytics] [data-status="late"]{color:#b42318}[data-pp-ship-marker]{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed #167844;z-index:4;pointer-events:none}[data-pp-ship-marker][data-status="late"]{border-color:#b42318}.pp-ship-by-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:8px 0 14px}.pp-ship-by-kpis div{display:grid;gap:4px}.pp-ship-by-kpis small{font-size:11px;color:#51667d}.pp-ship-by-kpis strong{font-size:20px;font-variant-numeric:tabular-nums}</style>';
+export const css='<style id="ppShipByStyle">#sectionView .pp-ship-by-date{min-width:180px;width:205px}#sectionView .pp-ship-by-date input{width:100%;min-width:0;box-sizing:border-box;font:inherit}#sectionView .pp-ship-by-status{min-width:120px;white-space:nowrap} [data-pp-ship-status]{font-size:12px;color:#687c92}[data-pp-ship-status][data-status="on_time"]{color:#167844}[data-pp-ship-status][data-status="late"],[data-pp-ship-analytics] [data-status="late"]{color:#b42318}[data-pp-ship-marker]{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed #167844;z-index:4;pointer-events:none}[data-pp-ship-marker][data-status="late"]{border-color:#b42318}[data-pp-ship-late]::after{content:"";position:absolute;top:0;bottom:0;left:var(--pp-ship-late-start);right:0;background:rgba(180,35,24,.55);pointer-events:none;border-radius:inherit}.pp-ship-by-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:8px 0 14px}.pp-ship-by-kpis div{display:grid;gap:4px}.pp-ship-by-kpis small{font-size:11px;color:#51667d}.pp-ship-by-kpis strong{font-size:20px;font-variant-numeric:tabular-nums}</style>';
 export const script='<script id="ppShipByJs">/* PP_ORDER_SHIP_BY_V1 */\n'+browserFunctions+'\nppInstallShipBy();</script>';
