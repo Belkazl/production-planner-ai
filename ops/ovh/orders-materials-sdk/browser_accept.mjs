@@ -44,6 +44,12 @@ try{
    await page.waitForFunction(()=>document.querySelector("#sectionView.pp-sdk-resource-editor .pp-sdk-equipment-table")&&document.querySelector("#sectionView.pp-sdk-resource-editor .pp-sdk-InputContainer"),null,{timeout:20000});
  };
  const inspect=async label=>{
+   await page.waitForFunction(()=>{
+     const s=document.querySelector("#sectionView.pp-sdk-resource-editor");if(!s)return false;
+     const inputs=[...s.querySelectorAll("input:not([hidden]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]):not([type=submit])")].filter(i=>i.getBoundingClientRect().width>0);
+     const buttons=[...s.querySelectorAll("button[data-del],button[data-order-del],button[data-add],button[data-save],button[data-order-add],button[data-order-save]")];
+     return inputs.length>=3&&inputs.every(i=>i.classList.contains("pp-sdk-Input")&&Math.abs(i.getBoundingClientRect().height-40)<1)&&buttons.every(b=>b.classList.contains("pp-sdk-Button"));
+   },null,{timeout:15000});
    const d=await section.evaluate(s=>{
      const visible=e=>!!(e.getBoundingClientRect().width&&e.getBoundingClientRect().height)&&getComputedStyle(e).visibility!=="hidden";
      const buttons=[...s.querySelectorAll("button")].filter(visible).map(b=>({label:b.textContent.trim(),attrs:[...b.attributes].filter(a=>a.name.startsWith("data-")).map(a=>a.name),sdk:b.classList.contains("pp-sdk-Button"),height:b.getBoundingClientRect().height,variant:b.dataset.variant,html:b.outerHTML.slice(0,200)}));
