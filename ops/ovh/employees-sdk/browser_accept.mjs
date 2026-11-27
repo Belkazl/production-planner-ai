@@ -63,7 +63,7 @@ try{
  const count=await rows.count();
  const shift=table.locator('.pp-sdk-SelectControl').first();
  assert.equal(await shift.evaluate(el=>getComputedStyle(el).fontWeight),'400');
- await shift.focus();await shift.press('Enter');await page.getByRole('option').first().click();
+ await shift.focus();await shift.press('Enter');await page.locator('.pp-sdk-MenuList:popover-open').getByRole('option').first().click();
  
  await head().locator("[data-pp-add]").click();
  assert.equal(await rows.count(),count+1,"Native Add handler remains intact");
