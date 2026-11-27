@@ -26,6 +26,7 @@ try{
  if(!live)await page.route("**/",async route=>{
   if(!route.request().isNavigationRequest()||new URL(route.request().url()).pathname!=="/")return route.continue();
   const response=await route.fetch(),old=await response.text(),out=patchPreview(old);
+  if(old.includes('id="loginTab"'))return route.fulfill({response,body:old});
   assert.notEqual(out,old,"authenticated page must receive revised navigation");assert.equal(patchPreview(out),out);
   await route.fulfill({response,body:out,headers:{...response.headers(),"content-type":"text/html; charset=utf-8"}});
  });
@@ -63,8 +64,8 @@ try{
   assert.ok(d.top.font.includes("system-ui")&&d.side.font.includes("system-ui"));
   assert.equal(d.language.size,"14px");assert.equal(d.language.weight,"400");assert.ok(Math.abs(d.language.h-40)<1&&parseFloat(d.language.radius)>=20);
   assert.ok(Math.abs(d.logout.h-40)<1&&parseFloat(d.logout.radius)>=20);
-  assert.equal(d.tabs.filter(t=>t.active).length,1);for(const t of d.tabs){assert.ok(t.h>=39&&parseFloat(t.radius)>=20&&t.size==="14px",JSON.stringify(t));assert.equal(t.bg,t.active?"rgb(237, 237, 237)":"rgba(0, 0, 0, 0)")}
-  if(!d.projectMode){assert.equal(d.items.length,expected.length);assert.equal(d.items.filter(i=>i.active).length,1);for(const i of d.items){assert.ok(i.h>=39&&parseFloat(i.radius)>=8&&i.icon&&i.size==="14px",JSON.stringify(i));assert.equal(i.bg,i.active?"rgb(237, 237, 237)":"rgba(0, 0, 0, 0)")}}
+  assert.equal(d.tabs.filter(t=>t.active).length,1);for(const t of d.tabs){assert.ok(Math.abs(t.h-40)<1&&parseFloat(t.radius)>=20&&t.size==="14px",JSON.stringify(t));assert.equal(t.bg,t.active?"rgb(237, 237, 237)":"rgba(0, 0, 0, 0)")}
+  if(!d.projectMode){assert.equal(d.items.length,expected.length);assert.equal(d.items.filter(i=>i.active).length,1);for(const i of d.items){assert.ok(i.h>=63&&parseFloat(i.radius)>=8&&i.icon&&i.size==="12px"&&i.scroll<=i.client+2,JSON.stringify(i));assert.equal(i.bg,i.active?"rgb(237, 237, 237)":"rgba(0, 0, 0, 0)")}}
   assert.ok(d.account.right<=d.top.right+2,"Account controls remain inside viewport");
   for(const t of d.tabs)assert.ok(t.right<=d.account.x+2,"Navigation must not overlap account controls");
   return d;
@@ -105,6 +106,11 @@ try{
  assert.equal(stored.find(p=>p.id===id).model.orders[0].ship_by,m.orders[0].ship_by);
  assert.equal(stored.find(p=>p.id===id).messages[1].text,"First project QA response");
  await verifyShell("RELOAD");
+ const documents=page.locator(".top .nav > span").filter({hasText:/^(Documents|Документы)$/});
+ if(await documents.isVisible()){
+  await documents.click();await page.locator("#ppDocumentsView").waitFor({state:"visible"});await page.waitForFunction(()=>document.querySelector(".top .nav>[aria-controls=ppDocumentsView]")?.hasAttribute("data-pp-sdk-current"));await verifyShell("DOCUMENTS");
+  await page.locator(".top .nav > span").filter({hasText:/^(Planning|Планирование)$/}).click();await page.locator("#ppDocumentsView").waitFor({state:"hidden"});await verifyShell("BACK_TO_PLAN");
+ }
  await page.setViewportSize({width:1120,height:900});await verifyShell("NARROW");
  await page.setViewportSize({width:1440,height:900});
  assert.deepEqual(errors,[],"No uncaught page errors");
