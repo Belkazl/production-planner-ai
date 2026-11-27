@@ -109,12 +109,12 @@ try{
  const chatEnd=await inspect();approx(chatEnd.main.scrollTop,chatStart.main.scrollTop);approx(chatEnd.top.top,chatStart.top.top);approx(chatEnd.compose.bottom,chatStart.compose.bottom);approx(chatEnd.side.top,chatStart.side.top);
  // Native sidebar remains clickable while the working area is scrolled.
  await page.locator(".side .item").filter({hasText:/^(Orders|Заказы)$/}).click();
- await page.waitForFunction(()=>document.querySelector(".side .item.active")?.textContent.trim()==="Orders",{},{timeout:10000});
+ try{await page.waitForFunction(()=>[...document.querySelectorAll(".side .item.active")].some(x=>/^(Orders|Заказы)$/.test(x.textContent.trim())),{},{timeout:10000})}catch(e){const state=await inspect();console.log("SCROLL_NAV_DIAGNOSTIC",JSON.stringify({items:state.items.map(x=>({label:x.label,top:x.top,bottom:x.bottom})),section:await page.locator("#sectionView").innerText().catch(()=>""),active:await page.locator(".side .item.active").allTextContents()}));throw e}
  await page.waitForFunction(()=>document.querySelector(".shell>.main").scrollTop<2,{},{timeout:6000});
  await page.locator(".side .item").filter({hasText:/^(Production|Производство)$/}).click();
  await page.waitForFunction(()=>document.querySelectorAll("#sectionView .pp-rr-table").length>=24,{},{timeout:15000});
  await page.locator(".side .item").filter({hasText:/^(Plan|План)$/}).click();
- await page.waitForFunction(()=>document.querySelector(".side .item.active")?.textContent.trim()==="Plan",{},{timeout:10000});
+ await page.waitForFunction(()=>[...document.querySelectorAll(".side .item.active")].some(x=>/^(Plan|План)$/.test(x.textContent.trim()))&&document.querySelector("#planView")?.getClientRects().length>0,{},{timeout:10000});
  assert((await inspect()).main.clientHeight>0);
  await page.locator(".side .item").filter({hasText:/^(Production|Производство)$/}).click();
  await page.waitForFunction(()=>document.querySelectorAll("#sectionView .pp-rr-table").length>=24,{},{timeout:15000});
