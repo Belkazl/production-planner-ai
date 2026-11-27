@@ -1,7 +1,7 @@
 name: Verify and release Work schedules time fields
 on:
   push:
-    branches: [main, release/work-schedules-time-fit-20261127]
+    branches: [main, release/work-schedules-time-fit-20261127, release/work-schedules-time-fit-retry-20261127]
     paths:
       - ops/ovh/work-schedules-time-fit/**
       - .github/workflows/release-work-schedules-time-fit.yml

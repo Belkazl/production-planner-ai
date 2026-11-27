@@ -158,7 +158,15 @@ try{
  await verifyCalendar();
  await panel.locator("[data-pp-save-schedules]").click();
  await page.waitForFunction(()=>model?.shift_calendars?.["shift-1"]?.name==="QA evening",null,{timeout:30000});
- const saved=await request("/api/model");const calendar=saved.data.model.shift_calendars["shift-1"];
+ // The UI model is updated optimistically; wait for the server's persisted state.
+ let calendar;
+ for(let attempt=0;attempt<40;attempt++){
+   const saved=await request("/api/model");
+   calendar=saved.data?.model?.shift_calendars?.["shift-1"];
+   if(calendar?.name==="QA evening")break;
+   await new Promise(resolve=>setTimeout(resolve,500));
+ }
+ assert.ok(calendar,"New shift must be persisted on the server");
  assert.equal(calendar.name,"QA evening");assert.equal(calendar.start,"08:30");assert.equal(calendar.end,"18:00");
  assert.deepEqual(calendar.days.slice().sort((a,b)=>a-b),[1,2,3,4]);assert.deepEqual(calendar.breaks,[["12:15","13:00"]]);
  await verifyCalendar();
