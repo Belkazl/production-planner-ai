@@ -20,11 +20,12 @@ try{
    orders:[{id:"2601",quantity:600,area:600,unit:"m2",technical_process_id:"P",parameters:{color:"A"}}],
    employees:[{id:"E1",name:"Synthetic operator",role:"operator",shift:"day"}],materials:[{id:'M',name:'Synthetic powder',unit:'kg',initial_stock:1000,deliveries:[]}],shifts:{day:[["08:00","12:00"],["13:00","17:00"]]},constraints:[],setup_rules:[],
    technical_processes:[{id:"P",name:"Synthetic process",operations:[{id:"OP",name:"Press",sequence:1,duration_min:10,resource_requirements:[{resource_type:"equipment",match_mode:"specific",resource_ref:"M1",resource_refs:["M1"],quantity:1,unit:"pcs"},{resource_type:"employee",match_mode:"specific",resource_ref:"E1",resource_refs:["E1"],quantity:1,unit:"pcs",consumption_rule:"during_operation"}]},{id:"OP2",name:"Fire",sequence:2,duration_min:10,resource_requirements:[{resource_type:"equipment",match_mode:"specific",resource_ref:"M2",resource_refs:["M2"],quantity:1,unit:"pcs"}]}]}]};
+  model.autoclaves=structuredClone(model.equipment);
   const storage={"prodplan.projects.v2":JSON.stringify([{id,name:"Synthetic launch analytics QA",model,revision:1,lastPlan:null}]),"prodplan.project.active.v2":id};
   return (await fetch("/api/db-storage",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage})})).status;
  },id);
  assert.equal(seeded,200);
- const errors=[];page.on("pageerror",e=>errors.push(String(e).slice(0,180)));
+ const errors=[];page.on("pageerror",e=>errors.push(String(e.stack||e).split("\n").slice(0,4).join("\n").slice(0,1000)));
  const ready=async()=>{await page.reload({waitUntil:"domcontentloaded",timeout:45000});await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&model?.orders?.length===1&&document.querySelectorAll(".side .item").length===10,{},{timeout:30000});await page.locator("#ppLanguageSelect").selectOption("en")};
  const analytics=()=>page.locator(".side .item").filter({hasText:/^(Analytics|Аналитика)$/});
  const scenarios=()=>page.locator(".side .item").filter({hasText:/^(Scenarios|Сценарии)$/});
