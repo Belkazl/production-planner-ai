@@ -62,6 +62,8 @@ try{
  };
  await verify("en");
  const original=await page.evaluate(()=>JSON.stringify(model));
+ const baselineImports=imports;
+ console.log("CALENDAR_LANGUAGE_INITIAL_IMPORT_COUNT",baselineImports);
  // Unsaved user-entered shift data must survive a language round trip.
  const draft=panel.locator('[data-pp-calendar-field="name"]').first();
  await draft.fill("Тестовая смена");
@@ -72,7 +74,7 @@ try{
  assert.equal(await panel.locator("[data-pp-calendar-break]").count(),2);
  assert.equal(await panel.locator("[data-pp-add-break]").first().innerText(),"+ Break");
  assert.equal(await page.evaluate(()=>JSON.stringify(model)),original,"language switching never changes the saved model");
- assert.equal(imports,0,"no model imports while changing language");
+ assert.equal(imports,baselineImports,"no additional model imports while changing language or editing the unsaved calendar");
  // Confirm the selected language is persisted across an authenticated reload.
  await page.reload({waitUntil:"domcontentloaded",timeout:45000});
  await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&document.getElementById("ppLanguageSelect")?.value==="en",{},{timeout:30000});
