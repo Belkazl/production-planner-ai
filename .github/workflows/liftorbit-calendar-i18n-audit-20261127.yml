@@ -1,0 +1,22 @@
+name: Inspect actual calendar localization on synthetic project
+on:
+  push:
+    branches: [fix/system-language-calendar-20261127]
+    paths:
+      - ops/ovh/system-language-calendar-20261127/audit.mjs
+      - .github/workflows/liftorbit-calendar-i18n-audit-20261127.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-i18n-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - run: node ops/ovh/system-language-calendar-20261127/audit.mjs
