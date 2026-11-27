@@ -1,0 +1,37 @@
+name: Verify and deploy production unit visibility cleanup
+on:
+  push:
+    branches: [fix/production-hide-redundant-units-20261127]
+    paths:
+      - ops/ovh/production-hide-redundant-units-20261127/**
+      - .github/workflows/liftorbit-production-hide-units-20261127.yml
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-production-units-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Verify production units hidden while canonical material units remain
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/production-hide-redundant-units-20261127/patch.mjs
+          bash -n ops/ovh/production-hide-redundant-units-20261127/release.sh
+          node ops/ovh/production-hide-redundant-units-20261127/browser.mjs
+      - name: Install tested presentation-only change and verify production
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/production-hide-redundant-units-20261127/release.sh
