@@ -1,0 +1,64 @@
+name: Audit current equipment group editor and factor semantics
+on:
+  push:
+    branches: [fix/equipment-kind-factor-20261127]
+    paths:
+      - .github/workflows/liftorbit-equipment-kind-audit-20261127.yml
+      - ops/ovh/equipment-kind-factor-20261127/audit.mjs
+      - ops/ovh/equipment-kind-factor-20261127/native-audit.py
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare isolated Python runtime
+        run: docker build -f ops/ovh/shift-aware-minibatch-release-20261125/Dockerfile.verify -t order-native-audit:local ops/ovh/shift-aware-minibatch-release-20261125
+      - name: Inspect only existing approved code-only bundle in a no-network isolated runtime
+        env:
+          HOST: ${{ vars.OVH_HOST }}
+          USER: ${{ vars.OVH_USER }}
+          KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          KH: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = 51.255.163.121
+          test "$USER" = liftorbit-ci
+          umask 077
+          d=$(mktemp -d)
+          trap 'rm -rf -- "$d"' EXIT
+          printf '%s\n' "$KEY" > "$d/key"
+          printf '%s\n' "$KH" > "$d/kh"
+          ssh -i "$d/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/kh" -o ConnectTimeout=20 "$USER@$HOST" 'python3 -B -I - --emit-private-bundle' < ops/ovh/native-batching-verify-20261124/native_input_contract.py > "$d/native.bundle"
+          rm -f "$d/key" "$d/kh"
+          mkdir -m 700 "$d/native" "$d/input"
+          python3 - "$d" <<'PY'
+          import sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          sys.path.insert(0,"ops/ovh/shift-aware-minibatch-release-20261125")
+          from contract import native_bundle
+          files,workers,code_hash=native_bundle(root/"native.bundle")
+          for name,data in files.items():
+              if name.startswith("ga_workers/"):
+                  p=root/"native"/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+              elif name=="code-inputs.json":(root/"input"/name).write_bytes(data)
+          PY
+          rm "$d/native.bundle"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --pids-limit 128 --memory 2g --cpus 2 --tmpfs /tmp:rw,nosuid,nodev,size=536870912 --mount "type=bind,src=$d/native,dst=/native,readonly" --mount "type=bind,src=$d/input,dst=/input,readonly" --mount "type=bind,src=$PWD/ops/ovh,dst=/public/ops,readonly" order-native-audit:local python3 -B -I /public/ops/equipment-kind-factor-20261127/native-audit.py
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-equipment-kind-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - run: node ops/ovh/equipment-kind-factor-20261127/audit.mjs
