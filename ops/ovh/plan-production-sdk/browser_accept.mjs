@@ -44,7 +44,7 @@ try{
  const nav=label=>page.locator(".side .item").filter({hasText:label});
  const section=page.locator("#sectionView");
  const inspectProduction=async label=>{
-  await page.waitForFunction(()=>{const s=document.querySelector("#sectionView.pp-sdk-production-editor");if(!s)return false;const fields=[...s.querySelectorAll("input:not([hidden]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=button]):not([type=submit])")].filter(i=>i.getBoundingClientRect().width>0);const selects=[...s.querySelectorAll("select:not([hidden]):not([multiple])")];return fields.length>0&&fields.every(i=>i.classList.contains("pp-sdk-Input"))&&selects.every(i=>i.classList.contains("pp-sdk-native-select"));},null,{timeout:18000});
+  await page.waitForFunction(()=>{const s=document.querySelector("#sectionView.pp-sdk-production-editor");if(!s)return false;const fields=[...s.querySelectorAll("input:not([hidden]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=button]):not([type=submit])")].filter(i=>i.getBoundingClientRect().width>0);const selects=[...s.querySelectorAll("select:not([hidden]):not([multiple])")];return fields.length>0&&fields.every(i=>i.classList.contains("pp-sdk-Input"))&&selects.every(i=>i.classList.contains("pp-sdk-native-select"))&&[...s.querySelectorAll("input[type=checkbox]")].every(i=>i.nextElementSibling?.classList.contains("pp-sdk-calendar-Checkbox"))&&[...s.querySelectorAll("button[data-radd],button[data-save],button[data-pdel]")].every(b=>b.classList.contains("pp-sdk-Button"))&&[...s.querySelectorAll("button[data-pdel]")].every(b=>!b.hasAttribute("data-uniform"));},null,{timeout:18000});
   const d=await section.evaluate(s=>{
    const visible=e=>!!(e.getBoundingClientRect().width&&e.getBoundingClientRect().height)&&getComputedStyle(e).visibility!=="hidden";
    return {title:s.querySelector("h1")?.textContent,
@@ -61,7 +61,7 @@ try{
   return d;
  };
  await nav(/^(Production|Производство)$/).click();await inspectProduction("PRODUCTION_EN");
- const materialRow=section.locator('.pp-rr-table [data-r]').filter({has:section.locator('[data-rf=resource_type] option[value=material]:checked')}).first();
+ const materialRow=section.locator('.pp-rr-table [data-r]:has([data-rf=resource_type] option[value=material]:checked)').first();
  await materialRow.waitFor();
  const resource=materialRow.locator('[data-rf=resource_ref]');
  const trigger=resource.locator("xpath=following-sibling::*[contains(@class,'pp-sdk-SelectControl')][1]");
@@ -69,6 +69,14 @@ try{
  assert.equal(await resource.inputValue(),"MAT2");assert.match(await materialRow.locator('[data-rf=unit]').evaluate(e=>e.value),/^(pcs|шт\.?)/);
  await trigger.click();await page.locator(".pp-sdk-MenuList:popover-open").getByRole("option",{name:"Synthetic powder",exact:true}).click();
  assert.equal(await resource.inputValue(),"M");
+ const originalName=await section.locator("#procName").inputValue();
+ await section.locator("#procName").fill(originalName+" QA");
+ const saved=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/project/model/import"&&r.request().method()==="POST",{timeout:30000});
+ await section.locator("[data-save]").click();assert.ok((await saved).ok());
+ let savedModel=null;
+ for(let n=0;n<40;n++){const r=await request("/api/model");if(r.data?.model?.technical_processes?.[0]?.name===originalName+" QA"){savedModel=r.data.model;break}await page.waitForTimeout(500)}
+ assert.ok(savedModel,"production process changes persist");
+ await inspectProduction("PRODUCTION_SAVED");
  const original=await page.evaluate(()=>JSON.stringify(model));
  const rowCount=await section.locator(".pp-rr-table [data-r]").count();
  await section.locator("[data-radd]").first().click();

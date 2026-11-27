@@ -25,6 +25,17 @@ function installPlanProductionSDK(){
    const production=/^(Production|Производство)$/i.test(title);
    section.classList.toggle("pp-sdk-production-editor",production);
    if(production){
+    for(const button of section.querySelectorAll("button.pp-sdk-Button[data-pdel],button.pp-sdk-Button[data-pt]")){
+     if(button.hasAttribute("data-pdel")){button.removeAttribute("data-uniform");button.dataset.size="xl";button.dataset.variant="outline";button.dataset.color="danger"}
+     else {button.dataset.variant=button.classList.contains("a")?"soft":"outline";button.dataset.color="primary"}
+    }
+    for(const input of section.querySelectorAll('input[type="checkbox"]')){
+     if(input.classList.contains("pp-sdk-calendar-native-check"))continue;
+     input.classList.add("pp-sdk-calendar-native-check");
+     const box=document.createElement("span"),mark=document.createElement("span");box.className="pp-sdk-calendar-Checkbox";mark.className="pp-sdk-calendar-CheckMark";box.setAttribute("aria-hidden","true");box.append(mark);input.after(box);
+     const sync=()=>{box.dataset.state=input.indeterminate?"indeterminate":input.checked?"checked":"unchecked";box.toggleAttribute("data-disabled",input.disabled)};
+     input.addEventListener("input",sync);input.addEventListener("change",sync);sync();
+    }
     for(const table of section.querySelectorAll("table.pp-rr-table")){
      const parent=table.parentElement;if(parent!==section)parent.classList.add("pp-sdk-prod-table-scroll");
     }
@@ -35,7 +46,7 @@ function installPlanProductionSDK(){
   }
  }
  const schedule=()=>{if(!scheduled){scheduled=true;requestAnimationFrame(enhance)}};
- if(plan)new MutationObserver(ms=>{if(ms.some(m=>!m.target.closest?.("#ppGanttToolV2,#ppTabsView,#opt")))schedule()}).observe(plan,{childList:true,subtree:true,characterData:true});
+ if(plan)new MutationObserver(ms=>{if(ms.some(m=>!(m.target.nodeType===1?m.target:m.target.parentElement)?.closest?.("#ppGanttToolV2,#ppTabsView,#opt")))schedule()}).observe(plan,{childList:true,subtree:true,characterData:true});
  if(section)new MutationObserver(schedule).observe(section,{childList:true,subtree:true});
  document.addEventListener("change",e=>{if(e.target?.id==="ppLanguageSelect")schedule()});
  schedule();
@@ -67,6 +78,18 @@ function transform(html,css,script){
   s=once(s,'const save=Array.from(button.attributes).some(a=>/^data-.*save$/.test(a.name));','const save=Array.from(button.attributes).some(a=>/^data-.*save$/.test(a.name))||/^(save|сохранить)/i.test(button.textContent.trim());');
   return s;
  });
+ const calAnchor='<style id="ppWorkSchedulesSdkStyle">',calStart=html.indexOf(calAnchor),calEnd=html.indexOf("</style>",calStart+calAnchor.length);
+ if(calStart<0||calEnd<0)throw Error("Shared SDK checkbox style missing");
+ const cal=html.slice(calStart+calAnchor.length,calEnd),cbStart=cal.indexOf("/* OpenAI Apps SDK UI Checkbox"),cbEnd=cal.indexOf("/* Scope the existing SDK controls",cbStart);
+ if(cbStart<0||cbEnd<0)throw Error("Shared checkbox source boundary missing");
+ css+="\n"+cal.slice(cbStart,cbEnd).replaceAll("#sectionView [data-pp-weekly-calendar]","#sectionView.pp-sdk-production-editor")+"\n"+`
+#sectionView.pp-sdk-production-editor label:has(.pp-sdk-calendar-native-check){position:relative;display:inline-flex;align-items:center;gap:8px;min-height:20px;font-size:var(--font-text-sm-size);line-height:var(--font-text-sm-line-height);cursor:pointer}
+#sectionView.pp-sdk-production-editor .pp-sdk-calendar-native-check{position:absolute;inset-inline-start:0;top:50%;transform:translateY(-50%);width:18px!important;height:18px!important;margin:0!important;opacity:0;z-index:1;cursor:pointer}
+#sectionView.pp-sdk-production-editor .pp-sdk-calendar-native-check:focus-visible+.pp-sdk-calendar-Checkbox{outline:2px solid var(--color-ring);outline-offset:2px}
+#sectionView.pp-sdk-production-editor .pp-sdk-calendar-Checkbox{box-sizing:border-box;pointer-events:none}
+#sectionView.pp-sdk-production-editor .pp-sdk-calendar-Checkbox[data-state="unchecked"] .pp-sdk-calendar-CheckMark{display:none}
+#sectionView.pp-sdk-production-editor .pp-sdk-resource-action[data-pdel]{width:auto!important;height:40px!important;padding:0 calc(var(--control-gutter-lg)*var(--control-gutter-pill-scaling))!important}
+`;
  if(html.split("</head>").length!==2||html.split("</body>").length!==2)throw Error("Plan / Production SDK HTML anchors");
  return html.replace("</head>",()=>'<style id="ppPlanProductionSdkStyle">/* PP_PLAN_PRODUCTION_SDK_V1 */\n'+css+"</style></head>").replace("</body>",()=>'<script id="ppPlanProductionSdkJs">('+script+')();</script></body>');
 }
