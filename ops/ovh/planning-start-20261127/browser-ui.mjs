@@ -21,7 +21,8 @@ export async function ppPlanningStartCommit(value){
  const before=ppPlanningStartEntry();
  if(!before?.model||typeof model!=="object"||!model||!ppPlanningStartSame(before,{...before,model}))throw Error("stale");
  if(ppPlanningStartBusy())throw Error("busy");
- const requested=ppPlanningStartEdit(before.model,value,ppPlanningStartNow());
+ const clickedAt=ppPlanningStartNow();
+ ppPlanningStartEdit(before.model,value,clickedAt);
  if(ppPlanningStartMinute(before.model.start)===value&&before.model.planning_start_initialized===true)return before.model;
  const wasInert=document.body.inert;document.body.inert=true;
  window.__ppPlanningStartSaving=true;
@@ -37,7 +38,7 @@ export async function ppPlanningStartCommit(value){
   if(ppPlanningStartBusy())throw Error("busy");
   const current=await request("/api/model");
   if(!current.model||ppPlanningStartStable(current.model)!==ppPlanningStartStable(model)||!ppPlanningStartSame(before,ppPlanningStartEntry()))throw Error("stale");
-  const next=ppPlanningStartEdit(current.model,value,ppPlanningStartNow());
+  const next=ppPlanningStartEdit(current.model,value,clickedAt);
   const d=await request("/api/project/model/import","POST",{model:next});
   let accepted=d.model,ready=d.model_ready;
   if(!accepted||typeof ready!=="boolean"){
