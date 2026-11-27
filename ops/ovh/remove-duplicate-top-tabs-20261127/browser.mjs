@@ -1,6 +1,7 @@
 import {createRequire} from "node:module";
 import {randomUUID,randomBytes} from "node:crypto";
 import assert from "node:assert/strict";
+import {readFileSync,writeFileSync} from "node:fs";
 import {css,script,ppFindTopNav,transformTopNav} from "./patch.mjs";
 const require=createRequire(import.meta.url);
 const {chromium}=require("/tmp/liftorbit-top-nav-test/node_modules/playwright-core");
@@ -24,7 +25,13 @@ try{
   return (await fetch("/api/db-storage",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage})})).status;
  },id);
  assert.equal(seeded,200);
- const pageErrors=[];page.on("pageerror",e=>pageErrors.push(String(e).slice(0,180)));
+ const pageErrors=[];page.on("pageerror",e=>pageErrors.push({message:String(e).slice(0,180),frame:String(e.stack||"").split("\n").slice(1,2).join("").replace(/:\d+:\d+\)?$/,"").trim()}));
+ const errorFile="/tmp/liftorbit-top-nav-baseline-errors.json";
+ const clickSide=async key=>{
+  const target=page.locator(".side .item").filter({hasText:key==="analytics"?/^(Analytics|Аналитика)$/:/^(Scenarios|Сценарии)$/});
+  assert.equal(await target.count(),1);await target.click();
+  await page.waitForFunction(key=>[...document.querySelectorAll(".side .item.active")].some(x=>(key==="analytics"?/^(Analytics|Аналитика)$/:/^(Scenarios|Сценарии)$/).test(x.textContent.trim())),key,{timeout:10000});
+ };
  const ready=async()=>{
   await page.reload({waitUntil:"domcontentloaded",timeout:45000});
   await page.waitForFunction(()=>window.__PP_LANGUAGE__?.installed&&typeof model==="object"&&model?.employees?.length===1&&document.querySelectorAll(".side .item").length===10,{},{timeout:30000});
@@ -38,12 +45,19 @@ try{
    side:[...document.querySelectorAll(".side .item")].map(item=>({label:text(item),visible:visible(item),active:item.classList.contains("active")})),
    model:JSON.stringify(model)};
  },ppFindTopNav.toString());
- let baseline;
+ let baseline,baselineErrors;
  if(!live){
   await ready();baseline=await inspect();
   console.log("TOP_NAV_BASELINE",JSON.stringify({group:baseline.group,top:baseline.top,side:baseline.side}));
   assert(baseline.top&&baseline.top.length===5,"native five-item top navigation found");
   assert(baseline.top.every(r=>r.visible),"original menu visible");
+  await page.locator("#ppLanguageSelect").selectOption("en");
+  for(const key of ["analytics","scenarios"])await clickSide(key);
+  await page.locator("#ppLanguageSelect").selectOption("ru");
+  await page.locator("#ppLanguageSelect").selectOption("en");
+  baselineErrors=pageErrors.splice(0);
+  console.log("TOP_NAV_PREEXISTING_ERRORS",JSON.stringify(baselineErrors));
+  writeFileSync(errorFile,JSON.stringify(baselineErrors),{mode:0o600});
   await page.route("**/",async route=>{
    if(!route.request().isNavigationRequest()||new URL(route.request().url()).pathname!=="/")return route.continue();
    const response=await route.fetch(),old=await response.text(),out=transformTopNav(old,css,script);
@@ -51,7 +65,7 @@ try{
    assert.equal(transformTopNav(out,css,script),out,"idempotent patch");
    await route.fulfill({response,body:out,headers:{...response.headers(),"content-type":"text/html; charset=utf-8"}});
   });
- }
+ }else{baselineErrors=JSON.parse(readFileSync(errorFile,"utf8"))}
  await ready();
  const verify=async()=>{
   const r=await inspect();
@@ -67,15 +81,16 @@ try{
  await page.locator("#ppLanguageSelect").selectOption("en");
  const initial=await verify();
  for(const key of ["analytics","scenarios"]){
-  const target=page.locator(".side .item").filter({hasText:key==="analytics"?/^(Analytics|Аналитика)$/:/^(Scenarios|Сценарии)$/});
-  assert.equal(await target.count(),1);await target.click();
-  await page.waitForFunction(key=>[...document.querySelectorAll(".side .item.active")].some(x=>(key==="analytics"?/^(Analytics|Аналитика)$/:/^(Scenarios|Сценарии)$/).test(x.textContent.trim())),key,{timeout:10000});
+  await clickSide(key);
   await verify();
  }
  await page.locator("#ppLanguageSelect").selectOption("ru");await verify();
  await page.locator("#ppLanguageSelect").selectOption("en");const final=await verify();
  assert.equal(final.model,initial.model,"navigation does not alter production model");
- assert.deepEqual(pageErrors,[],"no page errors");
+ const counts=rows=>rows.reduce((out,e)=>{const k=JSON.stringify(e);out[k]=(out[k]||0)+1;return out},{});
+ const before=counts(baselineErrors),after=counts(pageErrors);
+ console.log("TOP_NAV_PAGE_ERRORS",JSON.stringify({before:baselineErrors,after:pageErrors}));
+ for(const [key,count] of Object.entries(after))assert(count<=(before[key]||0),"navigation patch must not introduce page errors: "+key);
  await page.screenshot({path:"/tmp/liftorbit-top-nav-"+(live?"live":"candidate")+".png"});
  console.log("TOP_NAV_BROWSER_PASS",JSON.stringify({live,visible:final.top.filter(x=>x.visible).map(x=>x.key),sideItems:final.side.length,bothLanguages:true,modelUnchanged:true}));
 }finally{await browser.close()}
