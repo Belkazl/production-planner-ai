@@ -1,7 +1,6 @@
 import unittest
 from pathlib import Path
 import sys
-import tempfile
 import importlib.util
 
 from patch_worker import patch
@@ -24,7 +23,7 @@ class IntegratedDeadlines(unittest.TestCase):
         test_joint.joint = module
         try:
             ga = test_joint.namespace(m)
-            module.install_joint_minibatch_search(ga, m, verify_constraints=test_joint.verify_constraints)
+            module.install_joint_minibatch_search(ga, m, verify_constraints=test_joint.verify_constraints, source=test_joint.EXPANSION)
             result = ga['optimize'](gens=2,pop=4,seed=42)
             self.assertTrue(result['valid'])
             self.assertEqual(result['order_sequence'][0], 'U')
