@@ -140,7 +140,7 @@ try{
  const tabs=plan.locator(".tabs>div");
  for(const [mode,pattern] of [[1,/Employee|Сотрудник/i],[3,/Order|Заказ/i],[0,/Equipment|Оборудован/i]]){
    const target=tabs.nth(mode);assert.ok(await target.isVisible(),"Gantt mode "+mode+" remains accessible");
-   await target.click();await page.waitForFunction(mode=>window.__PP_UNIFIED_GANTT_V2__?.activeMode===mode&&document.querySelector("#ppGanttToolV2 .pg2-bar"),mode,{timeout:15000});
+   await target.click();await page.waitForFunction(({mode,pattern})=>window.__PP_UNIFIED_GANTT_V2__?.activeMode===mode&&document.getElementById("planView")?.dataset.ppUnifiedGantt===String(mode)&&document.querySelector("#ppGanttToolV2 .pg2-bar")&&new RegExp(pattern,"i").test(document.querySelector("#planView .gantt-head b")?.textContent||""),{mode,pattern:pattern.source},{timeout:15000});
    assert.match(await plan.locator(".gantt-head b").textContent(),pattern);
    const data=await inspectPlan("GANTT_"+mode);assert.ok(data.rows>0&&data.bars>0);
    const before=await page.evaluate(()=>window.__PP_GANTT_TOOL_V2__?.zoom);
