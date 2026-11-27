@@ -33,7 +33,26 @@ isolated new /public/ops/universal-process-factor-20261127/verify.py new
 # Required original native regressions, integrated setups, and shift-aware search.
 if ! isolated new /public/ops/native-batching-verify-20261124/verify_native.py --child /native --report /out/native-eleven.json --overlay-gates > "$release_stage/native-regressions-private.log" 2>&1; then echo PROCESS_FACTOR_NATIVE_REGRESSION_FAILED; exit 6; fi
 if ! isolated new /public/ops/integrated-setup-verify-20261125/verify_worker.py --package-root /native --code-inputs /input/code-inputs.json --fixtures /out/native-fixtures.json --report /out/worker-report.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py > "$release_stage/integrated-private.log" 2>&1; then echo PROCESS_FACTOR_INTEGRATED_REGRESSION_FAILED; exit 6; fi
-if ! isolated new /public/ops/shift-aware-minibatches-20261125/verify_shift.py --package-root /native --code-inputs /input/code-inputs.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py --report /out/shift-report.json > "$release_stage/shift-private.log" 2>&1; then echo PROCESS_FACTOR_SHIFT_REGRESSION_FAILED; exit 6; fi
+# Diagnose any legacy shift gate failure on both the untouched and candidate runtime.
+shift_status=0
+isolated new /public/ops/shift-aware-minibatches-20261125/verify_shift.py --package-root /native --code-inputs /input/code-inputs.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py --report /out/shift-report.json > "$release_stage/shift-private.log" 2>&1 || shift_status=$?
+if test "$shift_status" -ne 0; then
+ isolated old /public/ops/shift-aware-minibatches-20261125/verify_shift.py --package-root /native --code-inputs /input/code-inputs.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py --report /out/shift-baseline.json > "$release_stage/shift-baseline-private.log" 2>&1 || true
+ python3 - "$release_stage" <<'PY'
+import sys,json,hashlib
+from pathlib import Path
+root=Path(sys.argv[1])
+for name in ('shift-baseline','shift-report'):
+ p=root/'out'/(name+'.json')
+ if p.is_file():
+  r=json.loads(p.read_text())
+  # The legacy verifier's report is a fixed, sanitized synthetic schema.
+  print('PROCESS_FACTOR_SHIFT_DIAGNOSTIC',name,json.dumps({k:r.get(k) for k in ('exact_module_installed','failure','failed_checks','cases','internal_windows','all_shift_checks_passed')}))
+print('PROCESS_FACTOR_SHIFT_MODULE_HASH',hashlib.sha256((root/'old/native/ga_workers/joint_minibatch.py').read_bytes()).hexdigest())
+PY
+ echo PROCESS_FACTOR_SHIFT_REGRESSION_FAILED
+ exit 6
+fi
 python3 - "$release_stage/out" <<'PY'
 import json,sys
 from pathlib import Path
