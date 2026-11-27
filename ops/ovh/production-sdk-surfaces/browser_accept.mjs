@@ -149,6 +149,8 @@ try{
  };
  await ask("QA production question");
  const verifyChat=async label=>{
+   // Let the SDK's native disabled/hover transition finish before measuring colors.
+   await page.mouse.move(0,0);await page.waitForTimeout(400);
    const d=JSON.parse(await panel.evaluate(s=>{
      const style=(e,p)=>getComputedStyle(e,p),rect=e=>e.getBoundingClientRect(),prop=(e,p)=>style(e).getPropertyValue(p).trim();
      const pack=e=>({tag:e.tagName,cls:e.className,text:e.textContent.trim().slice(0,80),bg:style(e).backgroundColor,color:style(e).color,border:style(e).borderTopColor,radius:style(e).borderRadius,font:style(e).fontFamily,size:style(e).fontSize,h:rect(e).height,w:rect(e).width,scroll:e.scrollWidth,client:e.clientWidth});
