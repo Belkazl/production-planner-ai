@@ -1,0 +1,24 @@
+/* LiftOrbit adapter: layout and reset of the legacy editor button styles. */
+#sectionView .pp-sdk-equipment-toolbar{
+ display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+ gap:calc(var(--spacing)*3);padding:0;margin:0 0 calc(var(--spacing)*4);
+ font-family:var(--font-sans);color:var(--color-text);
+}
+#sectionView .pp-sdk-equipment-toolbar>div:first-child{min-width:0;flex:1 1 auto}
+#sectionView .pp-sdk-equipment-toolbar>div:first-child>b{
+ display:block;font-size:var(--font-text-md-size);line-height:var(--font-text-md-line-height);
+ font-weight:var(--font-weight-semibold);color:var(--color-text);
+}
+#sectionView .pp-sdk-equipment-toolbar .pp-edit-status:not(.err):not(.ok){
+ font-size:var(--font-text-sm-size);line-height:var(--font-text-sm-line-height);
+ font-weight:var(--font-weight-normal);color:var(--color-text-secondary);margin:0;
+}
+#sectionView .pp-sdk-equipment-toolbar .pp-edit-actions{
+ display:flex;align-items:center;flex-wrap:wrap;gap:calc(var(--spacing)*2);margin-left:auto;
+}
+#sectionView .pp-sdk-equipment-toolbar button.pp-sdk-Button{
+ box-sizing:border-box;border:0;background:transparent;box-shadow:none;
+ min-width:0;min-height:0;max-height:none;margin:0;font-family:var(--font-sans);
+ --scale:0.98;
+}
+#sectionView .pp-sdk-equipment-toolbar .pp-sdk-ButtonInner{pointer-events:none}
