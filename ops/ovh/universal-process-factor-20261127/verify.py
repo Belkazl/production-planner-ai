@@ -85,12 +85,27 @@ else:
         assert plan.get('valid') is True
         production,setups=rows(plan)
         assert len(production)==3
+        for r in production:
+            assert r.get('employee_ids')==['SYNTHETIC_EMPLOYEE'],'production_staff_assignment'
         for r in production+setups:
             a,b=r['start_min'],r['end_min']
             want=15 if r in setups else 10*factor
             assert math.isclose(b-a,want,abs_tol=1e-6)
-            day=math.floor(a/1440)
-            assert any(a>=day*1440+x-1e-6 and b<=day*1440+y+1e-6 for x,y in ((0,25),(40,240)))
+            assert r.get('equipment_ids')==['SYNTHETIC_MACHINE'],'equipment_assignment'
+            # As in the independent integrated-setup checker, employee windows
+            # constrain rows with an assigned employee, not autonomous setup rows.
+            if r.get('employee_ids'):
+                assert r['employee_ids']==['SYNTHETIC_EMPLOYEE']
+                day=math.floor(a/1440)
+                assert any(a>=day*1440+x-1e-6 and b<=day*1440+y+1e-6 for x,y in ((0,25),(40,240))),('staff_calendar',factor,r in setups,a,b)
+        intervals=sorted((r['start_min'],r['end_min']) for r in production+setups)
+        assert all(a[1]<=b[0]+1e-6 for a,b in zip(intervals,intervals[1:])),'equipment_overlap'
         assert sum(sum(float(x['quantity']) for x in r.get('materials',[])) for r in production)==3
+        ledger=sorted((r['start_min'],float(x['quantity'])) for r in production for x in r.get('materials',[]))
+        used=0
+        for start,quantity in ledger:
+            used+=quantity
+            assert used <= 2+(1 if start>=80-1e-6 else 0),'material_prefix'
+        print('PROCESS_FACTOR_SETUP_ASSIGNMENTS',json.dumps({'factor':factor,'rows':[{'setup':r in setups,'staff_assigned':bool(r.get('employee_ids')),'start':r['start_min'],'end':r['end_min']} for r in production+setups]}))
         print('PROCESS_FACTOR_SETUP_SHIFT_MATERIAL_PASS',json.dumps({'factor':factor,'setup_count':len(setups),'production_count':3}))
     print('PROCESS_FACTOR_ACCEPTANCE_PASS',json.dumps({'factor_one_identical':True,'modes':list(results),'direct_cases':24,'scheduler_cases':12,'unchanged_setups':True}))
