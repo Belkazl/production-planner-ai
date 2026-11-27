@@ -52,15 +52,15 @@ function transform(html,css,ta,extra){
  html=block(html,"script","ppEquipmentSDKScript",s=>{
   s=once(s,oldSelector,newSelector);
   s=once(s,'if(open&&!open.trigger.isConnected)close();if(!table)return;','if(open&&!open.trigger.isConnected)close();if(!table)return;\n  const resourceEditor=/^(Orders|Materials|Заказы|Материалы)$/i.test(section.querySelector(".titlebar h1")?.textContent.trim()||"");\n  const editorScope=resourceEditor?section:table;\n  if(resourceEditor)for(const nested of section.querySelectorAll("table.pp-edit-table"))nested.classList.add("pp-sdk-equipment-table");');
-  s=once(s,'!card.querySelector("[data-pp-save]")','!card.querySelector("[data-pp-save],[data-order-save]")');
+  s=once(s,'!card.querySelector("[data-pp-save]")','!card.querySelector("[data-pp-save],[data-order-save],[data-save]")');
   s=once(s,'table.querySelectorAll("tbody input")','editorScope.querySelectorAll(resourceEditor?"input:not([hidden]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]):not([type=submit])":"tbody input")');
   s=once(s,'table.querySelectorAll("tbody select")','editorScope.querySelectorAll(resourceEditor?"select:not([hidden])":"tbody select")');
   return s;
  });
  html=block(html,"script","ppEquipmentSdkToolbarJs",s=>{
   s=once(s,oldSelector,newSelector);
-  s=once(s,'button[data-pp-add]','button[data-pp-add],button[data-order-add]');
-  s=once(s,'button[data-pp-save]','button[data-pp-save],button[data-order-save]');
+  s=once(s,'button[data-pp-add]','button[data-pp-add],button[data-order-add],button[data-add]');
+  s=once(s,'button[data-pp-save]','button[data-pp-save],button[data-order-save],button[data-save]');
   return s;
  });
  const inputAnchor='<style id="ppEquipmentSDKStyle">',i=html.indexOf(inputAnchor);

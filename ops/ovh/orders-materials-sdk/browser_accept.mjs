@@ -57,7 +57,7 @@ try{
    for(const i of inputs){assert.ok(i.styled&&Math.abs(i.height-40)<1,JSON.stringify(i));if(i.type==="datetime-local")assert.ok(i.width>=263,"date and time must fit");}
    for(const i of d.selects)assert.ok(Math.abs(i.height-40)<1&&i.weight==="400",JSON.stringify(i));
    for(const i of d.controls.filter(x=>x.visible&&x.tag==="TEXTAREA"))assert.ok(i.styled,JSON.stringify(i));
-   const mainButtons=d.buttons.filter(b=>b.attrs.some(a=>["data-pp-add","data-pp-save","data-order-add","data-order-save"].includes(a)));
+   const mainButtons=d.buttons.filter(b=>b.attrs.some(a=>["data-pp-add","data-pp-save","data-order-add","data-order-save","data-add","data-save"].includes(a)));
    assert.equal(mainButtons.length,2,JSON.stringify(d.buttons));
    for(const b of mainButtons){assert.ok(b.sdk&&Math.abs(b.height-40)<1,JSON.stringify(b));assert.equal(b.variant,b.attrs.some(a=>a.endsWith("save"))?"solid":"outline")}
    return d;
@@ -80,13 +80,13 @@ try{
  await waitModel(m=>m.orders?.[0]?.ship_by==="2099-12-02T19:15"&&Number(m.orders[0].quantity??m.orders[0].area)===230);
  await openTab("materials");const mat=await inspect("MATERIALS_EN");
  const materialName=section.locator('input[data-f="name"]').first();
- const materialStock=section.locator('input[data-f="initial_stock"]').first();
+ const materialStock=section.locator('input[data-f="stock"]').first();
  await materialName.fill("Updated QA material");await materialStock.fill("1200");
  p=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/project/model/import"&&r.request().method()==="POST",{timeout:30000});
- await section.locator("[data-pp-save]").click();assert.ok((await p).ok());
+ await section.locator("[data-save]").click();assert.ok((await p).ok());
  await waitModel(m=>m.materials?.[0]?.name==="Updated QA material"&&Number(m.materials[0].initial_stock)===1200);
  await openTab("materials");
- await section.locator("[data-pp-add]").click();
+ await section.locator("[data-add]").click();
  await inspect("MATERIALS_NEW_ROW");
  await openTab("orders");
  await section.locator("[data-order-add]").click();
