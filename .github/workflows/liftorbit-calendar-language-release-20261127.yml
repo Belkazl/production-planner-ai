@@ -1,0 +1,41 @@
+name: Deploy verified calendar system language fix
+on:
+  push:
+    branches: [fix/system-language-calendar-20261127]
+    paths:
+      - ops/ovh/system-language-calendar-20261127/DEPLOY_APPROVED
+permissions:
+  contents: read
+concurrency:
+  group: liftorbit-production-etalon-repair
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-i18n-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Recheck exact candidate
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/system-language-calendar-20261127/patch.mjs
+          node ops/ovh/system-language-calendar-20261127/browser.mjs
+      - name: Install system label change and validate on production
+        env:
+          DEPLOY_HOST: ${{ vars.OVH_HOST }}
+          DEPLOY_USER: ${{ vars.OVH_USER }}
+          DEPLOY_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.OVH_SSH_KNOWN_HOSTS }}
+        run: bash ops/ovh/system-language-calendar-20261127/release.sh
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: calendar-language-live
+          path: /tmp/liftorbit-calendar-language-live.png
+          retention-days: 7

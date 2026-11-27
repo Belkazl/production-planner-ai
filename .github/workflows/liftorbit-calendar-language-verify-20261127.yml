@@ -1,0 +1,34 @@
+name: Verify weekly shift editor English and Russian localization
+on:
+  push:
+    branches: [fix/system-language-calendar-20261127]
+    paths:
+      - ops/ovh/system-language-calendar-20261127/patch.mjs
+      - ops/ovh/system-language-calendar-20261127/browser.mjs
+      - .github/workflows/liftorbit-calendar-language-verify-20261127.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix /tmp/liftorbit-i18n-test --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+      - name: Verify the exact production UI, live language switch and untouched project data
+        run: |
+          set -euo pipefail
+          node --check ops/ovh/system-language-calendar-20261127/patch.mjs
+          bash -n ops/ovh/system-language-calendar-20261127/release.sh
+          node ops/ovh/system-language-calendar-20261127/browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: calendar-language-candidate
+          path: /tmp/liftorbit-calendar-language-candidate.png
+          retention-days: 7
