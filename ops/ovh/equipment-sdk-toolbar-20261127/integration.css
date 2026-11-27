@@ -9,10 +9,11 @@
  display:block;font-size:var(--font-text-md-size);line-height:var(--font-text-md-line-height);
  font-weight:var(--font-weight-semibold);color:var(--color-text);
 }
-#sectionView .pp-sdk-equipment-toolbar .pp-edit-status:not(.err):not(.ok){
+#sectionView .pp-sdk-equipment-toolbar .pp-edit-status{
  font-size:var(--font-text-sm-size);line-height:var(--font-text-sm-line-height);
- font-weight:var(--font-weight-normal);color:var(--color-text-secondary);margin:0;
+ font-weight:var(--font-weight-normal);margin:0;
 }
+#sectionView .pp-sdk-equipment-toolbar .pp-edit-status:not(.err):not(.ok){color:var(--color-text-secondary)}
 #sectionView .pp-sdk-equipment-toolbar .pp-edit-actions{
  display:flex;align-items:center;flex-wrap:wrap;gap:calc(var(--spacing)*2);margin-left:auto;
 }
