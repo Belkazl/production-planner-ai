@@ -1,5 +1,5 @@
 export function typeName(raw){
- if(typeof raw!=="string")throw Error("invalid_equipment_type");
+ if(typeof raw!=="string"||/[\x00-\x1f\x7f]/.test(raw))throw Error("invalid_equipment_type");
  const name=raw.normalize("NFC").trim().replace(/ +/g," ");
  if(!/^[\p{L}\p{N}][\p{L}\p{N} _/.-]{0,79}$/u.test(name)||["__proto__","prototype","constructor"].includes(name.toLowerCase()))throw Error("invalid_equipment_type");
  return name;

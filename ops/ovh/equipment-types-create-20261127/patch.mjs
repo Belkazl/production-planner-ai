@@ -100,7 +100,9 @@ export function transformTypes(html,sdkOld,sdkNew,css,shared){
 }
 export function transformPage(html){
  // The same wrapper applies in the test browser and on the server.
- try{return transformTypes(html,oldSdk,sdk,css,typeNames.toString())}catch(e){throw e}
+ const out=transformTypes(html,oldSdk,sdk,css,typeNames.toString());
+ if(out===html)return out;
+ return once(out,oldUI,ui);
 }
 export function patchAuth(auth){
  let s=once(auth,previousUI(),newUI);
