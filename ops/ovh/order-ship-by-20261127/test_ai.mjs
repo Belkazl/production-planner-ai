@@ -1,0 +1,7 @@
+import assert from "node:assert/strict";
+import {test} from "node:test";
+import {prepareEdit,nextUI} from "./patch_ai.mjs";
+const m={start:"2026-11-27T08:00:00",quantity_unit:"pcs",orders:[{id:"A",quantity:1,area:1,unit:"pcs",technical_process_id:"P",parameters:{color:"A"}}],technical_processes:[{id:"P",name:"Work",operations:[{duration_min:10}]}]};
+test("AI proposes explicit deadline, then clears it",()=>{let r=prepareEdit(m,{kind:"set_order_ship_by",order_index:1,ship_by:"2026-11-27T14:30"});assert.equal(r.model.orders[0].ship_by,"2026-11-27T14:30");assert.equal(m.orders[0].ship_by,undefined);assert.equal(r.change.before,null);r=prepareEdit(r.model,{kind:"set_order_ship_by",order_index:1,ship_by:null});assert.equal(r.model.orders[0].ship_by,undefined);assert.throws(()=>prepareEdit(m,{kind:"set_order_ship_by",order_index:1,ship_by:"2026-02-30T14:30"}))});
+test("no deadline is copied from template",()=>{const seed=structuredClone(m);seed.orders[0].ship_by="2026-11-27T14:30";const r=prepareEdit(seed,{kind:"add_order",quantity:2});assert.equal(r.model.orders.at(-1).ship_by,undefined);const s=prepareEdit(seed,{kind:"add_order",quantity:2,ship_by:"2026-12-01T09:30"});assert.equal(s.model.orders.at(-1).ship_by,"2026-12-01T09:30");assert.equal(s.change.shipBy,"2026-12-01T09:30")});
+test("UI uses exact new action and check",()=>{assert.ok(nextUI.includes('case "set_order_ship_by":return expected.orders.length'));new Function(nextUI)});
