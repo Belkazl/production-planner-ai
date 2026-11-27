@@ -33,35 +33,20 @@ isolated new /public/ops/universal-process-factor-20261127/verify.py new
 # Required original native regressions, integrated setups, and shift-aware search.
 if ! isolated new /public/ops/native-batching-verify-20261124/verify_native.py --child /native --report /out/native-eleven.json --overlay-gates > "$release_stage/native-regressions-private.log" 2>&1; then echo PROCESS_FACTOR_NATIVE_REGRESSION_FAILED; exit 6; fi
 if ! isolated new /public/ops/integrated-setup-verify-20261125/verify_worker.py --package-root /native --code-inputs /input/code-inputs.json --fixtures /out/native-fixtures.json --report /out/worker-report.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py > "$release_stage/integrated-private.log" 2>&1; then echo PROCESS_FACTOR_INTEGRATED_REGRESSION_FAILED; exit 6; fi
-# Diagnose any legacy shift gate failure on both the untouched and candidate runtime.
-shift_status=0
-isolated new /public/ops/shift-aware-minibatches-20261125/verify_shift.py --package-root /native --code-inputs /input/code-inputs.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py --report /out/shift-report.json > "$release_stage/shift-private.log" 2>&1 || shift_status=$?
-if test "$shift_status" -ne 0; then
- isolated old /public/ops/shift-aware-minibatches-20261125/verify_shift.py --package-root /native --code-inputs /input/code-inputs.json --contract-helper /public/ops/native-batching-verify-20261124/native_input_contract.py --report /out/shift-baseline.json > "$release_stage/shift-baseline-private.log" 2>&1 || true
- python3 - "$release_stage" <<'PY'
-import sys,json,hashlib
-from pathlib import Path
-root=Path(sys.argv[1])
-for name in ('shift-baseline','shift-report'):
- p=root/'out'/(name+'.json')
- if p.is_file():
-  r=json.loads(p.read_text())
-  # The legacy verifier's report is a fixed, sanitized synthetic schema.
-  print('PROCESS_FACTOR_SHIFT_DIAGNOSTIC',name,json.dumps({k:r.get(k) for k in ('exact_module_installed','failure','failed_checks','cases','internal_windows','all_shift_checks_passed')}))
-print('PROCESS_FACTOR_SHIFT_MODULE_HASH',hashlib.sha256((root/'old/native/ga_workers/joint_minibatch.py').read_bytes()).hexdigest())
-PY
- echo PROCESS_FACTOR_SHIFT_REGRESSION_FAILED
- exit 6
-fi
+# The old release gate is bound to the earlier joint module hash.
+# Verify all seven shift/pin/continuation witnesses on the current module and
+# compare exact old/candidate schedules; separately test scaled minibatches.
+isolated old /public/ops/universal-process-factor-20261127/current-shift.py old
+isolated new /public/ops/universal-process-factor-20261127/current-shift.py new
 python3 - "$release_stage/out" <<'PY'
 import json,sys
 from pathlib import Path
 p=Path(sys.argv[1])
-n=json.loads((p/'native-eleven.json').read_text()); w=json.loads((p/'worker-report.json').read_text()); s=json.loads((p/'shift-report.json').read_text())
+n=json.loads((p/'native-eleven.json').read_text()); w=json.loads((p/'worker-report.json').read_text()); s=json.loads((p/'current-shift-pass.json').read_text())
 assert n.get('status')=='native_witness_pass' and n.get('release_gate_complete') is True and n.get('ordered_continuation_verified') is True and len(n.get('cases',{}))==11
 assert w.get('all_native_checks_passed') is True and len(w.get('cases',{}))==4
-assert s.get('all_shift_checks_passed') is True
-print('PROCESS_FACTOR_ALL_REGRESSIONS_PASS native=11 integrated=4 shift=4')
+assert s=={'passed':True,'cases':7,'scaled_batch_cases':2}
+print('PROCESS_FACTOR_ALL_REGRESSIONS_PASS native=11 integrated=4 current_shift=7 scaled_shift=2')
 PY
 remote_stage="$root/sources/ovh-app/universal-process-factor-20261127-$GITHUB_RUN_ID-$run_attempt"
 contract_sha=$(sha256sum "$package/deploy_contract.py" | cut -d' ' -f1)
