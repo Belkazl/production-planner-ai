@@ -175,7 +175,7 @@ try{
  const layout=await verifyChat("PROPOSAL");
  assert.equal(layout.actions.length,2);assert.equal(layout.actions[0].variant,"solid");assert.equal(layout.actions[1].variant,"outline");
  assert.equal(await page.evaluate(()=>JSON.stringify(model)),beforeChat,"AI proposal must not change the project before confirmation");
- await proposal.locator("[data-groq-cancel]").click();assert.equal(await proposal.getAttribute("data-groq-action"),"cancelled");
+ await proposal.locator("[data-groq-cancel]").click();await panel.locator('[data-groq-action="cancelled"]').last().waitFor({state:"visible",timeout:10000});
  assert.equal(await page.evaluate(()=>JSON.stringify(model)),beforeChat,"Cancel must not change project");
  await page.locator("#ppLanguageSelect").selectOption("ru");await verifyChat("RU");
  await page.locator("#ppLanguageSelect").selectOption("en");
