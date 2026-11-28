@@ -1,0 +1,25 @@
+name: QA independent operation splitting (isolated project)
+on:
+  push:
+    branches: [qa/operation-level-split-20261128]
+    paths:
+      - .github/workflows/qa-operation-split-20261128.yml
+      - ops/ovh/operation-split-qa-20261128/**
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          node --check ops/ovh/operation-split-qa-20261128/live.mjs
+          command -v google-chrome
+          npm install --prefix /tmp/liftorbit-operation-split-qa --no-save --no-package-lock --ignore-scripts playwright-core@1.58.2
+          node ops/ovh/operation-split-qa-20261128/live.mjs
